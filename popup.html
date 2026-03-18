@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Renarration Assistant</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup-container">
+    <div class="header">
+      <h1>On-Device Web Assistant</h1>
+      <p class="subtitle">Text renarrator</p>
+    </div>
+
+    <!-- Setup Card -->
+    <div class="card" id="setupCard">
+      <div class="card-header"><h3>Setup</h3></div>
+      <div class="card-body">
+        <div class="field-row">
+          <label class="field-label" for="llmProviderSelect">LLM Provider</label>
+          <select id="llmProviderSelect" class="field-select">
+            <option value="remote">Remote (Gemini)</option>
+            <option value="on-device">On-Device (WebLLM)</option>
+          </select>
+        </div>
+        <div class="field-row">
+          <label class="field-label" for="apiKeyInput">API Key</label>
+          <div class="api-key-wrapper">
+            <input type="password" id="apiKeyInput" class="field-input" placeholder="Enter Gemini API key">
+            <button type="button" id="apiKeyToggleBtn" class="api-key-toggle" title="Show/hide key">&#x1F441;</button>
+          </div>
+          <span id="apiKeyStatus" class="status-pill status-pill--missing">Missing</span>
+        </div>
+        <div id="webllmControls" style="display: none;">
+          <div class="field-row" style="align-items: center;">
+            <button id="initModelBtn" class="btn btn--secondary btn--sm">Initialize Model</button>
+            <span id="webllmStatus" class="helper-text">Status: idle</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Renarration Card -->
+    <div class="card" id="renarrationCard">
+      <div class="card-header"><h3>Renarration</h3></div>
+      <div class="card-body">
+        <div class="field-row">
+          <label class="field-label" for="taskSelect">Task</label>
+          <select id="taskSelect" class="field-select">
+            <option value="simple">Simple Language</option>
+            <option value="detailed">Detailed Explanation</option>
+            <option value="academic">Academic Style</option>
+            <option value="summary">Summary</option>
+          </select>
+        </div>
+        <div class="field-row">
+          <label class="field-label" for="personaSelect">Persona</label>
+          <select id="personaSelect" class="field-select">
+            <!-- Populated dynamically -->
+          </select>
+        </div>
+        <div id="configSummary" class="config-summary">Task: Simple Language &middot; Persona: General Public</div>
+        <div class="toggles-row">
+          <label class="toggle-container toggle-container--compact">
+            <input type="checkbox" id="enableToggle" checked>
+            <span class="toggle-slider toggle-slider--sm"></span>
+            <span class="toggle-label--sm">Enabled</span>
+          </label>
+          <label class="checkbox-container checkbox-container--compact">
+            <input type="checkbox" id="agenticToggle">
+            <span>Agentic</span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <!-- Actions Card -->
+    <div class="card" id="actionsCard">
+      <div class="card-header"><h3>Actions</h3></div>
+      <div class="card-body">
+        <button id="renarratePageBtn" class="btn btn--primary btn--full">Renarrate Page</button>
+        <div id="renarrateStatus" class="action-status">Ready</div>
+        <div class="action-grid">
+          <button id="capturePageBtn" class="btn btn--secondary btn--sm">Capture</button>
+          <button id="describePageBtn" class="btn btn--secondary btn--sm">Describe</button>
+          <button id="openChatBtn" class="btn btn--secondary btn--sm">Chat</button>
+        </div>
+        <div class="action-status-row">
+          <span id="captureStatus" class="helper-text">Ready</span>
+          <span id="describeStatus" class="helper-text">Ready</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer-bar">
+      <a href="#" id="optionsLink" class="footer-link">Settings</a>
+      <span class="footer-separator">|</span>
+      <a href="#" id="testingDashboardLink" class="footer-link">Testing Dashboard</a>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

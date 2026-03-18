@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Research Dashboard</title>
+  <link rel="stylesheet" href="research-dashboard.css">
+</head>
+<body>
+  <div class="container">
+    <h1>Research Dashboard</h1>
+    <div class="meta">Research data viewer for the On-Device Renarration study</div>
+
+    <div class="controls">
+      <select id="userFilter">
+        <option value="">All Users</option>
+      </select>
+      <input type="text" id="searchInput" class="search-input" placeholder="Search logs...">
+      <button id="refreshBtn">Refresh</button>
+    </div>
+
+    <div class="tabs">
+      <button class="tab active" data-tab="conversations">Conversations</button>
+      <button class="tab" data-tab="experiments">Experiments</button>
+      <button class="tab" data-tab="feedback">Feedback</button>
+      <button class="tab" data-tab="preferences">Preferences</button>
+      <button class="tab" data-tab="logs">Research Logs</button>
+      <button class="tab" data-tab="export">Export</button>
+    </div>
+
+    <!-- Conversations Tab -->
+    <div class="tab-content active" id="tab-conversations">
+      <div id="conversationsList"></div>
+    </div>
+
+    <!-- Experiments Tab -->
+    <div class="tab-content" id="tab-experiments">
+      <div id="experimentsList"></div>
+    </div>
+
+    <!-- Feedback Tab -->
+    <div class="tab-content" id="tab-feedback">
+      <div id="feedbackList"></div>
+    </div>
+
+    <!-- Preferences Tab -->
+    <div class="tab-content" id="tab-preferences">
+      <div id="preferencesList"></div>
+    </div>
+
+    <!-- Research Logs Tab -->
+    <div class="tab-content" id="tab-logs">
+      <div class="controls" style="margin-bottom:12px;">
+        <select id="logCategoryFilter">
+          <option value="">All Categories</option>
+          <option value="renarration">Renarration</option>
+          <option value="feedback">Feedback</option>
+          <option value="persona-change">Persona Change</option>
+          <option value="chatbot">Chatbot</option>
+        </select>
+      </div>
+      <div id="logsList"></div>
+    </div>
+
+    <!-- Export Tab -->
+    <div class="tab-content" id="tab-export">
+      <p style="margin-bottom:16px;font-size:14px;color:#718096;">Export research data as JSON or CSV files. Use the user filter above to export per-participant data.</p>
+      <div class="export-section" id="exportSection"></div>
+    </div>
+  </div>
+
+  <script src="research-dashboard.js"></script>
+</body>
+</html>

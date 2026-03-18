@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Renarration Settings</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <div class="options-container">
+    <header>
+      <h1>🔄 On-Device Web Assistant Settings</h1>
+      <p>Configure user tasks and advanced options</p>
+    </header>
+    
+    <main>
+
+      <!-- Tasks Section -->
+      <section class="card">
+        <h2>User Tasks</h2>
+        <p class="section-description">Customize how text is renarrated for different use cases.</p>
+
+        <div style="margin-bottom:12px; font-size:14px; color:#4a5568; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+          <span><strong>Active task:</strong></span>
+          <select id="currentTaskSelect" class="task-select" style="max-width:260px; padding:6px 10px; font-size:13px;"></select>
+        </div>
+        
+        <div class="task-list" id="taskList">
+          <!-- Tasks will be loaded here -->
+        </div>
+
+        <button id="addTaskBtn" class="primary-btn">+ Add Custom Task</button>
+      </section>
+
+      <!-- Personas Section -->
+      <section class="card">
+        <h2>Personas</h2>
+        <p class="section-description">Define audience personas that modify the system prompt.</p>
+
+        <div style="margin:8px 0 4px; font-size:14px; color:#4a5568; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+          <span><strong>Active persona:</strong></span>
+          <select id="currentPersonaSelect" class="task-select" style="max-width:260px; padding:6px 10px; font-size:13px;"></select>
+        </div>
+
+        <div class="task-list" id="personaList">
+          <!-- Personas will be loaded here -->
+        </div>
+
+        <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-top:8px;">
+          <button id="addPersonaBtn" class="primary-btn">+ Add Persona</button>
+          <p style="font-size:12px;color:#4a5568;margin:0;">Select active persona in popup. Personas here are for creation & editing only.</p>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>System Prompt Template</h2>
+        <p class="section-description">Edit the template and insert <code>{task}</code> and <code>{persona}</code> anywhere.</p>
+        <div class="form-group" style="margin-top:8px;">
+          <textarea id="systemPromptTemplate" rows="8" style="font-family:monospace;font-size:12px;white-space:pre-wrap;"></textarea>
+        </div>
+        <button id="restoreSystemPromptBtn" class="secondary-btn" style="margin-top:8px;">Restore Default Template</button>
+        <p class="section-description" style="margin-top:10px;">Effective prompt preview (read-only):</p>
+        <div class="form-group">
+          <textarea id="effectiveSystemPrompt" rows="8" readonly style="font-family:monospace;font-size:12px;white-space:pre-wrap;"></textarea>
+        </div>
+      </section>
+      
+      <section class="card">
+        <h2>General Settings</h2>
+        
+        <div class="setting-item">
+          <label for="llmProviderSelect"><strong>LLM Provider</strong></label>
+          <select id="llmProviderSelect" style="max-width:260px; padding:6px 10px; font-size:13px; margin-top:4px;">
+            <option value="remote">Remote (Gemini API)</option>
+            <option value="on-device">On-Device (WebLLM / WebGPU)</option>
+          </select>
+          <p class="setting-description">Controls text renarration, chatbot, evaluation, and extraction.</p>
+        </div>
+
+        <hr style="margin:12px 0;">
+        <div class="setting-item">
+          <label>
+            <input type="checkbox" id="useRemoteVLM">
+            <span>Enable Remote VLM (hosted)</span>
+          </label>
+          <p class="setting-description" style="color:#b45309;">Sends images to a hosted VLM (e.g., Gemini 2.5 Flash). Requires endpoint, model, and API key.</p>
+        </div>
+        <div class="setting-item">
+          <label for="remoteVLMEndpoint">Remote VLM Endpoint</label>
+          <input type="text" id="remoteVLMEndpoint" placeholder="https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent">
+        </div>
+        <div class="setting-item">
+          <label for="remoteVLMModel">Remote VLM Model</label>
+          <input type="text" id="remoteVLMModel" placeholder="gemini-2.5-flash">
+        </div>
+        <div class="setting-item">
+          <label for="remoteVLMApiKey">Remote VLM API Key</label>
+          <input type="password" id="remoteVLMApiKey" placeholder="Enter API key (stored locally)">
+          <p class="setting-description">API key is stored in local extension storage (not synced). Required when remote VLM is enabled.</p>
+        </div>
+      </section>
+      
+      <section class="card">
+        <h2>Research Settings</h2>
+        <p class="section-description">Configure settings for user study data collection and analysis.</p>
+
+        <div class="setting-item">
+          <label for="studyUserId">Participant ID</label>
+          <div style="display:flex;gap:8px;align-items:center;margin-top:4px;">
+            <input type="text" id="studyUserId" placeholder="e.g., P0001" style="max-width:200px;padding:8px;border:2px solid #e2e8f0;border-radius:6px;font-size:14px;">
+            <button id="saveUserIdBtn" class="secondary-btn" style="padding:8px 14px;">Save</button>
+          </div>
+          <p class="setting-description">Unique identifier for this participant. Auto-generated if empty.</p>
+        </div>
+
+        <div class="setting-item">
+          <label>
+            <input type="checkbox" id="useAgenticPipelineOpt">
+            <span>Enable Agentic Pipeline (self-refining renarration)</span>
+          </label>
+          <p class="setting-description">When enabled, renarrations are evaluated and iteratively improved (up to 3 attempts). Uses additional API calls.</p>
+        </div>
+
+        <div class="setting-item">
+          <label>
+            <input type="checkbox" id="enableResearchLoggingOpt" checked>
+            <span>Enable Research Logging</span>
+          </label>
+          <p class="setting-description">Log preference changes, chatbot interactions, feedback events, and pipeline runs to IndexedDB for research analysis.</p>
+        </div>
+
+        <div class="setting-item" style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;">
+          <button id="openResearchDashboardBtn" class="secondary-btn">Open Research Dashboard</button>
+          <button id="clearResearchDataBtn" class="secondary-btn" style="color:#e53e3e;border-color:#e53e3e;">Clear All Research Data</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>About</h2>
+        <div class="about-content">
+          <p><strong>Version:</strong> 1.0.0</p>
+          <p><strong>Description:</strong> Real-time text reformulation and visual description assistant using local LLM/VLM models</p>
+        </div>
+      </section>
+      
+    </main>
+    
+    <footer>
+      <div class="save-status" id="saveStatus"></div>
+      <button id="resetBtn" class="secondary-btn">Reset to Defaults</button>
+    </footer>
+  </div>
+  
+  <!-- Task Editor Modal -->
+  <div id="taskModal" class="modal" style="display: none;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 id="modalTitle">Edit Task</h2>
+        <button class="modal-close" id="modalClose">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Task Name</label>
+          <input type="text" id="taskNameInput" placeholder="e.g., Custom Task">
+        </div>
+        <div class="form-group">
+          <label>Text Prompt</label>
+          <textarea id="textPromptInput" rows="3" placeholder="Instructions for text renarration..."></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="saveTaskBtn" class="primary-btn">Save Task</button>
+        <button id="cancelTaskBtn" class="secondary-btn">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- NEW Persona Editor Modal -->
+  <div id="personaModal" class="modal" style="display:none;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 id="personaModalTitle">Edit Persona</h2>
+        <button class="modal-close" id="personaModalClose">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Persona Name</label>
+          <input type="text" id="personaNameInput" placeholder="e.g., Senior Citizen">
+        </div>
+        <div class="form-group">
+          <label>Text Prompt</label>
+          <textarea id="personaAddendumInput" rows="4" placeholder="Persona guidance for the LLM..."></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="savePersonaBtn" class="primary-btn">Save Persona</button>
+        <button id="cancelPersonaBtn" class="secondary-btn">Cancel</button>
+      </div>
+    </div>
+  </div>
+  
+  <script src="options.js"></script>
+</body>
+</html>

@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Screenshot Viewer</title>
+  <link rel="stylesheet" href="screenshot-viewer.css" />
+</head>
+<body>
+  <header class="sv-header">
+    <h1>📸 Page Screenshot Slices</h1>
+    <div class="sv-actions">
+      <button id="refreshBtn" class="sv-btn">Refresh</button>
+      <button id="stitchBtn" class="sv-btn">Stitch</button>
+      <a id="downloadStitched" class="sv-btn sv-secondary" href="#" download style="display:none;">Download Stitched</a>
+      <button id="openTabHelp" class="sv-btn sv-secondary">How to use</button>
+    </div>
+  </header>
+  <section id="stitchedContainer" class="sv-stitched" style="display:none;">
+    <header>
+      <div class="sv-meta" id="stitchedMeta">Stitched preview</div>
+    </header>
+    <img id="stitchedImg" class="sv-img" alt="stitched full page"/>
+  </section>
+  <main id="gallery" class="sv-gallery">
+    <div class="sv-empty">No screenshots yet. Run a capture from the popup.</div>
+  </main>
+  <script type="module" src="screenshot-viewer.js"></script>
+</body>
+</html>
