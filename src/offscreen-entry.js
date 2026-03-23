@@ -18,16 +18,10 @@ async function initEngineIfNeeded(modelId) {
   initializing = (async () => {
     const chosen = modelId || lastModelId || "gemma-2-2b-it-q4f16_1-MLC";
     try {
-      // Use in-page engine in the offscreen document to avoid bundling worker path issues
-      if (webllm.CreateMLCEngine) {
-        engine = await webllm.CreateMLCEngine(chosen, { initProgressCallback: progress });
-      } else if (webllm.CreateWebWorkerMLCEngine) {
-        // Fallback attempt: some builds may only expose worker engine
-        // In that case we cannot reliably create the worker without a stable path in this setup
-        throw new Error('CreateMLCEngine not available in this build');
-      } else {
-        throw new Error('WebLLM factory not found');
+      if (!webllm.CreateMLCEngine) {
+        throw new Error('WebLLM CreateMLCEngine factory not found — check @mlc-ai/web-llm version');
       }
+      engine = await webllm.CreateMLCEngine(chosen, { initProgressCallback: progress });
       isReady = true;
       lastModelId = chosen;
     } catch (e) {

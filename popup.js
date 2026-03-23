@@ -257,6 +257,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const res = await chrome.runtime.sendMessage({ action: 'renarrate-page', tabId });
         if (res && res.success) {
           if (renarrateStatus) renarrateStatus.textContent = 'Done';
+          await chrome.tabs.create({ url: chrome.runtime.getURL('viewers/renarration-viewer.html') });
         } else {
           if (renarrateStatus) renarrateStatus.textContent = res?.error || 'Failed';
         }

@@ -79,7 +79,7 @@ function showOverlay(content, x, y, runId) {
         <span class="renarration-title">Renarration</span>
         <button class="renarration-close" id="renarration-close-btn">&times;</button>
       </div>
-      <div class="renarration-body">${content}</div>
+      <div class="renarration-body">${escapeHtml(content)}</div>
       ${feedbackHtml}
     </div>
   `;
@@ -301,9 +301,9 @@ async function processTextRenarration(text, x, y) {
       const runId = response.agenticMeta?.experimentId || response.runId || null;
       showOverlay(response.result, x, y + 30, runId);
     } else {
-      showOverlay(`<div class="renarration-error">Error: ${response.error}</div>`, x, y + 30);
+      showOverlay('Error: ' + (response.error || 'Unknown error'), x, y + 30);
     }
   } catch (error) {
-    showOverlay(`<div class="renarration-error">Error: ${error.message}</div>`, x, y + 30);
+    showOverlay('Error: ' + (error.message || 'Unknown error'), x, y + 30);
   }
 }

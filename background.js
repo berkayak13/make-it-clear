@@ -1,6 +1,22 @@
 // Background service worker for the extension
 // Handles message passing and model management (WebLLM via offscreen document)
 
+// =========================================
+// Constants
+// =========================================
+const CAPTURE_MAX_RETRIES = 6;
+const CAPTURE_BASE_DELAY_MS = 900;
+const CAPTURE_MAX_SLICES = 50;
+const CAPTURE_SETTLE_DELAY_MS = 350;
+const CAPTURE_SLICE_OVERLAP_PX = 200;
+const OFFSCREEN_DEFAULT_TIMEOUT_MS = 120000;
+const GEMINI_TIMEOUT_MS = 60000;
+const VLM_TIMEOUT_MS = 120000;
+const PIPELINE_LOG_MAX_ENTRIES = 100;
+const PIPELINE_LOG_MAX_SIZE_BYTES = 2 * 1024 * 1024;
+const AGENTIC_MAX_ATTEMPTS = 3;
+const AGENTIC_SCORE_THRESHOLD = 3.5;
+
 // Default user tasks
 const DEFAULT_TASKS = {
   'simple': {
@@ -406,7 +422,7 @@ async function callGeminiChat(conversationContents, systemInstruction) {
   }
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 60000);
+  const timer = setTimeout(() => controller.abort(), GEMINI_TIMEOUT_MS);
   try {
     const res = await fetch(url, {
       method: 'POST',
@@ -494,10 +510,13 @@ async function callLLM(messages, systemPrompt, options = {}) {
 // Agentic pipeline functions
 // =========================================
 async function evaluateRenarration(originalText, renarrationOutput, taskInfo, personaInfo, readingGoalText) {
+  if (!originalText || !renarrationOutput) {
+    return { success: false, error: 'Missing original text or renarration output for evaluation' };
+  }
   const evalPrompt = await getEvaluationPrompt();
   const userContent = [
-    'Original text:', originalText.slice(0, 3000),
-    '\nRenarrated output:', renarrationOutput.slice(0, 3000),
+    'Original text:', String(originalText).slice(0, 3000),
+    '\nRenarrated output:', String(renarrationOutput).slice(0, 3000),
     '\nTask:', taskInfo || 'N/A',
     '\nPersona:', personaInfo || 'N/A',
     '\nReading Goal:', readingGoalText || 'N/A'
@@ -510,7 +529,11 @@ async function evaluateRenarration(originalText, renarrationOutput, taskInfo, pe
   try {
     const jsonStr = result.result.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
     const scores = JSON.parse(jsonStr);
-    scores.averageScore = scores.averageScore ?? ((scores.appropriateness + scores.faithfulness + scores.clarity + scores.tone) / 4);
+    const appropriateness = Number(scores.appropriateness) || 0;
+    const faithfulness = Number(scores.faithfulness) || 0;
+    const clarity = Number(scores.clarity) || 0;
+    const tone = Number(scores.tone) || 0;
+    scores.averageScore = scores.averageScore ?? ((appropriateness + faithfulness + clarity + tone) / 4);
     return { success: true, scores };
   } catch (e) {
     return { success: false, error: 'Failed to parse evaluation JSON: ' + e.message, raw: result.result };
@@ -521,8 +544,8 @@ async function agenticRenarrateText(text, taskName, overrideTask, options = {}) 
   const userId = await getOrCreateUserId();
   const experimentId = researchGenerateId();
   const attempts = [];
-  const maxAttempts = 3;
-  const threshold = 3.5;
+  const maxAttempts = AGENTIC_MAX_ATTEMPTS;
+  const threshold = AGENTIC_SCORE_THRESHOLD;
   let bestResult = null;
   let bestScore = 0;
   let promptAugmentation = '';
@@ -646,25 +669,30 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
   if (request.action === 'renarrate-text') {
     (async () => {
-      const { useAgenticPipeline } = await chrome.storage.local.get(['useAgenticPipeline']);
-      const renarrateFunc = useAgenticPipeline ? agenticRenarrateText : renarrateText;
-      const result = await renarrateFunc(request.text, request.task);
-      // Persist for side panel display
-      if (result?.success) {
-        try {
-          await chrome.storage.local.set({
-            lastTextRenarration: {
-              originalText: (request.text || '').slice(0, 10000),
-              renarration: (result.result || '').slice(0, 10000),
-              at: new Date().toISOString(),
-              task: request.task || ''
-            }
-          });
-        } catch (e) {
-          console.warn('[renarrate-text] Failed to persist for side panel:', e.message);
+      try {
+        const { useAgenticPipeline } = await chrome.storage.local.get(['useAgenticPipeline']);
+        const renarrateFunc = useAgenticPipeline ? agenticRenarrateText : renarrateText;
+        const result = await renarrateFunc(request.text, request.task);
+        // Persist for side panel display
+        if (result?.success) {
+          try {
+            await chrome.storage.local.set({
+              lastTextRenarration: {
+                originalText: (request.text || '').slice(0, 10000),
+                renarration: (result.result || '').slice(0, 10000),
+                at: new Date().toISOString(),
+                task: request.task || ''
+              }
+            });
+          } catch (e) {
+            console.warn('[renarrate-text] Failed to persist for side panel:', e.message);
+          }
         }
+        sendResponse(result);
+      } catch (e) {
+        console.error('[renarrate-text] Unhandled error:', e);
+        sendResponse({ success: false, error: e?.message || 'Internal error' });
       }
-      sendResponse(result);
     })();
     return true; // Keep message channel open for async response
   } else if (request.action === 'describe-image') {
@@ -842,7 +870,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       try {
         const persona = request.persona;
         if (!persona || !persona.name) { sendResponse({ success: false, error: 'Invalid persona' }); return; }
-        const key = 'chatbot-' + persona.name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+        const slug = persona.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-+$/, '');
+        const key = 'chatbot-' + slug + '-' + researchGenerateId().slice(0, 8);
         const personaObj = {
           name: persona.name,
           description: persona.description || '',
@@ -1532,7 +1561,7 @@ async function callRemoteVLM({ imageDataUrl, prompt, model, endpoint, apiKey, mo
     }
   };
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 120000);
+  const timer = setTimeout(() => controller.abort(), VLM_TIMEOUT_MS);
   try {
     const res = await fetch(url, {
       method: 'POST',
@@ -1581,7 +1610,7 @@ async function callRemoteVLMWithImages({ images, prompt, model, endpoint, apiKey
     }
   };
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 120000);
+  const timer = setTimeout(() => controller.abort(), VLM_TIMEOUT_MS);
   try {
     const res = await fetch(url, {
       method: 'POST',
@@ -1635,13 +1664,13 @@ async function appendPipelineLog(entry) {
   const existingSize = JSON.stringify(pipelineLogs).length;
   console.log(`[appendPipelineLog] Entry size: ${(cleanedSize/1024).toFixed(2)} KB, Existing logs size: ${(existingSize/1024).toFixed(2)} KB, Entry count: ${pipelineLogs.length}`);
   
-  const next = [cleaned, ...pipelineLogs].slice(0, 100);
+  const next = [cleaned, ...pipelineLogs].slice(0, PIPELINE_LOG_MAX_ENTRIES);
   const nextSize = JSON.stringify(next).length;
   console.log(`[appendPipelineLog] Total size to store: ${(nextSize/1024).toFixed(2)} KB`);
   
   // If still too large (> 2MB), aggressively trim
   let toStore = next;
-  if (nextSize > 2 * 1024 * 1024) {
+  if (nextSize > PIPELINE_LOG_MAX_SIZE_BYTES) {
     console.warn(`[appendPipelineLog] Size too large, trimming to 20 entries`);
     toStore = next.slice(0, 20);
   }
@@ -1733,7 +1762,7 @@ chrome.action.onClicked.addListener((tab) => {
 // -----------------
 // Offscreen document
 // -----------------
-let creatingOffscreen;
+let creatingOffscreen = null;
 
 async function hasOffscreenDocument() {
   const matched = await chrome.offscreen.hasDocument?.();
@@ -1753,21 +1782,27 @@ async function hasOffscreenDocument() {
 async function ensureOffscreen() {
   if (await hasOffscreenDocument()) return;
   if (creatingOffscreen) return creatingOffscreen;
-  creatingOffscreen = chrome.offscreen.createDocument({
-    url: 'offscreen.html',
-    reasons: [ 'IFRAME_SCRIPTING' ],
-    justification: 'Run WebLLM with WebGPU in an offscreen document for on-device inference.'
-  }).catch((e) => {
-    console.error('Failed to create offscreen document:', e);
-    throw e;
-  }).finally(() => {
-    creatingOffscreen = null;
-  });
+  creatingOffscreen = (async () => {
+    try {
+      await chrome.offscreen.createDocument({
+        url: 'offscreen.html',
+        reasons: ['IFRAME_SCRIPTING'],
+        justification: 'Run WebLLM with WebGPU in an offscreen document for on-device inference.'
+      });
+    } catch (e) {
+      // If creation failed because one already exists, that's fine
+      if (await hasOffscreenDocument()) return;
+      console.error('Failed to create offscreen document:', e);
+      throw e;
+    } finally {
+      creatingOffscreen = null;
+    }
+  })();
   return creatingOffscreen;
 }
 
 function postToOffscreen(message, options = {}) {
-  const timeoutMs = options.timeoutMs ?? 120000;
+  const timeoutMs = options.timeoutMs ?? OFFSCREEN_DEFAULT_TIMEOUT_MS;
   return new Promise((resolve) => {
     const requestId = Math.random().toString(36).slice(2);
     const timeoutId = setTimeout(() => {
@@ -1962,8 +1997,8 @@ async function scrollToY(tabId, y) {
 async function captureViewport(windowId, format = 'png', quality = 100) {
   // Quota-aware wrapper around captureVisibleTab.
   // Retries if hitting MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND.
-  const MAX_RETRIES = 6;
-  const BASE_DELAY = 900; // ms between retries
+  const MAX_RETRIES = CAPTURE_MAX_RETRIES;
+  const BASE_DELAY = CAPTURE_BASE_DELAY_MS;
   let attempt = 0;
   while (true) {
     try {
@@ -2022,9 +2057,9 @@ async function captureFullPageSlices(tabId) {
   const originalY = startMetrics.y || 0;
 
   const images = [];
-  const maxSlices = 50; // hard cap to avoid excessive quota usage
-  const settleDelayMs = 350; // wait after scroll before capture
-  const sliceOverlapPx = 200; // small overlap to avoid missing boundary content
+  const maxSlices = CAPTURE_MAX_SLICES;
+  const settleDelayMs = CAPTURE_SETTLE_DELAY_MS;
+  const sliceOverlapPx = CAPTURE_SLICE_OVERLAP_PX;
   let y = 0;
   let sliceIndex = 0;
 
