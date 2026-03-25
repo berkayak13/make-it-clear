@@ -1,47 +1,55 @@
-// Popup script
+// Popup script — embedded chat + renarration
+let currentSessionId = null;
+let userMessageCount = 0;
+let generatedGoal = null;
+let generatedPersona = null;
+
 document.addEventListener('DOMContentLoaded', async () => {
-  const enableToggle = document.getElementById('enableToggle');
-  const taskSelect = document.getElementById('taskSelect');
-  const personaSelect = document.getElementById('personaSelect');
+  // --- DOM references ---
   const llmProviderSelect = document.getElementById('llmProviderSelect');
   const webllmControls = document.getElementById('webllmControls');
   const initModelBtn = document.getElementById('initModelBtn');
   const webllmStatus = document.getElementById('webllmStatus');
-  const captureBtn = document.getElementById('capturePageBtn');
-  const captureStatus = document.getElementById('captureStatus');
-  const describeBtn = document.getElementById('describePageBtn');
-  const describeStatus = document.getElementById('describeStatus');
-  const renarrateBtn = document.getElementById('renarratePageBtn');
-  const renarrateStatus = document.getElementById('renarrateStatus');
-  const openChatBtn = document.getElementById('openChatBtn');
-  const agenticToggle = document.getElementById('agenticToggle');
   const apiKeyInput = document.getElementById('apiKeyInput');
   const apiKeyToggleBtn = document.getElementById('apiKeyToggleBtn');
   const apiKeyStatus = document.getElementById('apiKeyStatus');
-  const configSummary = document.getElementById('configSummary');
+  const setupCard = document.getElementById('setupCard');
+  const setupToggle = document.getElementById('setupToggle');
+  const renarrateBtn = document.getElementById('renarratePageBtn');
+  const renarrateStatus = document.getElementById('renarrateStatus');
   const optionsLink = document.getElementById('optionsLink');
   const testingDashboardLink = document.getElementById('testingDashboardLink');
 
-  let currentTasks = {};
-  let currentPersonas = {};
+  // Chat DOM
+  const chatMessages = document.getElementById('chatMessages');
+  const chatInput = document.getElementById('chatInput');
+  const sendBtn = document.getElementById('sendBtn');
+  const newSessionBtn = document.getElementById('newSessionBtn');
+  const setGoalBtn = document.getElementById('setGoalBtn');
+  const generatePersonaBtn = document.getElementById('generatePersonaBtn');
+  const secondaryActions = document.getElementById('secondaryActions');
+  const goalPreview = document.getElementById('goalPreview');
+  const applyGoalBtn = document.getElementById('applyGoalBtn');
+  const discardGoalBtn = document.getElementById('discardGoalBtn');
+  const goalDismiss = document.getElementById('goalDismiss');
+  const personaPreview = document.getElementById('personaPreview');
+  const applyPersonaBtn = document.getElementById('applyPersonaBtn');
+  const discardPersonaBtn = document.getElementById('discardPersonaBtn');
+  const personaDismiss = document.getElementById('personaDismiss');
+  const userBadge = document.getElementById('userBadge');
+  const quickRepliesContainer = document.getElementById('quickReplies');
+  const refinementBanner = document.getElementById('refinementBanner');
+  const refineBannerBtn = document.getElementById('refineBannerBtn');
+  const refineBannerDismiss = document.getElementById('refineBannerDismiss');
 
-  // Load current settings
+  // --- Load settings ---
   const settings = await chrome.storage.sync.get([
-    'enabled',
-    'currentTask',
-    'currentProfile',
-    'autoDetect',
-    'llmProvider',
-    'useWebLLM',
-    'currentPersona',
-    'personas',
-    'tasks',
-    'profiles'
+    'currentTask', 'currentProfile', 'llmProvider', 'useWebLLM',
+    'tasks', 'profiles'
   ]);
-
-  // Load local settings (API key + agentic toggle)
   const localSettings = await chrome.storage.local.get(['useAgenticPipeline', 'remoteVLMApiKey']);
 
+  // Backward compat: profiles -> tasks
   let tasks = settings.tasks;
   let currentTask = settings.currentTask;
   let shouldWrite = false;
@@ -53,29 +61,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     currentTask = settings.currentProfile;
     shouldWrite = true;
   }
-  if (!tasks || !Object.keys(tasks).length) {
-    tasks = {};
-  }
-  if (!currentTask) {
-    currentTask = Object.keys(tasks)[0] || 'simple';
-  }
   if (shouldWrite) {
     await chrome.storage.sync.set({ tasks, currentTask });
   }
-
-  currentTasks = tasks || {};
-  currentPersonas = settings.personas || {};
-  enableToggle.checked = settings.enabled !== false;
-  taskSelect.value = currentTask || 'simple';
-  populatePersonaOptions(currentPersonas, settings.currentPersona);
 
   // LLM Provider (backward compat: fall back to useWebLLM)
   const effectiveProvider = settings.llmProvider || (settings.useWebLLM ? 'on-device' : 'remote');
   llmProviderSelect.value = effectiveProvider;
   if (webllmControls) webllmControls.style.display = effectiveProvider === 'on-device' ? 'block' : 'none';
-
-  // Agentic toggle
-  if (agenticToggle) agenticToggle.checked = !!localSettings.useAgenticPipeline;
 
   // API key — load
   if (apiKeyInput) {
@@ -84,8 +77,35 @@ document.addEventListener('DOMContentLoaded', async () => {
     updateApiKeyStatus(storedKey);
   }
 
-  populateTaskOptions(currentTasks, currentTask || 'simple');
-  updateConfigSummary();
+  // Load user ID
+  try {
+    const { userId } = await chrome.runtime.sendMessage({ action: 'get-user-id' });
+    userBadge.textContent = userId || '--';
+  } catch {
+    userBadge.textContent = '--';
+  }
+
+  // --- Chat session restore ---
+  const { currentChatSessionId } = await chrome.storage.local.get(['currentChatSessionId']);
+  if (currentChatSessionId) {
+    try {
+      const res = await chrome.runtime.sendMessage({ action: 'chatbot-get-session', sessionId: currentChatSessionId });
+      if (res?.success && res.session) {
+        currentSessionId = currentChatSessionId;
+        renderMessages(res.session.messages);
+        userMessageCount = res.session.messages.filter(m => m.role === 'user').length;
+        updateActionButtons();
+      } else {
+        await startNewSession();
+      }
+    } catch {
+      await startNewSession();
+    }
+  } else {
+    await startNewSession();
+  }
+
+  checkFeedbackRefinement();
 
   // --- Storage change listeners ---
   chrome.storage.onChanged.addListener((changes, area) => {
@@ -94,41 +114,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       llmProviderSelect.value = newProvider;
       if (webllmControls) webllmControls.style.display = newProvider === 'on-device' ? 'block' : 'none';
     }
-    if (area === 'sync' && (changes.personas || changes.currentPersona || changes.tasks || changes.currentTask || changes.profiles || changes.currentProfile)) {
-      chrome.storage.sync.get(['personas','currentPersona','tasks','currentTask','profiles','currentProfile']).then(async ({ personas, currentPersona, tasks, currentTask, profiles, currentProfile }) => {
-        let nextTasks = tasks;
-        let nextTask = currentTask;
-        let shouldWrite = false;
-        if ((!nextTasks || !Object.keys(nextTasks).length) && profiles && Object.keys(profiles).length) {
-          nextTasks = profiles;
-          shouldWrite = true;
-        }
-        if (!nextTask && currentProfile) {
-          nextTask = currentProfile;
-          shouldWrite = true;
-        }
-        if (!nextTasks || !Object.keys(nextTasks).length) {
-          nextTasks = {};
-        }
-        if (!nextTask) {
-          nextTask = Object.keys(nextTasks)[0] || 'simple';
-        }
-        if (shouldWrite) {
-          await chrome.storage.sync.set({ tasks: nextTasks, currentTask: nextTask });
-        }
-        if (nextTasks) {
-          currentTasks = nextTasks;
-          populateTaskOptions(currentTasks, nextTask || taskSelect.value || 'simple');
-          updateConfigSummary();
-        }
-        if (personas) {
-          currentPersonas = personas;
-          populatePersonaOptions(currentPersonas, currentPersona);
-          updateConfigSummary();
-        }
-      });
-    }
-    // API key sync from options page
     if (area === 'local' && changes.remoteVLMApiKey) {
       const newKey = changes.remoteVLMApiKey.newValue || '';
       if (apiKeyInput) apiKeyInput.value = newKey;
@@ -136,23 +121,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
-  // --- Event listeners ---
-  enableToggle.addEventListener('change', () => {
-    chrome.storage.sync.set({ enabled: enableToggle.checked });
+  // --- Setup card accordion ---
+  setupToggle.addEventListener('click', () => {
+    setupCard.classList.toggle('card--collapsed');
   });
 
-  taskSelect.addEventListener('change', () => {
-    const task = taskSelect.value;
-    chrome.storage.sync.set({ currentTask: task });
-    updateConfigSummary();
-  });
-
-  personaSelect.addEventListener('change', () => {
-    const personaKey = personaSelect.value;
-    chrome.storage.sync.set({ currentPersona: personaKey });
-    updateConfigSummary();
-  });
-
+  // --- LLM Provider ---
   llmProviderSelect.addEventListener('change', () => {
     const provider = llmProviderSelect.value;
     chrome.storage.sync.set({ llmProvider: provider });
@@ -168,12 +142,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       } else {
         webllmStatus.textContent = 'Status: failed (fallback active)';
       }
-    } catch (e) {
+    } catch {
       webllmStatus.textContent = 'Status: failed (see console)';
     }
   });
 
-  // API key — debounced save on input
+  // --- API key ---
   let apiKeySaveTimer = null;
   if (apiKeyInput) {
     apiKeyInput.addEventListener('input', () => {
@@ -193,7 +167,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  // API key — save on popup close (safety net)
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden' && apiKeyInput) {
       clearTimeout(apiKeySaveTimer);
@@ -201,7 +174,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
-  // API key — show/hide toggle
   if (apiKeyToggleBtn && apiKeyInput) {
     apiKeyToggleBtn.addEventListener('click', () => {
       if (apiKeyInput.type === 'password') {
@@ -214,81 +186,151 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  // Capture full page screenshots
-  if (captureBtn) {
-    captureBtn.addEventListener('click', async () => {
-      if (captureStatus) captureStatus.textContent = 'Capturing\u2026';
-      try {
-        const res = await chrome.runtime.sendMessage({ action: 'capture-fullpage' });
-        if (res && res.success) {
-          if (captureStatus) captureStatus.textContent = `Captured ${res.count} slice(s)`;
-        } else {
-          if (captureStatus) captureStatus.textContent = res.error;
-        }
-      } catch (e) {
-        if (captureStatus) captureStatus.textContent = 'Error during capture';
-      }
-    });
-  }
-
-  if (describeBtn) {
-    describeBtn.addEventListener('click', async () => {
-      if (describeStatus) describeStatus.textContent = 'Requesting\u2026';
-      try {
-        const res = await chrome.runtime.sendMessage({ action: 'describe-page-screenshot' });
-        if (res && res.success) {
-          if (describeStatus) describeStatus.textContent = 'Done';
-          await chrome.tabs.create({ url: chrome.runtime.getURL('viewers/describe-viewer.html') });
-        } else {
-          if (describeStatus) describeStatus.textContent = res?.error || 'Failed';
-        }
-      } catch (e) {
-        if (describeStatus) describeStatus.textContent = 'Error';
-      }
-    });
-  }
-
+  // --- Renarrate ---
   if (renarrateBtn) {
     renarrateBtn.addEventListener('click', async () => {
       if (renarrateStatus) renarrateStatus.textContent = 'Processing\u2026';
       try {
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
         const tabId = tab?.id;
-        const res = await chrome.runtime.sendMessage({ action: 'renarrate-page', tabId });
+        const res = await chrome.runtime.sendMessage({ action: 'renarrate-page-dom', tabId });
         if (res && res.success) {
-          if (renarrateStatus) renarrateStatus.textContent = 'Done';
-          await chrome.tabs.create({ url: chrome.runtime.getURL('viewers/renarration-viewer.html') });
+          if (renarrateStatus) renarrateStatus.textContent = 'Done \u2014 see sidebar';
         } else {
           if (renarrateStatus) renarrateStatus.textContent = res?.error || 'Failed';
         }
-      } catch (e) {
+      } catch {
         if (renarrateStatus) renarrateStatus.textContent = 'Error';
       }
     });
   }
 
-  // Open side panel for chatbot
-  if (openChatBtn) {
-    openChatBtn.addEventListener('click', async () => {
-      try {
-        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        if (tab?.id) {
-          await chrome.sidePanel.open({ tabId: tab.id });
-        }
-      } catch (e) {
-        console.warn('Failed to open side panel:', e);
+  // --- Chat event listeners ---
+  sendBtn.addEventListener('click', sendMessage);
+  chatInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  });
+
+  chatInput.addEventListener('input', () => {
+    chatInput.style.height = 'auto';
+    chatInput.style.height = Math.min(chatInput.scrollHeight, 80) + 'px';
+  });
+
+  newSessionBtn.addEventListener('click', startNewSession);
+
+  // Set Reading Goal
+  setGoalBtn.addEventListener('click', async () => {
+    if (!currentSessionId) return;
+    setGoalBtn.disabled = true;
+    setGoalBtn.textContent = 'Extracting goal...';
+    try {
+      const res = await chrome.runtime.sendMessage({ action: 'chatbot-set-reading-goal', sessionId: currentSessionId });
+      if (res?.success && res.goal) {
+        generatedGoal = res.goal;
+        showGoalPreview(res.goal);
+      } else {
+        addSystemMessage('Failed to extract reading goal: ' + (res?.error || 'Unknown error'));
       }
-    });
-  }
+    } catch (e) {
+      addSystemMessage('Error extracting reading goal: ' + e.message);
+    }
+    setGoalBtn.disabled = false;
+    setGoalBtn.textContent = 'Set Reading Goal';
+  });
 
-  // Agentic pipeline toggle
-  if (agenticToggle) {
-    agenticToggle.addEventListener('change', () => {
-      chrome.storage.local.set({ useAgenticPipeline: agenticToggle.checked });
-    });
-  }
+  // Generate Persona
+  generatePersonaBtn.addEventListener('click', async () => {
+    if (!currentSessionId) return;
+    generatePersonaBtn.disabled = true;
+    generatePersonaBtn.textContent = 'Generating...';
+    try {
+      const res = await chrome.runtime.sendMessage({ action: 'chatbot-generate-persona', sessionId: currentSessionId });
+      if (res?.success && res.persona) {
+        generatedPersona = res.persona;
+        showPersonaPreview(res.persona);
+      } else {
+        addSystemMessage('Failed to generate persona: ' + (res?.error || 'Unknown error'));
+      }
+    } catch (e) {
+      addSystemMessage('Error generating persona: ' + e.message);
+    }
+    generatePersonaBtn.disabled = false;
+    generatePersonaBtn.textContent = 'Generate Persona';
+  });
 
-  // Footer links
+  // Goal preview actions
+  applyGoalBtn.addEventListener('click', async () => {
+    if (!generatedGoal) return;
+    applyGoalBtn.disabled = true;
+    try {
+      await chrome.storage.sync.set({ readingGoal: generatedGoal.readingGoal || '' });
+      addSystemMessage('Reading goal applied: "' + (generatedGoal.readingGoal || '') + '"');
+      goalPreview.style.display = 'none';
+      generatedGoal = null;
+    } catch (e) {
+      addSystemMessage('Error applying goal: ' + e.message);
+    }
+    applyGoalBtn.disabled = false;
+  });
+
+  discardGoalBtn.addEventListener('click', () => {
+    goalPreview.style.display = 'none';
+    generatedGoal = null;
+  });
+
+  goalDismiss.addEventListener('click', () => {
+    goalPreview.style.display = 'none';
+    generatedGoal = null;
+  });
+
+  // Persona preview actions
+  applyPersonaBtn.addEventListener('click', async () => {
+    if (!generatedPersona || !currentSessionId) return;
+    applyPersonaBtn.disabled = true;
+    try {
+      const res = await chrome.runtime.sendMessage({
+        action: 'chatbot-apply-persona',
+        sessionId: currentSessionId,
+        persona: generatedPersona
+      });
+      if (res?.success) {
+        addSystemMessage('Persona "' + generatedPersona.name + '" applied successfully! It is now your active persona.');
+        personaPreview.style.display = 'none';
+        generatedPersona = null;
+      } else {
+        addSystemMessage('Failed to apply persona: ' + (res?.error || 'Unknown error'));
+      }
+    } catch (e) {
+      addSystemMessage('Error applying persona: ' + e.message);
+    }
+    applyPersonaBtn.disabled = false;
+  });
+
+  discardPersonaBtn.addEventListener('click', () => {
+    personaPreview.style.display = 'none';
+    generatedPersona = null;
+  });
+
+  personaDismiss.addEventListener('click', () => {
+    personaPreview.style.display = 'none';
+    generatedPersona = null;
+  });
+
+  // Refinement banner
+  refineBannerBtn.addEventListener('click', () => {
+    refinementBanner.style.display = 'none';
+    chatInput.value = 'I\'d like to refine my reading preferences based on recent feedback.';
+    chatInput.focus();
+  });
+
+  refineBannerDismiss.addEventListener('click', () => {
+    refinementBanner.style.display = 'none';
+  });
+
+  // --- Footer links ---
   if (optionsLink) {
     optionsLink.addEventListener('click', (e) => {
       e.preventDefault();
@@ -303,7 +345,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  // Listen to progress events from offscreen init
+  // --- WebLLM progress events ---
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg && msg.__offscreenProgress) {
       const pct = Math.round((msg.progress || 0) * 100);
@@ -311,7 +353,184 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
-  // --- Helper functions ---
+  // --- Chat functions ---
+
+  async function startNewSession() {
+    try {
+      const res = await chrome.runtime.sendMessage({ action: 'chatbot-new-session' });
+      if (res?.success) {
+        currentSessionId = res.sessionId;
+        userMessageCount = 0;
+        chatMessages.innerHTML = `
+          <div class="chat-welcome">
+            <p>Tell me what you want to get from web content today.</p>
+            <p class="chat-welcome-hint">I'll help you set a reading goal so content can be adapted to your needs.</p>
+          </div>
+        `;
+        updateActionButtons();
+        goalPreview.style.display = 'none';
+        personaPreview.style.display = 'none';
+        quickRepliesContainer.style.display = 'none';
+        quickRepliesContainer.innerHTML = '';
+        generatedGoal = null;
+        generatedPersona = null;
+      }
+    } catch {
+      // silently fail
+    }
+  }
+
+  async function sendMessage() {
+    const text = chatInput.value.trim();
+    if (!text || !currentSessionId) return;
+
+    chatInput.value = '';
+    chatInput.style.height = 'auto';
+    sendBtn.disabled = true;
+
+    quickRepliesContainer.style.display = 'none';
+
+    const welcome = chatMessages.querySelector('.chat-welcome');
+    if (welcome) welcome.remove();
+
+    appendBubble('user', text);
+    userMessageCount++;
+    updateActionButtons();
+
+    const typingEl = appendBubble('model', 'Thinking...', true);
+
+    try {
+      const res = await chrome.runtime.sendMessage({
+        action: 'chatbot-send',
+        sessionId: currentSessionId,
+        message: text
+      });
+      typingEl.remove();
+      if (res?.success && res.reply) {
+        renderModelReply(res.reply);
+      } else {
+        appendBubble('model', 'Sorry, I encountered an error: ' + (res?.error || 'Unknown'));
+      }
+    } catch (e) {
+      typingEl.remove();
+      appendBubble('model', 'Connection error: ' + e.message);
+    }
+
+    sendBtn.disabled = false;
+    chatInput.focus();
+  }
+
+  function renderModelReply(text) {
+    const lines = text.split('\n');
+    const quickReplies = [];
+    const messageLines = [];
+
+    for (const line of lines) {
+      if (line.trim().startsWith('>> ')) {
+        quickReplies.push(line.trim().slice(3).trim());
+      } else {
+        messageLines.push(line);
+      }
+    }
+
+    appendBubble('model', messageLines.join('\n'));
+
+    if (quickReplies.length > 0) {
+      showQuickReplies(quickReplies);
+    }
+  }
+
+  function showQuickReplies(options) {
+    quickRepliesContainer.innerHTML = '';
+    quickRepliesContainer.style.display = 'flex';
+    options.forEach(opt => {
+      const btn = document.createElement('button');
+      btn.className = 'quick-reply-btn';
+      btn.textContent = opt;
+      btn.addEventListener('click', () => {
+        quickRepliesContainer.style.display = 'none';
+        chatInput.value = opt;
+        sendMessage();
+      });
+      quickRepliesContainer.appendChild(btn);
+    });
+  }
+
+  function appendBubble(role, text, isTyping = false) {
+    const div = document.createElement('div');
+    div.className = 'chat-msg ' + role + (isTyping ? ' typing' : '');
+    div.textContent = text;
+    chatMessages.appendChild(div);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+    return div;
+  }
+
+  function addSystemMessage(text) {
+    const div = document.createElement('div');
+    div.className = 'chat-msg model';
+    div.style.background = '#f0fff4';
+    div.style.borderColor = '#c6f6d5';
+    div.textContent = text;
+    chatMessages.appendChild(div);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+  }
+
+  function renderMessages(messages) {
+    chatMessages.innerHTML = '';
+    if (!messages || !messages.length) {
+      chatMessages.innerHTML = `
+        <div class="chat-welcome">
+          <p>Tell me what you want to get from web content today.</p>
+          <p class="chat-welcome-hint">I'll help you set a reading goal so content can be adapted to your needs.</p>
+        </div>
+      `;
+      return;
+    }
+    messages.forEach(m => {
+      if (m.role === 'model') {
+        const lines = m.content.split('\n');
+        const messageLines = lines.filter(l => !l.trim().startsWith('>> '));
+        appendBubble('model', messageLines.join('\n'));
+      } else {
+        appendBubble(m.role, m.content);
+      }
+    });
+  }
+
+  function updateActionButtons() {
+    const show = userMessageCount >= 2;
+    setGoalBtn.style.display = show ? 'block' : 'none';
+    secondaryActions.style.display = show ? 'block' : 'none';
+  }
+
+  function showGoalPreview(goal) {
+    document.getElementById('goalPreviewText').textContent = goal.readingGoal || '';
+    document.getElementById('goalPreviewDepth').textContent = goal.desiredDepth || '';
+    document.getElementById('goalPreviewFocus').textContent = (goal.focusAreas || []).join(', ') || 'None specified';
+    document.getElementById('goalPreviewStyle').textContent = goal.outputStyle || '';
+    document.getElementById('goalPreviewNotes').textContent = goal.additionalInstructions || 'None';
+    goalPreview.style.display = 'block';
+  }
+
+  function showPersonaPreview(persona) {
+    document.getElementById('personaPreviewName').textContent = persona.name || '';
+    document.getElementById('personaPreviewDesc').textContent = persona.description || '';
+    document.getElementById('personaPreviewExpertise').textContent =
+      (persona.expertiseDomains || []).join(', ') + (persona.expertiseLevel ? ' (' + persona.expertiseLevel + ')' : '');
+    document.getElementById('personaPreviewInterests').textContent = (persona.interests || []).join(', ');
+    personaPreview.style.display = 'block';
+  }
+
+  async function checkFeedbackRefinement() {
+    try {
+      const res = await chrome.runtime.sendMessage({ action: 'check-feedback-trends' });
+      if (res?.shouldRefine) {
+        refinementBanner.style.display = 'flex';
+      }
+    } catch {
+      // ignore
+    }
+  }
 
   function updateApiKeyStatus(key) {
     if (!apiKeyStatus) return;
@@ -322,42 +541,5 @@ document.addEventListener('DOMContentLoaded', async () => {
       apiKeyStatus.textContent = 'Missing';
       apiKeyStatus.className = 'status-pill status-pill--missing';
     }
-  }
-
-  function updateConfigSummary() {
-    if (!configSummary) return;
-    const taskKey = taskSelect.value;
-    const personaKey = personaSelect.value;
-    const taskLabel = (currentTasks[taskKey] && currentTasks[taskKey].name) || taskKey || 'Unknown';
-    const personaLabel = (currentPersonas[personaKey] && currentPersonas[personaKey].name) || personaKey || 'Unknown';
-    configSummary.textContent = `Task: ${taskLabel} \u00B7 Persona: ${personaLabel}`;
-  }
-
-  function populatePersonaOptions(personas = {}, currentKey = 'general') {
-    if (!personaSelect) return;
-    personaSelect.innerHTML = '';
-    const entries = Object.entries(personas || {});
-    entries.forEach(([key, val]) => {
-      const opt = document.createElement('option');
-      opt.value = key;
-      opt.textContent = val.name || key;
-      personaSelect.appendChild(opt);
-    });
-    const effective = personas && personas[currentKey] ? currentKey : (entries[0]?.[0] || 'general');
-    personaSelect.value = effective;
-  }
-
-  function populateTaskOptions(tasks = {}, currentKey = 'simple') {
-    if (!taskSelect) return;
-    taskSelect.innerHTML = '';
-    const entries = Object.entries(tasks || {});
-    entries.forEach(([key, val]) => {
-      const opt = document.createElement('option');
-      opt.value = key;
-      opt.textContent = val.name || key;
-      taskSelect.appendChild(opt);
-    });
-    const effective = tasks && tasks[currentKey] ? currentKey : (entries[0]?.[0] || 'simple');
-    taskSelect.value = effective;
   }
 });

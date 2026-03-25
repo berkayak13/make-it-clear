@@ -203,81 +203,200 @@ function showRenarrationButton(x, y, text) {
   }, 3000);
 }
 
-// ---- Split-view page renarration ----
+// ---- DOM Clone sidebar for page renarration ----
 
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  if (request.action === 'show-split-loading') {
-    showSplitLoading();
-    sendResponse({ success: true });
-  } else if (request.action === 'show-split-renarration') {
-    showSplitView(request);
-    sendResponse({ success: true });
-  } else if (request.action === 'hide-split-renarration') {
-    hideSplitView();
-    sendResponse({ success: true });
+const SKIP_TAGS = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'SVG', 'CANVAS', 'INPUT', 'TEXTAREA', 'SELECT', 'BUTTON', 'IFRAME', 'OBJECT', 'EMBED']);
+const BLOCK_PARENTS = new Set(['P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'LI', 'TD', 'TH', 'BLOCKQUOTE', 'FIGCAPTION', 'DT', 'DD', 'CAPTION', 'LABEL', 'SUMMARY']);
+
+function extractTextSegments() {
+  const segments = [];
+  let nextId = 0;
+  const seen = new Set();
+
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      const text = node.textContent.trim();
+      if (!text || text.length < 3) return NodeFilter.FILTER_REJECT;
+      const el = node.parentElement;
+      if (!el) return NodeFilter.FILTER_REJECT;
+      if (SKIP_TAGS.has(el.tagName)) return NodeFilter.FILTER_REJECT;
+      if (el.closest('#renarration-overlay, #renarration-split-panel, #renarration-trigger-btn')) return NodeFilter.FILTER_REJECT;
+      // Skip hidden elements
+      const style = getComputedStyle(el);
+      if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return NodeFilter.FILTER_REJECT;
+      return NodeFilter.FILTER_ACCEPT;
+    }
+  });
+
+  while (walker.nextNode()) {
+    const textNode = walker.currentNode;
+    // Find the nearest block-level parent to group text
+    let blockParent = textNode.parentElement;
+    while (blockParent && !BLOCK_PARENTS.has(blockParent.tagName) && blockParent !== document.body) {
+      blockParent = blockParent.parentElement;
+    }
+    if (!blockParent || blockParent === document.body) {
+      blockParent = textNode.parentElement;
+    }
+
+    // Avoid duplicating segments for the same block parent
+    if (seen.has(blockParent)) continue;
+    seen.add(blockParent);
+
+    const fullText = blockParent.textContent.trim();
+    if (fullText.length < 3) continue;
+
+    const id = nextId++;
+    blockParent.setAttribute('data-renarration-id', String(id));
+    segments.push({ id, text: fullText, tagName: blockParent.tagName });
   }
-});
 
-function showSplitLoading() {
+  return segments;
+}
+
+function buildCloneSidebar() {
+  // Clone the entire document
+  const clone = document.documentElement.cloneNode(true);
+
+  // Remove scripts to prevent execution
+  clone.querySelectorAll('script').forEach(s => s.remove());
+  // Remove our own UI elements
+  clone.querySelectorAll('#renarration-overlay, #renarration-split-panel, #renarration-trigger-btn, #renarration-clone-frame').forEach(el => el.remove());
+
+  // Add base tag for resolving relative URLs
+  let head = clone.querySelector('head');
+  if (!head) {
+    head = document.createElement('head');
+    clone.prepend(head);
+  }
+  const base = document.createElement('base');
+  base.href = document.baseURI;
+  head.prepend(base);
+
+  // Serialize the clone
+  const html = '<!DOCTYPE html>' + clone.outerHTML;
+
   // Remove any existing panel
-  hideSplitView();
+  hideCloneSidebar();
 
-  // Shrink original page to left half
+  // Shrink original page
   document.body.classList.add('renarration-split-active');
 
-  // Create right panel with loading spinner
+  // Create the sidebar panel
   const panel = document.createElement('div');
   panel.id = 'renarration-split-panel';
   panel.innerHTML = `
+    <div class="split-drag-handle"></div>
     <div class="split-panel-header">
       <span class="split-panel-title">Renarrated</span>
       <button class="split-panel-close" title="Close split view">&times;</button>
     </div>
-    <div class="split-panel-loading">
+    <div class="clone-loading-overlay" id="clone-loading-overlay">
       <div class="split-panel-spinner"></div>
-      <span>Processing page renarration...</span>
+      <span class="clone-progress-text">Renarrating content...</span>
     </div>
   `;
-  document.documentElement.appendChild(panel);
 
-  panel.querySelector('.split-panel-close').addEventListener('click', hideSplitView);
+  const iframe = document.createElement('iframe');
+  iframe.id = 'renarration-clone-frame';
+  iframe.sandbox = 'allow-same-origin';
+  iframe.srcdoc = html;
+  panel.appendChild(iframe);
+
+  document.documentElement.appendChild(panel);
+  panel.querySelector('.split-panel-close').addEventListener('click', hideCloneSidebar);
+
+  // Drag handle for resizing
+  const handle = panel.querySelector('.split-drag-handle');
+  handle.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    handle.classList.add('dragging');
+    // Transparent overlay to prevent iframe from stealing mouse events
+    const overlay = document.createElement('div');
+    overlay.className = 'split-drag-overlay';
+    document.documentElement.appendChild(overlay);
+
+    const onMove = (ev) => {
+      const pct = Math.min(80, Math.max(20, (ev.clientX / window.innerWidth) * 100));
+      document.body.style.width = pct + '%';
+      panel.style.width = (100 - pct) + '%';
+    };
+    const onUp = () => {
+      handle.classList.remove('dragging');
+      overlay.remove();
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
 }
 
-function showSplitView(data) {
-  // Remove any existing panel
-  const existing = document.getElementById('renarration-split-panel');
-  if (existing) existing.remove();
-
-  // Ensure body is in split mode
-  document.body.classList.add('renarration-split-active');
-
-  const panel = document.createElement('div');
-  panel.id = 'renarration-split-panel';
-
-  const vlmSection = data.vlmContent ? `
-    <details class="split-panel-vlm-details">
-      <summary>VLM Extracted Content</summary>
-      <div class="split-panel-vlm-content">${escapeHtml(data.vlmContent)}</div>
-    </details>
-  ` : '';
-
-  panel.innerHTML = `
-    <div class="split-panel-header">
-      <span class="split-panel-title">Renarrated</span>
-      <button class="split-panel-close" title="Close split view">&times;</button>
-    </div>
-    <div class="split-panel-body">${escapeHtml(data.renarration || '')}${vlmSection}</div>
-  `;
-  document.documentElement.appendChild(panel);
-
-  panel.querySelector('.split-panel-close').addEventListener('click', hideSplitView);
+function updateCloneProgress(text) {
+  const el = document.querySelector('.clone-progress-text');
+  if (el) el.textContent = text;
 }
 
-function hideSplitView() {
+function applyRenarrationToClone(replacements) {
+  const iframe = document.getElementById('renarration-clone-frame');
+  if (!iframe || !iframe.contentDocument) return;
+
+  const doc = iframe.contentDocument;
+  for (const rep of replacements) {
+    const el = doc.querySelector(`[data-renarration-id="${rep.id}"]`);
+    if (el && rep.text) {
+      el.textContent = rep.text;
+    }
+  }
+
+  // Remove loading overlay
+  const overlay = document.getElementById('clone-loading-overlay');
+  if (overlay) overlay.remove();
+}
+
+function hideCloneSidebar() {
   const panel = document.getElementById('renarration-split-panel');
   if (panel) panel.remove();
   document.body.classList.remove('renarration-split-active');
+  document.body.style.width = '';
+  // Clean up data attributes from original page
+  document.querySelectorAll('[data-renarration-id]').forEach(el => el.removeAttribute('data-renarration-id'));
 }
+
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === 'extract-and-clone') {
+    const segments = extractTextSegments();
+    buildCloneSidebar();
+    sendResponse({ success: true, segments });
+  } else if (request.action === 'apply-dom-renarration') {
+    // Wait for iframe to load before applying replacements
+    const iframe = document.getElementById('renarration-clone-frame');
+    if (iframe) {
+      const apply = () => applyRenarrationToClone(request.replacements || []);
+      if (iframe.contentDocument && iframe.contentDocument.readyState === 'complete') {
+        apply();
+      } else {
+        iframe.addEventListener('load', apply, { once: true });
+      }
+    }
+    sendResponse({ success: true });
+  } else if (request.action === 'hide-dom-renarration') {
+    hideCloneSidebar();
+    sendResponse({ success: true });
+  } else if (request.action === 'update-clone-progress') {
+    updateCloneProgress(request.text || '');
+    sendResponse({ success: true });
+  }
+  // Keep old actions working for backward compat
+  else if (request.action === 'show-split-loading') {
+    sendResponse({ success: true });
+  } else if (request.action === 'show-split-renarration') {
+    sendResponse({ success: true });
+  } else if (request.action === 'hide-split-renarration') {
+    hideCloneSidebar();
+    sendResponse({ success: true });
+  }
+});
 
 function escapeHtml(text) {
   const div = document.createElement('div');

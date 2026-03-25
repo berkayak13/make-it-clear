@@ -9,14 +9,22 @@
 <body>
   <div class="popup-container">
     <div class="header">
-      <h1>On-Device Web Assistant</h1>
-      <p class="subtitle">Text renarrator</p>
+      <div class="header-left">
+        <h1>On-Device Web Assistant</h1>
+      </div>
+      <div class="header-right">
+        <span class="user-badge" id="userBadge">--</span>
+        <button class="new-session-btn" id="newSessionBtn" title="New conversation">+</button>
+      </div>
     </div>
 
-    <!-- Setup Card -->
-    <div class="card" id="setupCard">
-      <div class="card-header"><h3>Setup</h3></div>
-      <div class="card-body">
+    <!-- Setup Card (collapsible) -->
+    <div class="card card--collapsed" id="setupCard">
+      <div class="card-header card-header--toggle" id="setupToggle">
+        <h3>Setup</h3>
+        <span class="card-chevron">&#9662;</span>
+      </div>
+      <div class="card-body card-body--collapsible">
         <div class="field-row">
           <label class="field-label" for="llmProviderSelect">LLM Provider</label>
           <select id="llmProviderSelect" class="field-select">
@@ -41,54 +49,72 @@
       </div>
     </div>
 
-    <!-- Renarration Card -->
-    <div class="card" id="renarrationCard">
-      <div class="card-header"><h3>Renarration</h3></div>
-      <div class="card-body">
-        <div class="field-row">
-          <label class="field-label" for="taskSelect">Task</label>
-          <select id="taskSelect" class="field-select">
-            <option value="simple">Simple Language</option>
-            <option value="detailed">Detailed Explanation</option>
-            <option value="academic">Academic Style</option>
-            <option value="summary">Summary</option>
-          </select>
-        </div>
-        <div class="field-row">
-          <label class="field-label" for="personaSelect">Persona</label>
-          <select id="personaSelect" class="field-select">
-            <!-- Populated dynamically -->
-          </select>
-        </div>
-        <div id="configSummary" class="config-summary">Task: Simple Language &middot; Persona: General Public</div>
-        <div class="toggles-row">
-          <label class="toggle-container toggle-container--compact">
-            <input type="checkbox" id="enableToggle" checked>
-            <span class="toggle-slider toggle-slider--sm"></span>
-            <span class="toggle-label--sm">Enabled</span>
-          </label>
-          <label class="checkbox-container checkbox-container--compact">
-            <input type="checkbox" id="agenticToggle">
-            <span>Agentic</span>
-          </label>
-        </div>
-      </div>
+    <!-- Renarrate Button -->
+    <div class="renarrate-section">
+      <button id="renarratePageBtn" class="btn btn--primary btn--full btn--glow">Renarrate Page</button>
+      <div id="renarrateStatus" class="action-status">Ready</div>
     </div>
 
-    <!-- Actions Card -->
-    <div class="card" id="actionsCard">
-      <div class="card-header"><h3>Actions</h3></div>
-      <div class="card-body">
-        <button id="renarratePageBtn" class="btn btn--primary btn--full">Renarrate Page</button>
-        <div id="renarrateStatus" class="action-status">Ready</div>
-        <div class="action-grid">
-          <button id="capturePageBtn" class="btn btn--secondary btn--sm">Capture</button>
-          <button id="describePageBtn" class="btn btn--secondary btn--sm">Describe</button>
-          <button id="openChatBtn" class="btn btn--secondary btn--sm">Chat</button>
+    <!-- Chat Area -->
+    <div class="chat-area">
+      <div class="chat-messages" id="chatMessages">
+        <div class="chat-welcome">
+          <p>Tell me what you want to get from web content today.</p>
+          <p class="chat-welcome-hint">I'll help you set a reading goal so content can be adapted to your needs.</p>
         </div>
-        <div class="action-status-row">
-          <span id="captureStatus" class="helper-text">Ready</span>
-          <span id="describeStatus" class="helper-text">Ready</span>
+      </div>
+
+      <div class="goal-preview" id="goalPreview" style="display:none;">
+        <div class="preview-header">
+          <span>Reading Goal</span>
+          <button class="preview-dismiss" id="goalDismiss">&times;</button>
+        </div>
+        <div class="preview-body">
+          <div class="preview-field"><strong>Goal:</strong> <span id="goalPreviewText"></span></div>
+          <div class="preview-field"><strong>Depth:</strong> <span id="goalPreviewDepth"></span></div>
+          <div class="preview-field"><strong>Focus:</strong> <span id="goalPreviewFocus"></span></div>
+          <div class="preview-field"><strong>Style:</strong> <span id="goalPreviewStyle"></span></div>
+          <div class="preview-field"><strong>Notes:</strong> <span id="goalPreviewNotes"></span></div>
+        </div>
+        <div class="preview-actions">
+          <button class="btn btn--primary btn--sm" id="applyGoalBtn">Apply Goal</button>
+          <button class="btn btn--secondary btn--sm" id="discardGoalBtn">Discard</button>
+        </div>
+      </div>
+
+      <div class="persona-preview" id="personaPreview" style="display:none;">
+        <div class="preview-header">
+          <span>Generated Persona</span>
+          <button class="preview-dismiss" id="personaDismiss">&times;</button>
+        </div>
+        <div class="preview-body">
+          <div class="preview-field"><strong>Name:</strong> <span id="personaPreviewName"></span></div>
+          <div class="preview-field"><strong>Description:</strong> <span id="personaPreviewDesc"></span></div>
+          <div class="preview-field"><strong>Expertise:</strong> <span id="personaPreviewExpertise"></span></div>
+          <div class="preview-field"><strong>Interests:</strong> <span id="personaPreviewInterests"></span></div>
+        </div>
+        <div class="preview-actions">
+          <button class="btn btn--primary btn--sm" id="applyPersonaBtn">Apply Persona</button>
+          <button class="btn btn--secondary btn--sm" id="discardPersonaBtn">Discard</button>
+        </div>
+      </div>
+
+      <div class="refinement-banner" id="refinementBanner" style="display:none;">
+        <span>Multiple negative feedbacks detected. Consider refining your persona.</span>
+        <button class="btn btn--secondary btn--sm" id="refineBannerBtn">Refine</button>
+        <button class="preview-dismiss" id="refineBannerDismiss">&times;</button>
+      </div>
+
+      <div class="quick-replies" id="quickReplies" style="display:none;"></div>
+
+      <div class="chat-input-area">
+        <button class="btn btn--primary btn--full" id="setGoalBtn" style="display:none;">Set Reading Goal</button>
+        <div class="chat-secondary-actions" id="secondaryActions" style="display:none;">
+          <button class="secondary-action-link" id="generatePersonaBtn">Generate Persona</button>
+        </div>
+        <div class="chat-input-row">
+          <textarea id="chatInput" placeholder="Type a message..." rows="1"></textarea>
+          <button class="send-btn" id="sendBtn" title="Send">&#9654;</button>
         </div>
       </div>
     </div>
@@ -101,6 +127,7 @@
     </div>
   </div>
 
+  <script src="lib/research-db.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

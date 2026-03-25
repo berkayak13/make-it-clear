@@ -1,4 +1,4 @@
-// Research Dashboard — reads from IndexedDB via background.js messages
+// Research Dashboard — reads from Firestore via background.js messages
 
 let currentUserFilter = '';
 let currentSearchQuery = '';

@@ -126,7 +126,19 @@
             <input type="checkbox" id="enableResearchLoggingOpt" checked>
             <span>Enable Research Logging</span>
           </label>
-          <p class="setting-description">Log preference changes, chatbot interactions, feedback events, and pipeline runs to IndexedDB for research analysis.</p>
+          <p class="setting-description">Log preference changes, chatbot interactions, feedback events, and pipeline runs to Cloud Firestore for research analysis.</p>
+        </div>
+
+        <hr style="margin:12px 0;">
+        <h3 style="margin:0 0 8px;font-size:15px;">Cloud Firestore</h3>
+        <div class="setting-item">
+          <label for="firebaseProjectId">Firebase Project ID</label>
+          <input type="text" id="firebaseProjectId" placeholder="e.g., renarration-research">
+        </div>
+        <div class="setting-item">
+          <label for="firebaseApiKey">Firebase API Key</label>
+          <input type="password" id="firebaseApiKey" placeholder="Enter Firebase API key">
+          <p class="setting-description">Stored locally (not synced). Defaults are pre-configured; override only if using a different Firebase project.</p>
         </div>
 
         <div class="setting-item" style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;">

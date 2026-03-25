@@ -137,7 +137,7 @@ async function loadSettings() {
     'remoteVLMModel',
     'remoteVLMEndpoint'
   ]);
-  const local = await chrome.storage.local.get(['remoteVLMApiKey', 'studyUserId', 'useAgenticPipeline', 'enableResearchLogging']);
+  const local = await chrome.storage.local.get(['remoteVLMApiKey', 'studyUserId', 'useAgenticPipeline', 'enableResearchLogging', 'firebaseProjectId', 'firebaseApiKey']);
 
   // Research settings
   const userIdInput = document.getElementById('studyUserId');
@@ -146,6 +146,13 @@ async function loadSettings() {
   if (userIdInput) userIdInput.value = local.studyUserId || '';
   if (agenticOpt) agenticOpt.checked = !!local.useAgenticPipeline;
   if (loggingOpt) loggingOpt.checked = local.enableResearchLogging !== false;
+
+  // Firebase config
+  const fbProjectInput = document.getElementById('firebaseProjectId');
+  const fbApiKeyInput = document.getElementById('firebaseApiKey');
+  if (fbProjectInput) fbProjectInput.value = local.firebaseProjectId || 'renarration-research';
+  if (fbApiKeyInput) fbApiKeyInput.value = local.firebaseApiKey || 'AIzaSyB7WIlE0klfLmUKvO7JWF69Q2ioh2z_MBU';
+
   boilerplateText = await fetch(chrome.runtime.getURL('src/prompts/system.md')).then(r => r.text()).catch(() => '');
   
   let tasks = settings.tasks;
@@ -446,6 +453,22 @@ function setupEventListeners() {
   if (openDashBtn) {
     openDashBtn.addEventListener('click', () => {
       chrome.tabs.create({ url: chrome.runtime.getURL('viewers/research-dashboard.html') });
+    });
+  }
+
+  // Firebase config auto-save
+  const fbProjectInput = document.getElementById('firebaseProjectId');
+  const fbApiKeyInput = document.getElementById('firebaseApiKey');
+  if (fbProjectInput) {
+    fbProjectInput.addEventListener('change', () => {
+      chrome.storage.local.set({ firebaseProjectId: fbProjectInput.value.trim() });
+      showSaveStatus('Firebase Project ID saved');
+    });
+  }
+  if (fbApiKeyInput) {
+    fbApiKeyInput.addEventListener('change', () => {
+      chrome.storage.local.set({ firebaseApiKey: fbApiKeyInput.value.trim() });
+      showSaveStatus('Firebase API Key saved');
     });
   }
 

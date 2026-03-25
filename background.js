@@ -159,40 +159,94 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 // =========================================
-// Research DB (IndexedDB) — inline for service worker
+// Research DB (Firestore REST API) — inline for service worker
 // =========================================
-const RESEARCH_DB_NAME = 'renarration-research';
-const RESEARCH_DB_VERSION = 2;
-const RESEARCH_STORES = {
-  chatSessions: { keyPath: 'sessionId', indexes: ['userId', 'timestamp'] },
-  researchLogs: { keyPath: 'logId', indexes: ['userId', 'timestamp', 'category'] },
-  feedbackEvents: { keyPath: 'feedbackId', indexes: ['userId', 'timestamp', 'runId'] },
-  experimentRuns: { keyPath: 'experimentId', indexes: ['userId', 'timestamp'] },
-  preferenceHistory: { keyPath: 'id', autoIncrement: true, indexes: ['userId', 'timestamp'] },
-  userPreferences: { keyPath: 'preferenceId', autoIncrement: true, indexes: ['userId', 'timestamp'] }
-};
-let _researchDb = null;
+const FIRESTORE_DEFAULT_PROJECT_ID = 'renarration-research';
+const FIRESTORE_DEFAULT_API_KEY = 'AIzaSyB7WIlE0klfLmUKvO7JWF69Q2ioh2z_MBU';
 
-function openResearchDB() {
-  if (_researchDb) return Promise.resolve(_researchDb);
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(RESEARCH_DB_NAME, RESEARCH_DB_VERSION);
-    req.onupgradeneeded = (e) => {
-      const db = e.target.result;
-      for (const [name, config] of Object.entries(RESEARCH_STORES)) {
-        if (!db.objectStoreNames.contains(name)) {
-          const opts = { keyPath: config.keyPath };
-          if (config.autoIncrement) opts.autoIncrement = true;
-          const store = db.createObjectStore(name, opts);
-          for (const idx of config.indexes) {
-            store.createIndex(idx, idx, { unique: false });
-          }
-        }
-      }
-    };
-    req.onsuccess = (e) => { _researchDb = e.target.result; _researchDb.onclose = () => { _researchDb = null; }; resolve(_researchDb); };
-    req.onerror = (e) => reject(e.target.error);
-  });
+const RESEARCH_STORES = {
+  chatSessions: { keyPath: 'sessionId' },
+  researchLogs: { keyPath: 'logId' },
+  feedbackEvents: { keyPath: 'feedbackId' },
+  experimentRuns: { keyPath: 'experimentId' },
+  preferenceHistory: { keyPath: 'id', autoGenerate: true },
+  userPreferences: { keyPath: 'preferenceId', autoGenerate: true }
+};
+
+let _firestoreConfig = null;
+
+async function getFirestoreConfig() {
+  if (_firestoreConfig) return _firestoreConfig;
+  const stored = await chrome.storage.local.get(['firebaseProjectId', 'firebaseApiKey']);
+  _firestoreConfig = {
+    projectId: stored.firebaseProjectId || FIRESTORE_DEFAULT_PROJECT_ID,
+    apiKey: stored.firebaseApiKey || FIRESTORE_DEFAULT_API_KEY
+  };
+  return _firestoreConfig;
+}
+
+// Listen for config changes to invalidate cache
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && (changes.firebaseProjectId || changes.firebaseApiKey)) {
+    _firestoreConfig = null;
+  }
+});
+
+function firestoreBasePath(projectId) {
+  return `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents`;
+}
+
+// Value encoding: JS → Firestore
+function toFirestoreValue(val) {
+  if (val === null || val === undefined) return { nullValue: null };
+  if (typeof val === 'boolean') return { booleanValue: val };
+  if (typeof val === 'number') {
+    return Number.isInteger(val) ? { integerValue: String(val) } : { doubleValue: val };
+  }
+  if (typeof val === 'string') return { stringValue: val };
+  if (Array.isArray(val)) {
+    return { arrayValue: { values: val.map(toFirestoreValue) } };
+  }
+  if (typeof val === 'object') {
+    const fields = {};
+    for (const [k, v] of Object.entries(val)) {
+      fields[k] = toFirestoreValue(v);
+    }
+    return { mapValue: { fields } };
+  }
+  return { stringValue: String(val) };
+}
+
+// Value decoding: Firestore → JS
+function fromFirestoreValue(val) {
+  if ('nullValue' in val) return null;
+  if ('booleanValue' in val) return val.booleanValue;
+  if ('integerValue' in val) return Number(val.integerValue);
+  if ('doubleValue' in val) return val.doubleValue;
+  if ('stringValue' in val) return val.stringValue;
+  if ('arrayValue' in val) {
+    return (val.arrayValue.values || []).map(fromFirestoreValue);
+  }
+  if ('mapValue' in val) {
+    return fromFirestoreFields(val.mapValue.fields || {});
+  }
+  return null;
+}
+
+function toFirestoreFields(obj) {
+  const fields = {};
+  for (const [k, v] of Object.entries(obj)) {
+    fields[k] = toFirestoreValue(v);
+  }
+  return fields;
+}
+
+function fromFirestoreFields(fields) {
+  const obj = {};
+  for (const [k, v] of Object.entries(fields)) {
+    obj[k] = fromFirestoreValue(v);
+  }
+  return obj;
 }
 
 function researchGenerateId() {
@@ -204,59 +258,141 @@ function researchGenerateId() {
 }
 
 async function researchPut(storeName, record) {
-  const db = await openResearchDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(storeName, 'readwrite');
-    const store = tx.objectStore(storeName);
-    const r = store.put(record);
-    r.onsuccess = () => resolve(record);
-    r.onerror = (e) => reject(e.target.error);
+  const config = await getFirestoreConfig();
+  const base = firestoreBasePath(config.projectId);
+  const storeConfig = RESEARCH_STORES[storeName];
+  if (!storeConfig) throw new Error('Unknown store: ' + storeName);
+
+  // Determine document ID
+  let docId = record[storeConfig.keyPath];
+  if (!docId && storeConfig.autoGenerate) {
+    docId = researchGenerateId();
+    record[storeConfig.keyPath] = docId;
+  }
+  if (!docId) throw new Error('Missing document ID for store: ' + storeName);
+
+  const url = `${base}/${storeName}/${docId}?key=${config.apiKey}`;
+  const body = { fields: toFirestoreFields(record) };
+
+  const resp = await fetch(url, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
   });
+  if (!resp.ok) {
+    const err = await resp.text();
+    console.error('Firestore PUT error:', resp.status, err);
+    throw new Error(`Firestore PUT failed (${resp.status}): ${err}`);
+  }
+  return record;
 }
 
 async function researchGet(storeName, key) {
-  const db = await openResearchDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(storeName, 'readonly');
-    const store = tx.objectStore(storeName);
-    const r = store.get(key);
-    r.onsuccess = () => resolve(r.result || null);
-    r.onerror = (e) => reject(e.target.error);
-  });
+  const config = await getFirestoreConfig();
+  const base = firestoreBasePath(config.projectId);
+  const url = `${base}/${storeName}/${key}?key=${config.apiKey}`;
+
+  const resp = await fetch(url);
+  if (resp.status === 404) return null;
+  if (!resp.ok) {
+    const err = await resp.text();
+    console.error('Firestore GET error:', resp.status, err);
+    throw new Error(`Firestore GET failed (${resp.status}): ${err}`);
+  }
+  const doc = await resp.json();
+  return doc.fields ? fromFirestoreFields(doc.fields) : null;
 }
 
 async function researchGetAll(storeName) {
-  const db = await openResearchDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(storeName, 'readonly');
-    const store = tx.objectStore(storeName);
-    const r = store.getAll();
-    r.onsuccess = () => resolve(r.result || []);
-    r.onerror = (e) => reject(e.target.error);
-  });
+  const config = await getFirestoreConfig();
+  const base = firestoreBasePath(config.projectId);
+  const results = [];
+  let pageToken = '';
+
+  do {
+    let url = `${base}/${storeName}?key=${config.apiKey}&pageSize=300`;
+    if (pageToken) url += `&pageToken=${pageToken}`;
+
+    const resp = await fetch(url);
+    if (!resp.ok) {
+      const err = await resp.text();
+      console.error('Firestore LIST error:', resp.status, err);
+      throw new Error(`Firestore LIST failed (${resp.status}): ${err}`);
+    }
+    const data = await resp.json();
+    if (data.documents) {
+      for (const doc of data.documents) {
+        if (doc.fields) results.push(fromFirestoreFields(doc.fields));
+      }
+    }
+    pageToken = data.nextPageToken || '';
+  } while (pageToken);
+
+  return results;
 }
 
 async function researchGetByIndex(storeName, indexName, value) {
-  const db = await openResearchDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(storeName, 'readonly');
-    const store = tx.objectStore(storeName);
-    const idx = store.index(indexName);
-    const r = idx.getAll(value);
-    r.onsuccess = () => resolve(r.result || []);
-    r.onerror = (e) => reject(e.target.error);
+  const config = await getFirestoreConfig();
+  const base = firestoreBasePath(config.projectId);
+  const url = `${base}:runQuery?key=${config.apiKey}`;
+
+  const body = {
+    structuredQuery: {
+      from: [{ collectionId: storeName }],
+      where: {
+        fieldFilter: {
+          field: { fieldPath: indexName },
+          op: 'EQUAL',
+          value: toFirestoreValue(value)
+        }
+      }
+    }
+  };
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
   });
+  if (!resp.ok) {
+    const err = await resp.text();
+    console.error('Firestore QUERY error:', resp.status, err);
+    throw new Error(`Firestore QUERY failed (${resp.status}): ${err}`);
+  }
+  const results = await resp.json();
+  return (results || [])
+    .filter(r => r.document && r.document.fields)
+    .map(r => fromFirestoreFields(r.document.fields));
 }
 
 async function researchClearStore(storeName) {
-  const db = await openResearchDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(storeName, 'readwrite');
-    const store = tx.objectStore(storeName);
-    const r = store.clear();
-    r.onsuccess = () => resolve(true);
-    r.onerror = (e) => reject(e.target.error);
-  });
+  const config = await getFirestoreConfig();
+  const base = firestoreBasePath(config.projectId);
+
+  // List all documents then batch delete
+  let pageToken = '';
+  do {
+    let url = `${base}/${storeName}?key=${config.apiKey}&pageSize=300`;
+    if (pageToken) url += `&pageToken=${pageToken}`;
+
+    const resp = await fetch(url);
+    if (!resp.ok) break;
+    const data = await resp.json();
+    if (!data.documents || data.documents.length === 0) break;
+
+    // Batch delete (max 500 per batch)
+    const writes = data.documents.map(doc => ({ delete: doc.name }));
+    const batchUrl = `https://firestore.googleapis.com/v1/projects/${config.projectId}/databases/(default)/documents:batchWrite?key=${config.apiKey}`;
+    await fetch(batchUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ writes })
+    });
+
+    pageToken = data.nextPageToken || '';
+  } while (pageToken);
+
+  return true;
 }
 
 function researchExportCSV(records) {
@@ -303,7 +439,7 @@ async function setUserId(newId) {
 }
 
 // =========================================
-// Preference tracking — log changes to IndexedDB
+// Preference tracking — log changes to Firestore
 // =========================================
 const TRACKED_PREF_KEYS = ['currentTask', 'currentPersona', 'webllmModel', 'systemPromptTemplate', 'readingGoal'];
 
@@ -746,6 +882,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   } else if (request.action === 'renarrate-page') {
     renarratePage(sender?.tab?.id ?? request.tabId).then(sendResponse);
+    return true;
+  } else if (request.action === 'renarrate-page-dom') {
+    renarratePageDom(sender?.tab?.id ?? request.tabId).then(sendResponse);
     return true;
   } else if (request.action === 'get-pipeline-logs') {
     getPipelineLogs().then(sendResponse);
@@ -1528,6 +1667,165 @@ async function renarratePage(tabId) {
   }
 }
 
+// ---- DOM-based page renarration (clone sidebar) ----
+
+async function renarratePageDom(tabId) {
+  try {
+    if (!tabId) return { success: false, error: 'No active tab' };
+
+    // Step 1: Ask content script to extract text segments and build clone sidebar
+    let extractResult;
+    try {
+      extractResult = await chrome.tabs.sendMessage(tabId, { action: 'extract-and-clone' });
+    } catch (e) {
+      return { success: false, error: 'Could not communicate with page. Try refreshing.' };
+    }
+
+    if (!extractResult?.success || !extractResult.segments?.length) {
+      // Fall back to old VLM pipeline if too few text segments
+      chrome.tabs.sendMessage(tabId, { action: 'hide-dom-renarration' }).catch(() => {});
+      return renarratePage(tabId);
+    }
+
+    const segments = extractResult.segments;
+    console.log(`[renarratePageDom] Extracted ${segments.length} text segments`);
+
+    // Step 2: Send segments to LLM for renarration
+    chrome.tabs.sendMessage(tabId, { action: 'update-clone-progress', text: `Renarrating ${segments.length} text segments...` }).catch(() => {});
+
+    const result = await renarrateDomSegments(segments);
+    if (!result.success) {
+      chrome.tabs.sendMessage(tabId, { action: 'hide-dom-renarration' }).catch(() => {});
+      return result;
+    }
+
+    // Step 3: Send replacements to content script to apply
+    chrome.tabs.sendMessage(tabId, { action: 'apply-dom-renarration', replacements: result.replacements }).catch(() => {});
+
+    // Store for viewer access
+    try {
+      const renarrationText = result.replacements.map(r => r.text).join('\n\n');
+      const originalText = segments.map(s => s.text).join('\n\n');
+      await chrome.storage.local.set({
+        lastPageRenarration: {
+          vlmContent: originalText.slice(0, 20000),
+          renarration: renarrationText.slice(0, 20000),
+          at: new Date().toISOString()
+        }
+      });
+    } catch (e) {
+      console.warn('[renarratePageDom] Storage failed:', e?.message);
+    }
+
+    return { success: true, segmentCount: segments.length, replacementCount: result.replacements.length };
+  } catch (error) {
+    if (tabId) {
+      chrome.tabs.sendMessage(tabId, { action: 'hide-dom-renarration' }).catch(() => {});
+    }
+    return { success: false, error: error?.message || String(error) };
+  }
+}
+
+async function renarrateDomSegments(segments) {
+  // Build system prompt using current task/persona (same as renarrateText)
+  const settings = await getSettingsWithTaskMigration([
+    'webllmModel',
+    'personas',
+    'currentPersona',
+    'systemPromptTemplate'
+  ]);
+  const tasks = settings.tasks || DEFAULT_TASKS;
+  const task = tasks[settings.currentTask] || tasks.simple || DEFAULT_TASKS.simple;
+  const persona = settings.personas?.[settings.currentPersona];
+
+  const basePrompt = task?.textPrompt || '';
+  const personaText = persona ? (persona.systemAddendum || persona.description || '') : '';
+  const boilerplate = await getSystemBoilerplate();
+  const { readingGoal } = await chrome.storage.sync.get(['readingGoal']);
+  let systemPrompt = applyPromptTemplate(
+    settings.systemPromptTemplate,
+    basePrompt,
+    personaText,
+    boilerplate,
+    readingGoal || ''
+  );
+
+  systemPrompt += '\n\nIMPORTANT: You will receive a JSON array of numbered text segments from a webpage. ' +
+    'Renarrate each segment according to your instructions above. ' +
+    'Return ONLY a valid JSON array where each element has "id" (matching the input id) and "text" (the renarrated version). ' +
+    'If a segment is short navigation text, a button label, or boilerplate, return it unchanged. ' +
+    'Do NOT wrap the response in markdown code fences. Return raw JSON only.';
+
+  // Batch segments if too large
+  const MAX_CHARS_PER_BATCH = 4000;
+  const batches = [];
+  let currentBatch = [];
+  let currentLen = 0;
+  for (const seg of segments) {
+    const segLen = seg.text.length;
+    if (currentBatch.length > 0 && currentLen + segLen > MAX_CHARS_PER_BATCH) {
+      batches.push(currentBatch);
+      currentBatch = [];
+      currentLen = 0;
+    }
+    currentBatch.push(seg);
+    currentLen += segLen;
+  }
+  if (currentBatch.length > 0) batches.push(currentBatch);
+
+  console.log(`[renarrateDomSegments] Processing ${batches.length} batch(es) for ${segments.length} segments`);
+
+  const allReplacements = [];
+  for (const batch of batches) {
+    const userMessage = JSON.stringify(batch.map(s => ({ id: s.id, text: s.text })));
+    const messages = [{ role: 'user', content: userMessage }];
+
+    let result;
+    try {
+      result = await callLLM(messages, systemPrompt, { temperature: 0.3 });
+    } catch (e) {
+      console.warn('[renarrateDomSegments] LLM call failed:', e?.message);
+      return { success: false, error: 'LLM call failed: ' + (e?.message || 'unknown') };
+    }
+
+    if (!result?.success) {
+      return { success: false, error: result?.error || 'LLM returned no result' };
+    }
+
+    // Parse JSON response
+    let parsed;
+    try {
+      const cleaned = result.result.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+      parsed = JSON.parse(cleaned);
+    } catch (e) {
+      // Retry once asking for valid JSON
+      console.warn('[renarrateDomSegments] JSON parse failed, retrying...');
+      try {
+        const retryMessages = [
+          { role: 'user', content: userMessage },
+          { role: 'model', content: result.result },
+          { role: 'user', content: 'Your response was not valid JSON. Please return ONLY a valid JSON array with objects having "id" and "text" fields. No markdown, no explanation.' }
+        ];
+        const retry = await callLLM(retryMessages, systemPrompt, { temperature: 0.1 });
+        if (retry?.success) {
+          const cleaned2 = retry.result.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+          parsed = JSON.parse(cleaned2);
+        }
+      } catch (e2) {
+        return { success: false, error: 'Failed to parse LLM response as JSON after retry' };
+      }
+    }
+
+    if (!Array.isArray(parsed)) {
+      return { success: false, error: 'LLM did not return a JSON array' };
+    }
+
+    allReplacements.push(...parsed);
+  }
+
+  return { success: true, replacements: allReplacements };
+}
+
 // Utilities for remote VLM (hosted) calls
 async function toDataUrl(imageUrl) {
   const res = await fetch(imageUrl);
@@ -1678,7 +1976,7 @@ async function appendPipelineLog(entry) {
   try {
     await chrome.storage.local.set({ [PIPELINE_LOG_KEY]: toStore });
     console.log(`[appendPipelineLog] Success storing ${toStore.length} entries`);
-    // Mirror to IndexedDB for research
+    // Mirror to Firestore for research
     try {
       const { enableResearchLogging } = await chrome.storage.local.get(['enableResearchLogging']);
       if (enableResearchLogging !== false) {
