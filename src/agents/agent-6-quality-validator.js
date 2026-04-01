@@ -65,16 +65,18 @@ export async function run(context) {
     renarrationPayload
   ].filter(Boolean).join('\n');
 
-  const response = await callLLM({
-    prompt: fullPrompt,
-    tier: 'quality'
-  });
+  const response = await callLLM(
+    [{ role: 'user', content: fullPrompt }],
+    'You are a quality validation agent. Evaluate the renarration and return JSON with scores and flagged sections.',
+    { tier: 'quality' }
+  );
 
   let scores = { coherence: 3, coverage: 3, intentAlignment: 3, toneConsistency: 3 };
   let flaggedSections = [];
 
   try {
-    const text = response?.text || response || '';
+    if (!response?.success) throw new Error(response?.error || 'LLM call failed');
+    const text = response.result || '';
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
       const parsed = JSON.parse(jsonMatch[0]);
@@ -90,8 +92,8 @@ export async function run(context) {
         flaggedSections = parsed.flaggedSections;
       }
     }
-  } catch {
-    // Keep default scores on parse failure
+  } catch (err) {
+    console.warn('Quality validator: failed to parse LLM response:', err?.message);
   }
 
   const averageScore = (
@@ -126,7 +128,12 @@ export async function run(context) {
     context.validation.retryCount = retryCount + 1;
     context.needsRetry = true;
     context.replanSignal = {
-      flaggedSections,
+      flaggedSections: flaggedSections.map(f => ({
+        sectionId: f.sectionId,
+        suggestedStrategy: f.suggestion || null,
+        suggestedFleschTarget: null,
+        issue: f.issue
+      })),
       failureMemory: updatedFailureMemory
     };
   }

@@ -139,12 +139,14 @@ export async function run(context) {
       .replace('{memoryProfile}', memorySnippet);
 
     // --- Call LLM (quality tier) ----------------------------------------
-    const llmResponse = await callLLM({
-      prompt: filledPrompt,
-      tier: 'quality',
-    });
+    const llmResponse = await callLLM(
+      [{ role: 'user', content: filledPrompt }],
+      'You are an intent analysis agent. Parse the user request into a structured intent specification.',
+      { tier: 'quality' }
+    );
 
-    const parsed = parseJSON(llmResponse);
+    if (!llmResponse.success) throw new Error(llmResponse.error);
+    const parsed = parseJSON(llmResponse.result);
     context.intent = normaliseIntent(parsed, context.rawRequest);
   } catch (err) {
     // --- Fallback: keyword-based extraction ------------------------------

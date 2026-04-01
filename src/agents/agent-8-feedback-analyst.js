@@ -112,8 +112,13 @@ async function handleCorrection(userId, feedbackEvent, context) {
 
   let analysis;
   try {
-    const response = await callLLM(prompt, { maxTokens: 500, temperature: 0.2 });
-    analysis = parseFeedbackResponse(response);
+    const response = await callLLM(
+      [{ role: 'user', content: prompt }],
+      '',
+      { maxTokens: 500, temperature: 0.2 }
+    );
+    if (!response.success) throw new Error(response.error || 'LLM call failed');
+    analysis = parseFeedbackResponse(response.result);
   } catch (err) {
     console.warn('[feedback-analyst] LLM analysis failed:', err.message);
     return result;

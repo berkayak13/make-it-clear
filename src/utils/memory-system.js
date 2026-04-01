@@ -417,7 +417,7 @@ export async function clearMemory(userId, layer) {
 export function parseLLMJson(response, fallback = null) {
   if (!response) return fallback;
   try {
-    const text = typeof response === 'string' ? response : (response.text || response.content || '');
+    const text = typeof response === 'string' ? response : (response.result || response.text || response.content || '');
     const cleaned = text.replace(/```json?\s*/g, '').replace(/```\s*/g, '').trim();
     return JSON.parse(cleaned);
   } catch {

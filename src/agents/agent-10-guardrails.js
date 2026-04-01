@@ -50,17 +50,20 @@ function buildComparisonPayload(renarrations, sectionMap) {
 async function runLlmChecks(renarrations, sectionMap, promptTemplate) {
   const comparisonPayload = buildComparisonPayload(renarrations, sectionMap);
 
-  const response = await callLLM({
-    prompt: `${promptTemplate}\n\n## Content to Check\n\n${comparisonPayload}`,
-    tier: 'fast'
-  });
+  const response = await callLLM(
+    [{ role: 'user', content: `${promptTemplate}\n\n## Content to Check\n\n${comparisonPayload}` }],
+    'You are a guardrails agent. Check for hallucinations, bias, and safety issues. Return a JSON array of flags.',
+    { tier: 'fast' }
+  );
 
   try {
-    const text = response?.text || response || '';
+    if (!response?.success) throw new Error(response?.error || 'LLM call failed');
+    const text = response.result || '';
     const jsonMatch = text.match(/\[[\s\S]*\]/);
     if (!jsonMatch) return [];
     return JSON.parse(jsonMatch[0]);
-  } catch {
+  } catch (err) {
+    console.warn('Guardrails: failed to parse LLM response:', err?.message);
     return [];
   }
 }

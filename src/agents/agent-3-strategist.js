@@ -215,7 +215,7 @@ export async function run(context) {
 
     const responseText = typeof llmResponse === 'string'
       ? llmResponse
-      : llmResponse?.result || llmResponse?.text || JSON.stringify(llmResponse);
+      : llmResponse?.result || JSON.stringify(llmResponse);
 
     const parsed = parseJSON(responseText);
 

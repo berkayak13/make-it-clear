@@ -86,9 +86,17 @@ export async function runPipeline(request) {
         try {
           await chrome.scripting.executeScript({ target: { tabId }, files: ['content.js'] });
           await chrome.scripting.insertCSS({ target: { tabId }, files: ['content.css'] });
-          // Small delay for script to initialize
-          await new Promise(r => setTimeout(r, 300));
-          const extractResult = await chrome.tabs.sendMessage(tabId, { action: 'extract-and-clone' });
+          // Retry with backoff until content script responds
+          let extractResult = null;
+          for (const delay of [200, 500, 1000]) {
+            await new Promise(r => setTimeout(r, delay));
+            try {
+              extractResult = await chrome.tabs.sendMessage(tabId, { action: 'extract-and-clone' });
+              if (extractResult?.success) break;
+            } catch {
+              extractResult = null;
+            }
+          }
           if (extractResult?.success && extractResult.segments?.length) {
             sidebarOpen = true;
             segments = extractResult.segments;
@@ -150,13 +158,24 @@ export async function runPipeline(request) {
 
     await executeAgent(agent, context);
 
-    if (context.needsRetry && context.validation.retryCount < 2) {
-      context.validation.retryCount++;
-      if (sidebarOpen) sendProgress(tabId, 'Quality check failed — replanning...');
+    // Halt pipeline if guardrails detected critical issues (XSS, fabrication)
+    if (agentName === 'guardrails' && !context.guardrails?.passed) {
+      context.log.push({ agent: 'orchestrator', detail: 'Guardrails failed — halting pipeline', flags: context.guardrails?.flags });
+      break;
+    }
+
+    // Quality validator retry loop: re-run strategist → narrator → guardrails → quality
+    // Agent-6 manages retryCount internally, so no increment here.
+    if (context.needsRetry) {
+      if (sidebarOpen) sendProgress(tabId, `Quality check failed — replanning (attempt ${context.validation.retryCount})...`);
       const strategist = agentMap.get('content-strategist');
       const narrator = agentMap.get('narrator');
+      const guardrailsAgent = agentMap.get('guardrails');
+      const qualityAgent = agentMap.get('quality-validator');
       if (strategist) await executeAgent(strategist, context);
       if (narrator) await executeAgent(narrator, context);
+      if (guardrailsAgent) await executeAgent(guardrailsAgent, context);
+      if (qualityAgent) await executeAgent(qualityAgent, context);
       context.needsRetry = false;
     }
   }
@@ -308,6 +327,7 @@ async function executeAgent(agent, context) {
     context.log.push({ agent: agent.name, durationMs: dur, success: false, detail: e.message });
     await updateVisualizerAgentStatus(agent.name, 'failed', dur, context);
     sendProgress(context.tabId, `\u26A0 ${label} failed: ${e.message}`);
+    if (!agent.optional) throw e;
   }
 }
 
@@ -340,12 +360,12 @@ async function updateVisualizerAgentStatus(agentName, status, durationMs, contex
 }
 
 export async function runPredictiveAdapter(tabId, pageMetadata) {
-  if (!predictiveAgent?.run) return { predictions: [], adapted: false };
-  const context = { tabId, pageMetadata, memory: { semantic: {}, episodic: [], procedural: {} } };
+  if (!predictiveAgent?.run) return { suggestions: [], greeting: '' };
+  const context = { tabId, pageMetadata, memory: { semantic: {}, episodic: [], procedural: {} }, log: [] };
   try {
     const userId = await getOrCreateUserId();
     context.memory = await loadMemory(userId);
   } catch (e) {}
-  await predictiveAgent.run(context);
-  return context;
+  const result = await predictiveAgent.run(context);
+  return { suggestions: result?.suggestions || [], greeting: result?.greeting || '' };
 }

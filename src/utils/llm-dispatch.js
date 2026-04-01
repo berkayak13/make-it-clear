@@ -4,8 +4,8 @@ const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 const GEMINI_TIMEOUT_MS = 60000;
 
 const TIER_MODELS = {
-  fast: 'gemini-2.0-flash-lite',
-  quality: 'gemini-2.5-flash'
+  fast: 'gemini-2.5-flash',
+  quality: 'gemini-2.5-pro'
 };
 
 /**
@@ -26,7 +26,7 @@ export async function getEffectiveLLMProvider() {
  */
 export async function callGeminiChat(conversationContents, systemInstruction, overrides = {}) {
   const settings = await chrome.storage.sync.get(['remoteVLMModel', 'remoteVLMEndpoint']);
-  const model = overrides.model || settings.remoteVLMModel || 'gemini-2.5-flash';
+  const model = overrides.model || settings.remoteVLMModel || 'gemini-2.5-pro';
   const endpoint = settings.remoteVLMEndpoint ||
     'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent';
 
@@ -115,7 +115,7 @@ export async function callWebLLMChat(messages, systemPrompt, options = {}) {
  * @param {Array} messages - OpenAI-format [{role, content}]
  * @param {string} systemPrompt - System instruction text
  * @param {object} options - { forceProvider, temperature, modelId, timeoutMs, tier }
- *   tier: 'fast' uses gemini-2.0-flash-lite, 'quality' uses gemini-2.5-flash
+ *   tier: 'fast' uses gemini-2.5-flash, 'quality' uses gemini-2.5-pro
  */
 export async function callLLM(messages, systemPrompt, options = {}) {
   const provider = options.forceProvider || await getEffectiveLLMProvider();

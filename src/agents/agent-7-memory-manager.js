@@ -133,8 +133,13 @@ async function extractPreferences(context) {
       validationNote ? `$1`.replace('{{validationNote}}', validationNote.slice(0, 200)) : ''
     );
 
-  const response = await callLLM(prompt, { maxTokens: 300, temperature: 0.2 });
-  return parsePreferenceResponse(response);
+  const response = await callLLM(
+    [{ role: 'user', content: prompt }],
+    '',
+    { maxTokens: 300, temperature: 0.2 }
+  );
+  if (!response.success) return [];
+  return parsePreferenceResponse(response.result);
 }
 
 function getRenarrationPreview(renarrations) {

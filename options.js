@@ -84,7 +84,7 @@ const DEFAULT_PERSONAS = {
 
 const DEFAULT_REMOTE_VLM = {
   useRemoteVLM: false,
-  remoteVLMModel: 'gemini-2.5-flash',
+  remoteVLMModel: 'gemini-2.5-pro',
   remoteVLMEndpoint: 'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent',
   remoteVLMApiKey: ''
 };

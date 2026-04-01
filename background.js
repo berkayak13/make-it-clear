@@ -148,7 +148,7 @@ chrome.runtime.onInstalled.addListener(() => {
     useWebLLM: true,
     webllmModel: 'gemma-2-2b-it-q4f16_1-MLC',
     useRemoteVLM: true,
-    remoteVLMModel: 'gemini-2.5-flash',
+    remoteVLMModel: 'gemini-2.5-pro',
     remoteVLMEndpoint: 'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent',
     personas: DEFAULT_PERSONAS,
     currentPersona: 'general'
@@ -536,10 +536,10 @@ async function getEffectiveLLMProvider() {
 // =========================================
 // Gemini Chat API (multi-turn)
 // =========================================
-async function callGeminiChat(conversationContents, systemInstruction) {
+async function callGeminiChat(conversationContents, systemInstruction, overrides = {}) {
   const settings = await chrome.storage.sync.get(['remoteVLMModel', 'remoteVLMEndpoint']);
   const { remoteVLMApiKey } = await chrome.storage.local.get(['remoteVLMApiKey']);
-  const model = settings.remoteVLMModel || 'gemini-2.5-flash';
+  const model = overrides.model || settings.remoteVLMModel || 'gemini-2.5-pro';
   const endpoint = settings.remoteVLMEndpoint || 'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent';
   if (!remoteVLMApiKey) return { success: false, error: 'API key not configured. Set it in Advanced Settings.' };
 
@@ -587,14 +587,14 @@ async function callGeminiChat(conversationContents, systemInstruction) {
  * Convert OpenAI-format messages to Gemini format and call callGeminiChat.
  * Filters out system messages (handled via systemInstruction param).
  */
-async function callGeminiChatFromMessages(messages, systemPrompt) {
+async function callGeminiChatFromMessages(messages, systemPrompt, overrides = {}) {
   const contents = messages
     .filter(m => m.role !== 'system')
     .map(m => ({
       role: m.role === 'assistant' ? 'model' : 'user',
       parts: [{ text: m.content }]
     }));
-  return callGeminiChat(contents, systemPrompt);
+  return callGeminiChat(contents, systemPrompt, overrides);
 }
 
 /**
@@ -632,12 +632,18 @@ async function callWebLLMChat(messages, systemPrompt, options = {}) {
  * @param {string} systemPrompt - System instruction text
  * @param {object} options - { forceProvider, temperature, modelId, timeoutMs }
  */
+const BG_TIER_MODELS = { fast: 'gemini-2.5-flash', quality: 'gemini-2.5-pro' };
+
 async function callLLM(messages, systemPrompt, options = {}) {
   const provider = options.forceProvider || await getEffectiveLLMProvider();
   if (provider === 'on-device') {
     return callWebLLMChat(messages, systemPrompt, options);
   }
-  return callGeminiChatFromMessages(messages, systemPrompt);
+  const overrides = {};
+  if (options.tier && BG_TIER_MODELS[options.tier]) {
+    overrides.model = BG_TIER_MODELS[options.tier];
+  }
+  return callGeminiChatFromMessages(messages, systemPrompt, overrides);
 }
 
 // =========================================
@@ -702,7 +708,15 @@ async function agenticRenarrateText(text, taskName, overrideTask, options = {}) 
       continue;
     }
 
-    const evalResult = await evaluateRenarration(text, result.result, taskInfo, personaInfo, readingGoal || '');
+    let evalResult;
+    try {
+      evalResult = await Promise.race([
+        evaluateRenarration(text, result.result, taskInfo, personaInfo, readingGoal || ''),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Evaluation timed out')), 30000))
+      ]);
+    } catch (e) {
+      evalResult = { success: false, error: e.message };
+    }
     const score = evalResult?.success ? evalResult.scores.averageScore : 0;
     const attemptData = {
       attempt: i + 1,
@@ -1363,7 +1377,7 @@ async function describeImage(imageUrl, taskName) {
     const tasks = settings.tasks || DEFAULT_TASKS;
     const task = tasks[taskName || settings.currentTask] || tasks.simple || DEFAULT_TASKS.simple;
 
-    const model = settings.remoteVLMModel || 'gemini-2.5-flash';
+    const model = settings.remoteVLMModel || 'gemini-2.5-pro';
     const endpoint = settings.remoteVLMEndpoint ||
       'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent';
 

@@ -185,10 +185,15 @@ async function generateLLMSuggestions(pageMetadata, memory, context) {
     .replace('{userProfile}', userProfile)
     .replace('{pastSessions}', pastSummaries);
 
-  const raw = await callLLM(filledPrompt, { tier: 'fast' });
+  const raw = await callLLM(
+    [{ role: 'user', content: filledPrompt }],
+    '',
+    { tier: 'fast' }
+  );
 
   try {
-    const parsed = JSON.parse(raw);
+    if (!raw.success) return [];
+    const parsed = JSON.parse(raw.result);
     if (Array.isArray(parsed)) {
       return parsed.map((s) => ({
         label: s.label || 'Suggestion',

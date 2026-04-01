@@ -227,7 +227,15 @@ export async function agenticRenarrateText(text, taskName, overrideTask, options
       continue;
     }
 
-    const evalResult = await evaluateRenarration(text, result.result, taskInfo, personaInfo, readingGoal || '');
+    let evalResult;
+    try {
+      evalResult = await Promise.race([
+        evaluateRenarration(text, result.result, taskInfo, personaInfo, readingGoal || ''),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Evaluation timed out')), 30000))
+      ]);
+    } catch (e) {
+      evalResult = { success: false, error: e.message };
+    }
     const score = evalResult?.success ? evalResult.scores.averageScore : 0;
     const attemptData = {
       attempt: i + 1,
