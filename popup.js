@@ -15,7 +15,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   const apiKeyStatus = document.getElementById('apiKeyStatus');
   const setupCard = document.getElementById('setupCard');
   const setupToggle = document.getElementById('setupToggle');
-  const renarrateBtn = document.getElementById('renarratePageBtn');
   const renarrateStatus = document.getElementById('renarrateStatus');
   const optionsLink = document.getElementById('optionsLink');
   const testingDashboardLink = document.getElementById('testingDashboardLink');
@@ -186,21 +185,36 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  // --- Renarrate ---
-  if (renarrateBtn) {
-    renarrateBtn.addEventListener('click', async () => {
+  // --- Renarrate Page (Agentic Pipeline) ---
+  const agenticPipelineBtn = document.getElementById('agenticPipelineBtn');
+  if (agenticPipelineBtn) {
+    agenticPipelineBtn.addEventListener('click', async () => {
       if (renarrateStatus) renarrateStatus.textContent = 'Processing\u2026';
       try {
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
         const tabId = tab?.id;
-        const res = await chrome.runtime.sendMessage({ action: 'renarrate-page-dom', tabId });
+        // Run the agentic pipeline — it captures screenshots, runs agents, and
+        // streams renarrated sections to the content script sidebar
+        const res = await chrome.runtime.sendMessage({
+          action: 'run-agentic-pipeline',
+          tabId,
+          text: 'Renarrate this page',
+          pageMetadata: { url: tab?.url, title: tab?.title }
+        });
         if (res && res.success) {
-          if (renarrateStatus) renarrateStatus.textContent = 'Done \u2014 see sidebar';
+          let msg = 'Done \u2014 see sidebar';
+          if (res.failedCount > 0) {
+            msg += ` (${res.failedCount} agent${res.failedCount > 1 ? 's' : ''} failed)`;
+          }
+          if (renarrateStatus) renarrateStatus.textContent = msg;
+          if (res.errors?.length) {
+            console.warn('[Pipeline errors]', res.errors);
+          }
         } else {
-          if (renarrateStatus) renarrateStatus.textContent = res?.error || 'Failed';
+          if (renarrateStatus) renarrateStatus.textContent = 'Error: ' + (res?.error || 'Pipeline failed');
         }
-      } catch {
-        if (renarrateStatus) renarrateStatus.textContent = 'Error';
+      } catch (e) {
+        if (renarrateStatus) renarrateStatus.textContent = 'Error: ' + (e.message || 'unknown');
       }
     });
   }
@@ -342,6 +356,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     testingDashboardLink.addEventListener('click', async (e) => {
       e.preventDefault();
       await chrome.tabs.create({ url: chrome.runtime.getURL('viewers/testing-dashboard.html') });
+    });
+  }
+
+  const pipelineVisualizerLink = document.getElementById('pipelineVisualizerLink');
+  if (pipelineVisualizerLink) {
+    pipelineVisualizerLink.addEventListener('click', async (e) => {
+      e.preventDefault();
+      await chrome.tabs.create({ url: chrome.runtime.getURL('viewers/pipeline-visualizer.html') });
     });
   }
 

@@ -1,0 +1,354 @@
+// Dynamic Orchestrator — coordinates all 11 agents in the agentic pipeline.
+// Uses static imports to avoid Vite's preload polyfill (incompatible with service workers).
+
+import { generateId } from '../utils/id.js';
+import { appendPipelineLog } from '../utils/pipeline-logger.js';
+import { loadMemory } from '../utils/memory-system.js';
+import { getOrCreateUserId } from '../utils/storage-helpers.js';
+
+import * as routerAgent from '../agents/agent-0-router.js';
+import * as intentAgent from '../agents/agent-1-intent.js';
+import * as cartographerAgent from '../agents/agent-2-visual-cartographer.js';
+import * as strategistAgent from '../agents/agent-3-strategist.js';
+import * as narratorAgent from '../agents/agent-4-narrator.js';
+import * as diagramAgent from '../agents/agent-5-diagram-generator.js';
+import * as qualityAgent from '../agents/agent-6-quality-validator.js';
+import * as memoryAgent from '../agents/agent-7-memory-manager.js';
+import * as feedbackAgent from '../agents/agent-8-feedback-analyst.js';
+import * as predictiveAgent from '../agents/agent-9-predictive-adapter.js';
+import * as guardrailsAgent from '../agents/agent-10-guardrails.js';
+
+const ALL_AGENTS = [
+  routerAgent, intentAgent, cartographerAgent, strategistAgent, narratorAgent,
+  diagramAgent, guardrailsAgent, qualityAgent, memoryAgent, feedbackAgent, predictiveAgent
+].filter(a => a && a.name);
+
+// Send progress text to the clone sidebar's loading spinner
+function sendProgress(tabId, text) {
+  if (!tabId) return;
+  chrome.tabs.sendMessage(tabId, { action: 'update-clone-progress', text }).catch(() => {});
+}
+
+export async function runPipeline(request) {
+  const context = {
+    runId: generateId(),
+    timestamp: Date.now(),
+    tabId: request.tabId || null,
+    rawRequest: request.text || request.message || '',
+    chatHistory: request.chatHistory || [],
+    pageMetadata: request.pageMetadata || {},
+    pipelineType: null,
+    agentPlan: [],
+    intent: null,
+    memory: { semantic: {}, episodic: [], procedural: {} },
+    sectionMap: [],
+    screenshots: [],
+    renarrationPlan: [],
+    renarrations: [],
+    guardrails: { passed: true, flags: [] },
+    validation: { scores: {}, passed: true, retryCount: 0, failureMemory: [] },
+    log: [],
+    needsRetry: false,
+    replanSignal: null,
+    needsUserConfirmation: false,
+  };
+
+  const tabId = context.tabId;
+
+  // Step 1: Open the clone sidebar immediately (shows loading spinner)
+  let segments = [];
+  let sidebarOpen = false;
+  if (tabId) {
+    // Check the tab is a real web page (not chrome://, extension, etc.)
+    let tab;
+    try { tab = await chrome.tabs.get(tabId); } catch {}
+    const url = tab?.url || '';
+    const isWebPage = url.startsWith('http://') || url.startsWith('https://');
+
+    if (isWebPage) {
+      // Try to open sidebar via content script
+      try {
+        const extractResult = await chrome.tabs.sendMessage(tabId, { action: 'extract-and-clone' });
+        if (extractResult?.success && extractResult.segments?.length) {
+          sidebarOpen = true;
+          segments = extractResult.segments;
+          context.sectionMap = segments.map(s => ({
+            id: s.id, role: 'body', text: s.text,
+            importance: 3, excluded: false, visualContext: ''
+          }));
+          sendProgress(tabId, 'Starting agentic pipeline...');
+        }
+      } catch (e1) {
+        // Content script might not be injected — try injecting it first
+        console.warn('[Orchestrator] Content script not responding, injecting...', e1.message);
+        try {
+          await chrome.scripting.executeScript({ target: { tabId }, files: ['content.js'] });
+          await chrome.scripting.insertCSS({ target: { tabId }, files: ['content.css'] });
+          // Small delay for script to initialize
+          await new Promise(r => setTimeout(r, 300));
+          const extractResult = await chrome.tabs.sendMessage(tabId, { action: 'extract-and-clone' });
+          if (extractResult?.success && extractResult.segments?.length) {
+            sidebarOpen = true;
+            segments = extractResult.segments;
+            context.sectionMap = segments.map(s => ({
+              id: s.id, role: 'body', text: s.text,
+              importance: 3, excluded: false, visualContext: ''
+            }));
+            sendProgress(tabId, 'Starting agentic pipeline...');
+          }
+        } catch (e2) {
+          console.warn('[Orchestrator] Could not inject content script:', e2.message);
+        }
+      }
+    } else {
+      console.warn('[Orchestrator] Tab is not a web page:', url);
+    }
+  }
+
+  // Step 2: Load memory
+  sendProgress(tabId, 'Loading user memory...');
+  try {
+    const userId = await getOrCreateUserId();
+    context.memory = await loadMemory(userId);
+  } catch (e) { /* memory is optional */ }
+
+  // Step 3: Run pipeline router
+  sendProgress(tabId, 'Phase 0: Routing pipeline...');
+  if (routerAgent?.run) {
+    await executeAgent(routerAgent, context);
+  } else {
+    context.pipelineType = 'full';
+    context.agentPlan = ALL_AGENTS.map(a => a.name).filter(Boolean);
+  }
+
+  sendProgress(tabId, `Pipeline: ${context.pipelineType} — running ${context.agentPlan.length} agents...`);
+
+  // Step 4: Execute agents in order, showing progress for each
+  const agentMap = new Map(ALL_AGENTS.map(a => [a.name, a]));
+  const agentLabels = Object.fromEntries(AGENTS_META.map(a => [a.id, a.label]));
+  let agentIndex = 0;
+
+  for (const agentName of context.agentPlan) {
+    if (agentName === 'pipeline-router') continue;
+    const agent = agentMap.get(agentName);
+    if (!agent || agent.disabled) continue;
+
+    agentIndex++;
+    const label = agentLabels[agentName] || agentName;
+    if (sidebarOpen) sendProgress(tabId, `Agent ${agentIndex}/${context.agentPlan.length}: ${label}...`);
+
+    if (agent.requiredFields?.length) {
+      const missing = agent.requiredFields.filter(f => !context[f]);
+      if (missing.length) {
+        context.log.push({ agent: agentName, durationMs: 0, success: false, detail: `Missing fields: ${missing.join(', ')}` });
+        if (!agent.optional) break;
+        continue;
+      }
+    }
+
+    await executeAgent(agent, context);
+
+    if (context.needsRetry && context.validation.retryCount < 2) {
+      context.validation.retryCount++;
+      if (sidebarOpen) sendProgress(tabId, 'Quality check failed — replanning...');
+      const strategist = agentMap.get('content-strategist');
+      const narrator = agentMap.get('narrator');
+      if (strategist) await executeAgent(strategist, context);
+      if (narrator) await executeAgent(narrator, context);
+      context.needsRetry = false;
+    }
+  }
+
+  // Step 5: Display results in the sidebar
+  if (sidebarOpen) sendProgress(tabId, 'Applying renarration to page...');
+
+  if (sidebarOpen && tabId) {
+    if (context.renarrations?.length > 0) {
+      // Agentic pipeline produced renarrations — apply them
+      const replacements = context.renarrations.map(r => ({ id: r.sectionId, text: r.text }));
+      try {
+        await chrome.tabs.sendMessage(tabId, { action: 'apply-dom-renarration', replacements });
+      } catch (e) {
+        console.warn('[Orchestrator] Could not apply renarrations:', e.message);
+      }
+    } else if (segments.length > 0) {
+      // Agents didn't produce renarrations — fall back to legacy DOM renarration
+      sendProgress(tabId, 'Falling back to direct renarration...');
+      try {
+        const { renarrateText } = await import('../utils/renarration.js');
+        const { getSettingsWithTaskMigration, DEFAULT_TASKS } = await import('../utils/storage-helpers.js');
+        const { getSystemBoilerplate, applyPromptTemplate } = await import('../utils/prompt-loader.js');
+        const { callLLM } = await import('../utils/llm-dispatch.js');
+
+        // Batch renarrate segments (same as renarrateDomSegments in page-renarration.js)
+        const settings = await getSettingsWithTaskMigration(['personas', 'currentPersona', 'systemPromptTemplate']);
+        const tasks = settings.tasks || DEFAULT_TASKS;
+        const task = tasks[settings.currentTask] || tasks.simple || DEFAULT_TASKS.simple;
+        const persona = settings.personas?.[settings.currentPersona];
+        const basePrompt = task?.textPrompt || '';
+        const personaText = persona ? (persona.systemAddendum || persona.description || '') : '';
+        const boilerplate = await getSystemBoilerplate();
+        const { readingGoal } = await chrome.storage.sync.get(['readingGoal']);
+        let systemPrompt = applyPromptTemplate(settings.systemPromptTemplate, basePrompt, personaText, boilerplate, readingGoal || '');
+        systemPrompt += '\n\nIMPORTANT: You will receive a JSON array of numbered text segments from a webpage. Renarrate each segment. Return ONLY a valid JSON array where each element has "id" and "text" fields. No markdown, no explanation.';
+
+        const MAX_CHARS = 4000;
+        const batches = [];
+        let batch = [], batchLen = 0;
+        for (const seg of segments) {
+          if (batch.length > 0 && batchLen + seg.text.length > MAX_CHARS) {
+            batches.push(batch);
+            batch = [];
+            batchLen = 0;
+          }
+          batch.push(seg);
+          batchLen += seg.text.length;
+        }
+        if (batch.length) batches.push(batch);
+
+        const allReplacements = [];
+        for (let i = 0; i < batches.length; i++) {
+          sendProgress(tabId, `Renarrating batch ${i + 1}/${batches.length}...`);
+          const userMsg = JSON.stringify(batches[i].map(s => ({ id: s.id, text: s.text })));
+          const result = await callLLM([{ role: 'user', content: userMsg }], systemPrompt, { temperature: 0.3 });
+          if (result?.success) {
+            try {
+              const cleaned = result.result.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+              const parsed = JSON.parse(cleaned);
+              if (Array.isArray(parsed)) allReplacements.push(...parsed);
+            } catch { /* parse failed, skip batch */ }
+          }
+        }
+
+        if (allReplacements.length > 0) {
+          await chrome.tabs.sendMessage(tabId, { action: 'apply-dom-renarration', replacements: allReplacements });
+        }
+      } catch (e) {
+        console.warn('[Orchestrator] Fallback renarration failed:', e.message);
+        sendProgress(tabId, `\u26A0 Renarration failed: ${e.message}`);
+      }
+    } else {
+      // No segments at all — show error in sidebar
+      sendProgress(tabId, '\u26A0 No content segments found on this page.');
+    }
+  }
+
+  // Step 6: Background tasks and logging — all wrapped so nothing can crash the return
+  try {
+    await updateVisualizerState(context);
+  } catch (e) {
+    console.warn('[Orchestrator] Visualizer state update failed:', e.message);
+  }
+
+  try {
+    await appendPipelineLog({
+      runId: context.runId,
+      stage: 'pipeline-complete',
+      timestampIso: new Date().toISOString(),
+      success: context.validation.passed,
+      pipelineType: context.pipelineType,
+      duration: Date.now() - context.timestamp,
+      agentCount: context.log.length,
+      detail: JSON.stringify(context.validation.scores)
+    });
+  } catch (e) {
+    console.warn('[Orchestrator] Pipeline log failed:', e.message);
+  }
+
+  // Background learning agents — truly fire-and-forget, fully guarded
+  try {
+    runBackgroundAgents(context).catch(e =>
+      console.warn('[Orchestrator] Background agent failed:', e.message)
+    );
+  } catch (e) {
+    console.warn('[Orchestrator] Background agents could not start:', e.message);
+  }
+
+  // Store for viewer access
+  if (context.renarrations?.length > 0 || segments.length > 0) {
+    const renarrationText = context.renarrations?.length > 0
+      ? context.renarrations.map(r => r.text).join('\n\n')
+      : '';
+    const originalText = (context.sectionMap || segments).map(s => s.text || '').join('\n\n');
+    try {
+      await chrome.storage.local.set({
+        lastPageRenarration: {
+          vlmContent: originalText.slice(0, 20000),
+          renarration: renarrationText.slice(0, 20000),
+          at: new Date().toISOString()
+        }
+      });
+    } catch {}
+  }
+
+  return context;
+}
+
+// Agent display names for progress messages
+const AGENTS_META = [
+  { id: 'pipeline-router', label: 'Pipeline Router' },
+  { id: 'intent-analyst', label: 'Intent Analyst' },
+  { id: 'visual-cartographer', label: 'Visual Cartographer' },
+  { id: 'content-strategist', label: 'Content Strategist' },
+  { id: 'narrator', label: 'Narrator' },
+  { id: 'diagram-generator', label: 'Diagram Generator' },
+  { id: 'guardrails', label: 'Guardrails' },
+  { id: 'quality-validator', label: 'Quality Validator' },
+  { id: 'memory-manager', label: 'Memory Manager' },
+  { id: 'feedback-analyst', label: 'Feedback Analyst' },
+  { id: 'predictive-adapter', label: 'Predictive Adapter' },
+];
+
+async function executeAgent(agent, context) {
+  const start = Date.now();
+  const label = AGENTS_META.find(a => a.id === agent.name)?.label || agent.name;
+  try {
+    await agent.run(context);
+    context.log.push({ agent: agent.name, durationMs: Date.now() - start, success: true, detail: '' });
+    await updateVisualizerAgentStatus(agent.name, 'success', Date.now() - start, context);
+  } catch (e) {
+    const dur = Date.now() - start;
+    context.log.push({ agent: agent.name, durationMs: dur, success: false, detail: e.message });
+    await updateVisualizerAgentStatus(agent.name, 'failed', dur, context);
+    sendProgress(context.tabId, `\u26A0 ${label} failed: ${e.message}`);
+  }
+}
+
+async function runBackgroundAgents(context) {
+  const agent = ALL_AGENTS.find(a => a.name === 'memory-manager');
+  if (agent) await executeAgent(agent, context);
+}
+
+async function updateVisualizerState(context) {
+  await chrome.storage.local.set({
+    pipelineVisualizer: {
+      runId: context.runId, timestamp: context.timestamp,
+      pipelineType: context.pipelineType, agentPlan: context.agentPlan,
+      log: context.log, validation: context.validation, guardrails: context.guardrails,
+      sectionCount: context.sectionMap.length, renarrationCount: context.renarrations.length,
+      completed: true
+    }
+  });
+}
+
+async function updateVisualizerAgentStatus(agentName, status, durationMs, context) {
+  try {
+    const data = await chrome.storage.local.get('pipelineVisualizerLive');
+    const current = data?.pipelineVisualizerLive || {};
+    current[agentName] = { status, durationMs, timestamp: Date.now() };
+    current._runId = context.runId;
+    current._pipelineType = context.pipelineType;
+    await chrome.storage.local.set({ pipelineVisualizerLive: current });
+  } catch (e) { /* best-effort */ }
+}
+
+export async function runPredictiveAdapter(tabId, pageMetadata) {
+  if (!predictiveAgent?.run) return { predictions: [], adapted: false };
+  const context = { tabId, pageMetadata, memory: { semantic: {}, episodic: [], procedural: {} } };
+  try {
+    const userId = await getOrCreateUserId();
+    context.memory = await loadMemory(userId);
+  } catch (e) {}
+  await predictiveAgent.run(context);
+  return context;
+}

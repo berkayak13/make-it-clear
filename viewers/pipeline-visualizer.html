@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ReNarrator — Pipeline Visualizer</title>
+  <link rel="stylesheet" href="pipeline-visualizer.css">
+</head>
+<body>
+  <header class="viz-header">
+    <div class="viz-header__left">
+      <h1>Pipeline Visualizer</h1>
+      <span class="viz-header__sub">11-Agent Agentic Pipeline</span>
+    </div>
+    <div class="viz-header__right">
+      <div class="running-indicator" id="runningIndicator" style="display:none">
+        <div class="running-indicator__dot"></div>
+        <span>Running</span>
+      </div>
+      <div class="pipeline-badge" id="pipelineBadge">Idle</div>
+      <button class="clear-btn" id="clearBtn" title="Clear visualizer state">Clear</button>
+    </div>
+  </header>
+
+  <div class="viz-layout">
+    <aside class="run-history" id="runHistory">
+      <h3>Pipeline Runs</h3>
+      <div id="runList"></div>
+    </aside>
+
+    <main class="viz-main">
+      <!-- Phase Timeline -->
+      <div class="phase-timeline" id="phaseTimeline"></div>
+
+      <!-- Pipeline Diagram -->
+      <div class="pipeline-diagram" id="pipelineDiagram"></div>
+
+      <!-- Tabs -->
+      <div class="viz-tabs">
+        <button class="viz-tab active" data-tab="metrics">Metrics</button>
+        <button class="viz-tab" data-tab="inspector">Data Inspector</button>
+        <button class="viz-tab" data-tab="memory">Memory State</button>
+        <button class="viz-tab" data-tab="diagrams">Diagrams</button>
+      </div>
+
+      <!-- Tab Panels -->
+      <div class="tab-content" id="tabContent">
+        <div id="metricsPanel" class="tab-panel active"></div>
+        <div id="inspectorPanel" class="tab-panel"></div>
+        <div id="memoryPanel" class="tab-panel"></div>
+        <div id="diagramsPanel" class="tab-panel"></div>
+      </div>
+    </main>
+  </div>
+
+  <script src="pipeline-visualizer.js"></script>
+</body>
+</html>

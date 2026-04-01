@@ -30,7 +30,8 @@
     "default_path": "sidepanel.html"
   },
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "build/background-entry.js",
+    "type": "module"
   },
   "content_scripts": [
     {

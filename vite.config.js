@@ -5,9 +5,11 @@ export default defineConfig({
   build: {
     outDir: 'build',
     emptyOutDir: false,
+    modulePreload: false,
     rollupOptions: {
       input: {
-        offscreen: 'src/offscreen-entry.js'
+        offscreen: 'src/offscreen-entry.js',
+        background: 'src/background/main.js'
       },
       output: {
         entryFileNames: '[name]-entry.js',
