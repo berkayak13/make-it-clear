@@ -15,7 +15,7 @@ export const requiredFields = ['intent'];
 
 /* ── constants ────────────────────────────────────────────── */
 
-const GEMINI_API_KEY = 'AIzaSyCLkywSZTLnJXKt6e-5jtaTWAssJhloeN8';
+const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 const GEMINI_TIMEOUT_MS = 120_000;
 const DEFAULT_MODEL = 'gemini-2.5-flash';
 const DEFAULT_ENDPOINT =

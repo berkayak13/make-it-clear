@@ -1,6 +1,6 @@
 import { ensureOffscreen, postToOffscreen } from './offscreen-bridge.js';
 
-const GEMINI_API_KEY = 'AIzaSyCLkywSZTLnJXKt6e-5jtaTWAssJhloeN8';
+const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 const GEMINI_TIMEOUT_MS = 60000;
 
 const TIER_MODELS = {

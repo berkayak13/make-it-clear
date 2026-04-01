@@ -8,7 +8,7 @@ import { getSettingsWithTaskMigration, DEFAULT_TASKS } from '../utils/storage-he
 import { getSystemBoilerplate, applyPromptTemplate } from '../utils/prompt-loader.js';
 import { createThumbnail } from '../utils/image-processing.js';
 
-const GEMINI_API_KEY = 'AIzaSyCLkywSZTLnJXKt6e-5jtaTWAssJhloeN8';
+const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 
 // ---------------------------------------------------------------------------
 // Helpers

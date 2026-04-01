@@ -5,10 +5,9 @@
 
 import { toDataUrl } from './image-processing.js';
 import { getSettingsWithTaskMigration, DEFAULT_TASKS } from './storage-helpers.js';
-import { ensureOffscreen, postToOffscreen } from './offscreen-bridge.js';
 import { simulateLocalVLM } from './renarration.js';
 
-const GEMINI_API_KEY = 'AIzaSyCLkywSZTLnJXKt6e-5jtaTWAssJhloeN8';
+const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 const VLM_TIMEOUT_MS = 120000;
 
 /**
@@ -140,14 +139,14 @@ export async function callRemoteVLMWithImages({ images, prompt, model, endpoint,
 
 /**
  * Describe an image using the best available VLM backend.
- * Tries remote VLM first, then WebLLM offscreen, then simulator fallback.
+ * Always uses Gemini API for vision tasks — on-device WebLLM does not support
+ * multimodal models, so VLM is always remote regardless of the LLM provider setting.
+ * Falls back to simulator only if remote VLM is not configured.
  */
 export async function describeImage(imageUrl, taskName) {
   try {
     const settings = await getSettingsWithTaskMigration([
       'useWebLLM',
-      'useWebVLM',
-      'webvlmModel',
       'useRemoteVLM',
       'remoteVLMModel',
       'remoteVLMEndpoint'
@@ -155,50 +154,34 @@ export async function describeImage(imageUrl, taskName) {
     const tasks = settings.tasks || DEFAULT_TASKS;
     const task = tasks[taskName || settings.currentTask] || tasks.simple || DEFAULT_TASKS.simple;
 
-    // Placeholder for future on-device VLM
-    if (settings.useWebVLM) {
-      console.warn('WebVLM placeholder enabled but not implemented; using remote/simulator.');
+    // Always use Gemini for VLM — on-device WebLLM cannot handle images.
+    // Remote VLM is used even when the LLM provider is set to on-device.
+    const model = settings.remoteVLMModel || 'gemini-2.5-flash';
+    const endpoint = settings.remoteVLMEndpoint ||
+      'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent';
+
+    try {
+      const imageDataUrl = await toDataUrl(imageUrl);
+      const remote = await callRemoteVLM({
+        imageDataUrl,
+        prompt: task?.imagePrompt || 'Describe this image accurately. Transcribe any visible text exactly.',
+        model,
+        endpoint,
+        apiKey: GEMINI_API_KEY,
+        mode: 'describe'
+      });
+      if (remote?.success) return remote;
+    } catch (err) {
+      console.warn('Remote VLM failed:', err && err.message);
     }
 
-    // Try remote VLM first if configured
-    if (settings.useRemoteVLM) {
-      try {
-        const imageDataUrl = await toDataUrl(imageUrl);
-        const remote = await callRemoteVLM({
-          imageDataUrl,
-          prompt: task?.imagePrompt || 'Describe this image accurately. Transcribe any visible text exactly.',
-          model: settings.remoteVLMModel,
-          endpoint: settings.remoteVLMEndpoint,
-          apiKey: GEMINI_API_KEY,
-          mode: 'describe'
-        });
-        if (remote?.success) return remote;
-      } catch (err) {
-        console.warn('Remote VLM failed, falling back:', err && err.message);
-      }
-    }
-
-    // Try WebLLM offscreen document
-    if (settings.useWebLLM && ensureOffscreen && postToOffscreen) {
-      try {
-        await ensureOffscreen();
-        const response = await postToOffscreen({
-          type: 'webllm-describe-image',
-          payload: { imageUrl, task, modelId: settings.webllmModel }
-        }, { timeoutMs: 90000 });
-        if (response && response.success) return response;
-      } catch (e) {
-        // ignore, fall back
-      }
-    }
-
-    // Simulator fallback
+    // Simulator fallback (only if remote VLM failed)
     if (simulateLocalVLM) {
       const description = await simulateLocalVLM(imageUrl, task);
       return { success: true, result: description };
     }
 
-    return { success: false, error: 'No VLM backend available' };
+    return { success: false, error: 'VLM failed — Gemini API may be unreachable or misconfigured' };
   } catch (error) {
     return { success: false, error: error.message };
   }
