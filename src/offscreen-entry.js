@@ -13,10 +13,11 @@ function progress(report) {
 }
 
 async function initEngineIfNeeded(modelId) {
-  if (isReady) return;
+  const chosen = modelId || lastModelId || "gemma-2-2b-it-q4f16_1-MLC";
+  if (isReady && chosen === lastModelId) return;
   if (initializing) return initializing;
+  isReady = false;
   initializing = (async () => {
-    const chosen = modelId || lastModelId || "gemma-2-2b-it-q4f16_1-MLC";
     try {
       if (!webllm.CreateMLCEngine) {
         throw new Error('WebLLM CreateMLCEngine factory not found — check @mlc-ai/web-llm version');

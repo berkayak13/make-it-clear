@@ -8,6 +8,8 @@ import { getSettingsWithTaskMigration, DEFAULT_TASKS } from '../utils/storage-he
 import { getSystemBoilerplate, applyPromptTemplate } from '../utils/prompt-loader.js';
 import { createThumbnail } from '../utils/image-processing.js';
 
+const GEMINI_API_KEY = 'AIzaSyCLkywSZTLnJXKt6e-5jtaTWAssJhloeN8';
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -60,9 +62,7 @@ async function describePageScreenshot(tabId) {
       'remoteVLMModel',
       'remoteVLMEndpoint',
     ]);
-    const { remoteVLMApiKey } = await chrome.storage.local.get(['remoteVLMApiKey']);
     if (!settings.useRemoteVLM) return { success: false, error: 'Remote VLM is disabled in settings.' };
-    if (!remoteVLMApiKey) return { success: false, error: 'Remote VLM API key is missing.' };
 
     const runId = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2);
     const logBase = { runId, timestampIso: new Date().toISOString() };
@@ -92,7 +92,7 @@ async function describePageScreenshot(tabId) {
       prompt,
       model: settings.remoteVLMModel,
       endpoint: settings.remoteVLMEndpoint,
-      apiKey: remoteVLMApiKey,
+      apiKey: GEMINI_API_KEY,
     });
 
     if (!remote?.success) {
@@ -333,7 +333,7 @@ async function renarrateDomSegments(segments) {
       try {
         const retryMessages = [
           { role: 'user', content: userMessage },
-          { role: 'model', content: result.result },
+          { role: 'assistant', content: result.result },
           {
             role: 'user',
             content:

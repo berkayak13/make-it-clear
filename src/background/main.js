@@ -23,7 +23,6 @@ chrome.runtime.onInstalled.addListener(() => {
     personas: DEFAULT_PERSONAS,
     currentPersona: 'general',
   });
-  chrome.storage.local.set({ remoteVLMApiKey: '' });
 });
 
 // Set up message handler (must be registered synchronously)

@@ -1,5 +1,6 @@
 import { ensureOffscreen, postToOffscreen } from './offscreen-bridge.js';
 
+const GEMINI_API_KEY = 'AIzaSyCLkywSZTLnJXKt6e-5jtaTWAssJhloeN8';
 const GEMINI_TIMEOUT_MS = 60000;
 
 const TIER_MODELS = {
@@ -24,23 +25,15 @@ export async function getEffectiveLLMProvider() {
  * @returns {{success: boolean, result?: string, error?: string}}
  */
 export async function callGeminiChat(conversationContents, systemInstruction, overrides = {}) {
-  const [settings, localSettings] = await Promise.all([
-    chrome.storage.sync.get(['remoteVLMModel', 'remoteVLMEndpoint']),
-    chrome.storage.local.get(['remoteVLMApiKey'])
-  ]);
-  const { remoteVLMApiKey } = localSettings;
+  const settings = await chrome.storage.sync.get(['remoteVLMModel', 'remoteVLMEndpoint']);
   const model = overrides.model || settings.remoteVLMModel || 'gemini-2.5-flash';
   const endpoint = settings.remoteVLMEndpoint ||
     'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent';
 
-  if (!remoteVLMApiKey) {
-    return { success: false, error: 'API key not configured. Set it in Advanced Settings.' };
-  }
-
   const replaced = endpoint.replace('{model}', model);
   const url = replaced.includes('key=')
     ? replaced
-    : `${replaced}${replaced.includes('?') ? '&' : '?'}key=${encodeURIComponent(remoteVLMApiKey)}`;
+    : `${replaced}${replaced.includes('?') ? '&' : '?'}key=${encodeURIComponent(GEMINI_API_KEY)}`;
 
   const body = {
     contents: conversationContents,

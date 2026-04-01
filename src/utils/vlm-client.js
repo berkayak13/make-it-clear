@@ -8,6 +8,7 @@ import { getSettingsWithTaskMigration, DEFAULT_TASKS } from './storage-helpers.j
 import { ensureOffscreen, postToOffscreen } from './offscreen-bridge.js';
 import { simulateLocalVLM } from './renarration.js';
 
+const GEMINI_API_KEY = 'AIzaSyCLkywSZTLnJXKt6e-5jtaTWAssJhloeN8';
 const VLM_TIMEOUT_MS = 120000;
 
 /**
@@ -151,7 +152,6 @@ export async function describeImage(imageUrl, taskName) {
       'remoteVLMModel',
       'remoteVLMEndpoint'
     ]);
-    const { remoteVLMApiKey } = await chrome.storage.local.get(['remoteVLMApiKey']);
     const tasks = settings.tasks || DEFAULT_TASKS;
     const task = tasks[taskName || settings.currentTask] || tasks.simple || DEFAULT_TASKS.simple;
 
@@ -161,7 +161,7 @@ export async function describeImage(imageUrl, taskName) {
     }
 
     // Try remote VLM first if configured
-    if (settings.useRemoteVLM && remoteVLMApiKey) {
+    if (settings.useRemoteVLM) {
       try {
         const imageDataUrl = await toDataUrl(imageUrl);
         const remote = await callRemoteVLM({
@@ -169,7 +169,7 @@ export async function describeImage(imageUrl, taskName) {
           prompt: task?.imagePrompt || 'Describe this image accurately. Transcribe any visible text exactly.',
           model: settings.remoteVLMModel,
           endpoint: settings.remoteVLMEndpoint,
-          apiKey: remoteVLMApiKey,
+          apiKey: GEMINI_API_KEY,
           mode: 'describe'
         });
         if (remote?.success) return remote;

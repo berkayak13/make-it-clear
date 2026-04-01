@@ -15,6 +15,7 @@ export const requiredFields = ['intent'];
 
 /* ── constants ────────────────────────────────────────────── */
 
+const GEMINI_API_KEY = 'AIzaSyCLkywSZTLnJXKt6e-5jtaTWAssJhloeN8';
 const GEMINI_TIMEOUT_MS = 120_000;
 const DEFAULT_MODEL = 'gemini-2.5-flash';
 const DEFAULT_ENDPOINT =
@@ -130,12 +131,7 @@ async function vlmAnalysis(screenshots) {
  * Send screenshots to Gemini vision API and return the raw text response.
  */
 async function callVLMWithImages(images, prompt) {
-  const [settings, { remoteVLMApiKey }] = await Promise.all([
-    chrome.storage.sync.get(['remoteVLMModel', 'remoteVLMEndpoint']),
-    chrome.storage.local.get(['remoteVLMApiKey']),
-  ]);
-
-  if (!remoteVLMApiKey) return null;
+  const settings = await chrome.storage.sync.get(['remoteVLMModel', 'remoteVLMEndpoint']);
 
   const model = settings.remoteVLMModel || DEFAULT_MODEL;
   const endpointTemplate = settings.remoteVLMEndpoint || DEFAULT_ENDPOINT;
@@ -143,7 +139,7 @@ async function callVLMWithImages(images, prompt) {
   const baseUrl = endpointTemplate.replace('{model}', model);
   const url = baseUrl.includes('key=')
     ? baseUrl
-    : `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}key=${encodeURIComponent(remoteVLMApiKey)}`;
+    : `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}key=${encodeURIComponent(GEMINI_API_KEY)}`;
 
   // Build multimodal parts: images first, then text prompt
   const parts = [];
@@ -202,7 +198,7 @@ function parseVLMResponse(rawText) {
 
   // Normalize and validate each section
   return sections.map((s, i) => ({
-    id: s.id || `section-${i}`,
+    id: s.id ?? i,
     role: s.role || 'body',
     text: typeof s.text === 'string' ? s.text : '',
     importance: typeof s.importance === 'number' ? Math.min(5, Math.max(1, s.importance)) : 3,
@@ -221,12 +217,12 @@ async function domFallback(tabId) {
   }
 
   return response.segments.map((seg, i) => {
-    const tag = (seg.tag || 'DIV').toUpperCase();
+    const tag = (seg.tagName || 'DIV').toUpperCase();
     const role = TAG_ROLE_MAP[tag] || 'body';
     const excluded = isExcludedSegment(seg, role);
 
     return {
-      id: `section-${i}`,
+      id: seg.id ?? i,
       role,
       text: seg.text || '',
       importance: excluded ? 1 : (ROLE_IMPORTANCE[role] || 3),

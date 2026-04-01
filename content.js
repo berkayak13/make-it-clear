@@ -9,11 +9,17 @@ let renarrationOverlay = null;
 init();
 
 async function init() {
-  // Get current settings
-  const settings = await chrome.runtime.sendMessage({ action: 'get-settings' });
-  isEnabled = settings.enabled;
-  currentTask = settings.currentTask;
-  
+  try {
+    const settings = await chrome.runtime.sendMessage({ action: 'get-settings' });
+    if (settings) {
+      isEnabled = settings.enabled;
+      currentTask = settings.currentTask;
+    }
+  } catch (e) {
+    // Service worker may not be ready yet; default to disabled
+    isEnabled = false;
+  }
+
   if (isEnabled) {
     setupEventListeners();
     createOverlay();
@@ -382,6 +388,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     sendResponse({ success: true });
   } else if (request.action === 'hide-dom-renarration') {
     hideCloneSidebar();
+    sendResponse({ success: true });
+  } else if (request.action === 'section-renarrated') {
+    const iframe = document.getElementById('renarration-clone-frame');
+    if (iframe?.contentDocument) {
+      const el = iframe.contentDocument.querySelector(`[data-renarration-id="${request.sectionId}"]`);
+      if (el && request.text) el.textContent = request.text;
+    }
     sendResponse({ success: true });
   } else if (request.action === 'update-clone-progress') {
     updateCloneProgress(request.text || '');

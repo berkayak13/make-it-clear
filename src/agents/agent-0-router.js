@@ -49,10 +49,13 @@ async function classifyByLLM(rawRequest, pageMetadata) {
     .replace('{{RAW_REQUEST}}', rawRequest || '')
     .replace('{{PAGE_METADATA}}', JSON.stringify(pageMetadata || {}));
 
-  const response = await callLLM(prompt, { tier: 'fast' });
+  const messages = [{ role: 'user', content: prompt }];
+  const response = await callLLM(messages, '', { tier: 'fast' });
+
+  if (!response.success) return 'full';
 
   try {
-    const parsed = JSON.parse(response);
+    const parsed = JSON.parse(response.result);
     if (parsed.pipelineType && parsed.pipelineType in PIPELINE_CONFIGS) {
       return parsed.pipelineType;
     }

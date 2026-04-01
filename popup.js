@@ -10,9 +10,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   const webllmControls = document.getElementById('webllmControls');
   const initModelBtn = document.getElementById('initModelBtn');
   const webllmStatus = document.getElementById('webllmStatus');
-  const apiKeyInput = document.getElementById('apiKeyInput');
-  const apiKeyToggleBtn = document.getElementById('apiKeyToggleBtn');
-  const apiKeyStatus = document.getElementById('apiKeyStatus');
   const setupCard = document.getElementById('setupCard');
   const setupToggle = document.getElementById('setupToggle');
   const renarrateStatus = document.getElementById('renarrateStatus');
@@ -46,7 +43,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     'currentTask', 'currentProfile', 'llmProvider', 'useWebLLM',
     'tasks', 'profiles'
   ]);
-  const localSettings = await chrome.storage.local.get(['useAgenticPipeline', 'remoteVLMApiKey']);
+  const localSettings = await chrome.storage.local.get(['useAgenticPipeline']);
 
   // Backward compat: profiles -> tasks
   let tasks = settings.tasks;
@@ -68,13 +65,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   const effectiveProvider = settings.llmProvider || (settings.useWebLLM ? 'on-device' : 'remote');
   llmProviderSelect.value = effectiveProvider;
   if (webllmControls) webllmControls.style.display = effectiveProvider === 'on-device' ? 'block' : 'none';
-
-  // API key — load
-  if (apiKeyInput) {
-    const storedKey = localSettings.remoteVLMApiKey || '';
-    apiKeyInput.value = storedKey;
-    updateApiKeyStatus(storedKey);
-  }
 
   // Load user ID
   try {
@@ -113,11 +103,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       llmProviderSelect.value = newProvider;
       if (webllmControls) webllmControls.style.display = newProvider === 'on-device' ? 'block' : 'none';
     }
-    if (area === 'local' && changes.remoteVLMApiKey) {
-      const newKey = changes.remoteVLMApiKey.newValue || '';
-      if (apiKeyInput) apiKeyInput.value = newKey;
-      updateApiKeyStatus(newKey);
-    }
   });
 
   // --- Setup card accordion ---
@@ -145,45 +130,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       webllmStatus.textContent = 'Status: failed (see console)';
     }
   });
-
-  // --- API key ---
-  let apiKeySaveTimer = null;
-  if (apiKeyInput) {
-    apiKeyInput.addEventListener('input', () => {
-      clearTimeout(apiKeySaveTimer);
-      apiKeySaveTimer = setTimeout(() => {
-        const key = apiKeyInput.value.trim();
-        chrome.storage.local.set({ remoteVLMApiKey: key });
-        updateApiKeyStatus(key);
-      }, 500);
-    });
-
-    apiKeyInput.addEventListener('blur', () => {
-      clearTimeout(apiKeySaveTimer);
-      const key = apiKeyInput.value.trim();
-      chrome.storage.local.set({ remoteVLMApiKey: key });
-      updateApiKeyStatus(key);
-    });
-  }
-
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden' && apiKeyInput) {
-      clearTimeout(apiKeySaveTimer);
-      chrome.storage.local.set({ remoteVLMApiKey: apiKeyInput.value.trim() });
-    }
-  });
-
-  if (apiKeyToggleBtn && apiKeyInput) {
-    apiKeyToggleBtn.addEventListener('click', () => {
-      if (apiKeyInput.type === 'password') {
-        apiKeyInput.type = 'text';
-        apiKeyToggleBtn.textContent = '\u2715';
-      } else {
-        apiKeyInput.type = 'password';
-        apiKeyToggleBtn.innerHTML = '&#x1F441;';
-      }
-    });
-  }
 
   // --- Renarrate Page (Agentic Pipeline) ---
   const agenticPipelineBtn = document.getElementById('agenticPipelineBtn');
@@ -554,14 +500,4 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
-  function updateApiKeyStatus(key) {
-    if (!apiKeyStatus) return;
-    if (key && key.length > 0) {
-      apiKeyStatus.textContent = 'Configured';
-      apiKeyStatus.className = 'status-pill status-pill--configured';
-    } else {
-      apiKeyStatus.textContent = 'Missing';
-      apiKeyStatus.className = 'status-pill status-pill--missing';
-    }
-  }
 });

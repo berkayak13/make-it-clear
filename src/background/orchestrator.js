@@ -4,7 +4,9 @@
 import { generateId } from '../utils/id.js';
 import { appendPipelineLog } from '../utils/pipeline-logger.js';
 import { loadMemory } from '../utils/memory-system.js';
-import { getOrCreateUserId } from '../utils/storage-helpers.js';
+import { getOrCreateUserId, getSettingsWithTaskMigration, DEFAULT_TASKS } from '../utils/storage-helpers.js';
+import { getSystemBoilerplate, applyPromptTemplate } from '../utils/prompt-loader.js';
+import { callLLM } from '../utils/llm-dispatch.js';
 
 import * as routerAgent from '../agents/agent-0-router.js';
 import * as intentAgent from '../agents/agent-1-intent.js';
@@ -175,11 +177,6 @@ export async function runPipeline(request) {
       // Agents didn't produce renarrations — fall back to legacy DOM renarration
       sendProgress(tabId, 'Falling back to direct renarration...');
       try {
-        const { renarrateText } = await import('../utils/renarration.js');
-        const { getSettingsWithTaskMigration, DEFAULT_TASKS } = await import('../utils/storage-helpers.js');
-        const { getSystemBoilerplate, applyPromptTemplate } = await import('../utils/prompt-loader.js');
-        const { callLLM } = await import('../utils/llm-dispatch.js');
-
         // Batch renarrate segments (same as renarrateDomSegments in page-renarration.js)
         const settings = await getSettingsWithTaskMigration(['personas', 'currentPersona', 'systemPromptTemplate']);
         const tasks = settings.tasks || DEFAULT_TASKS;
