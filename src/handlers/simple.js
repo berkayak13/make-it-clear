@@ -49,8 +49,6 @@ export const simpleHandlers = {
       'llmProvider',
       'useWebLLM',
       'webllmModel',
-      'useWebVLM',
-      'webvlmModel',
       'useRemoteVLM',
       'remoteVLMModel',
       'remoteVLMEndpoint',

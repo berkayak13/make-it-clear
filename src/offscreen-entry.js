@@ -91,12 +91,6 @@ async function webllmChat(messages, options = {}) {
   }
 }
 
-async function webllmDescribeImage(imageUrl, task) {
-  // Placeholder for multimodal integration
-  const desc = `Image at ${imageUrl}. (WebLLM VLM not configured; placeholder for ${task?.name || 'N/A'}).`;
-  return { success: true, result: desc };
-}
-
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (!message || !message.__toOffscreen) return; // ignore unrelated
   const { type, payload, requestId } = message;
@@ -120,11 +114,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         modelId: payload?.modelId,
         temperature: payload?.temperature
       });
-    } else if (type === 'webllm-describe-image') {
-      if (!isReady || (payload?.modelId && payload.modelId !== lastModelId)) {
-        await initEngineIfNeeded(payload?.modelId);
-      }
-      result = await webllmDescribeImage(payload?.imageUrl, payload?.task);
     } else {
       result = { success: false, error: 'Unknown offscreen message type' };
     }

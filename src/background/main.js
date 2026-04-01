@@ -14,8 +14,6 @@ chrome.runtime.onInstalled.addListener(() => {
     llmProvider: 'remote',
     useWebLLM: true,
     webllmModel: 'gemma-2-2b-it-q4f16_1-MLC',
-    useWebVLM: false,
-    webvlmModel: 'Phi-3.5-vision-instruct-q4f16_1-MLC',
     useRemoteVLM: true,
     remoteVLMModel: 'gemini-2.5-flash',
     remoteVLMEndpoint:
