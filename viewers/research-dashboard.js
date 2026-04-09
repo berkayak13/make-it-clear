@@ -24,8 +24,13 @@ function setupTabs() {
 
 function setupControls() {
   document.getElementById('refreshBtn').addEventListener('click', async () => {
+    const btn = document.getElementById('refreshBtn');
+    btn.disabled = true;
+    btn.textContent = 'Loading...';
     await loadAllData();
     renderAll();
+    btn.disabled = false;
+    btn.textContent = 'Refresh';
   });
 
   document.getElementById('userFilter').addEventListener('change', (e) => {
@@ -44,7 +49,25 @@ function setupControls() {
   }
 }
 
+const DATA_TAB_IDS = ['conversationsList', 'experimentsList', 'feedbackList', 'preferencesList', 'logsList'];
+
+function setTabMessage(html) {
+  for (const id of DATA_TAB_IDS) {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = html;
+  }
+}
+
+function showLoadingState() {
+  setTabMessage('<div class="empty-state">Loading data...</div>');
+}
+
+function showErrorState(errorMsg) {
+  setTabMessage(`<div class="empty-state" style="color:#e53e3e;">Failed to load data: ${escapeHtml(errorMsg)}</div>`);
+}
+
 async function loadAllData() {
+  showLoadingState();
   try {
     const res = await chrome.runtime.sendMessage({
       action: 'export-research-data',
@@ -52,11 +75,16 @@ async function loadAllData() {
       format: 'json'
     });
     if (res?.success) {
-      allData = res.data;
+      allData = res.data || {};
       populateUserFilter();
+    } else {
+      const errMsg = res?.error || 'No data returned';
+      console.error('Research data fetch failed:', errMsg);
+      showErrorState(errMsg);
     }
   } catch (e) {
     console.error('Failed to load research data:', e);
+    showErrorState(e.message || 'Unknown error');
   }
 }
 
@@ -259,21 +287,25 @@ function renderLogs() {
 function renderExport() {
   const el = document.getElementById('exportSection');
   const stores = ['chatSessions', 'researchLogs', 'feedbackEvents', 'experimentRuns', 'preferenceHistory', 'userPreferences'];
-  el.innerHTML = stores.map(name => `
+  const hasAnyData = Object.values(allData).some(arr => Array.isArray(arr) && arr.length > 0);
+  el.innerHTML = stores.map(name => {
+    const count = (allData[name] || []).length;
+    const disabled = count === 0 ? ' disabled style="opacity:0.5;cursor:not-allowed;"' : '';
+    return `
     <div class="export-card">
       <h4>${name}</h4>
-      <p style="font-size:12px;color:#718096;margin-bottom:8px;">${(allData[name] || []).length} records</p>
+      <p style="font-size:12px;color:#718096;margin-bottom:8px;">${count} records</p>
       <div class="btn-group">
-        <button onclick="exportStore('${name}', 'json')">JSON</button>
-        <button onclick="exportStore('${name}', 'csv')">CSV</button>
+        <button onclick="exportStore('${name}', 'json')"${disabled}>JSON</button>
+        <button onclick="exportStore('${name}', 'csv')"${disabled}>CSV</button>
       </div>
-    </div>
-  `).join('') + `
+    </div>`;
+  }).join('') + `
     <div class="export-card" style="border-color:#667eea;">
       <h4>All Data</h4>
       <p style="font-size:12px;color:#718096;margin-bottom:8px;">Export everything as a single JSON file</p>
       <div class="btn-group">
-        <button onclick="exportAll()">Export All (JSON)</button>
+        <button onclick="exportAll()"${hasAnyData ? '' : ' disabled style="opacity:0.5;cursor:not-allowed;"'}>Export All (JSON)</button>
       </div>
     </div>
   `;
@@ -287,6 +319,10 @@ window.toggleExpand = function(id) {
 };
 
 window.exportStore = async function(storeName, format) {
+  if (!allData[storeName] || allData[storeName].length === 0) {
+    alert(`No data available in "${storeName}" to export.`);
+    return;
+  }
   try {
     const res = await chrome.runtime.sendMessage({
       action: 'export-research-data',
@@ -322,6 +358,11 @@ window.exportStore = async function(storeName, format) {
 };
 
 window.exportAll = async function() {
+  const hasAnyData = Object.values(allData).some(arr => Array.isArray(arr) && arr.length > 0);
+  if (!hasAnyData) {
+    alert('No research data available to export.');
+    return;
+  }
   try {
     const res = await chrome.runtime.sendMessage({
       action: 'export-research-data',
