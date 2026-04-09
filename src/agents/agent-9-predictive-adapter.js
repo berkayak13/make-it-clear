@@ -50,7 +50,7 @@ function buildIntent(taskName, options = {}) {
 function generateRuleSuggestions(pageMetadata, memory, pageType) {
   const suggestions = [];
   const { contentPreview } = pageMetadata;
-  const userLevel = memory?.semanticProfile?.expertiseLevel || 'intermediate';
+  const userLevel = memory?.semantic?.expertiseLevel || 'intermediate';
 
   // Documentation pages
   if (pageType === 'documentation') {
@@ -151,7 +151,7 @@ function suggestionsFromHistory(episodes, pageType) {
 }
 
 function buildGreeting(pageType, memory) {
-  const userName = memory?.semanticProfile?.name || '';
+  const userName = memory?.semantic?.name || '';
   const prefix = userName ? `Hi ${userName}! ` : '';
   const typeLabels = {
     documentation: 'technical documentation',
@@ -168,8 +168,8 @@ function buildGreeting(pageType, memory) {
 async function generateLLMSuggestions(pageMetadata, memory, context) {
   const promptTemplate = await loadPrompt('predictive-suggestions');
 
-  const userProfile = memory?.semanticProfile
-    ? JSON.stringify(memory.semanticProfile, null, 2)
+  const userProfile = memory?.semantic
+    ? JSON.stringify(memory.semantic, null, 2)
     : 'No profile available';
 
   const pastSummaries = memory?.recentEpisodes
