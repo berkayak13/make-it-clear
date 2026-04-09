@@ -10,13 +10,13 @@ Chrome Extension (Manifest V3) that reformulates text and images on web pages us
 
 ```bash
 npm install          # Install dependencies
-npm run build        # Build offscreen bundle (emits build/offscreen-entry.js)
+npm run build        # Build bundles (emits build/background-entry.js, build/offscreen-entry.js)
 npm run clean        # Remove build/ directory
 ```
 
 **Loading the extension:** After building, go to `chrome://extensions`, enable Developer Mode, click "Load unpacked", and select the repo root directory.
 
-Only `src/offscreen-entry.js` is bundled by Vite. All other extension files (background.js, content.js, popup.*, options.*, viewers/*) are loaded as static files directly by Chrome. There is no automated test suite — testing is manual using `test-page.html` and `viewers/testing-dashboard.html`.
+Vite bundles `src/offscreen-entry.js` and `src/background/main.js` (emitting `build/offscreen-entry.js` and `build/background-entry.js`). All other extension files (content.js, popup.*, options.*, viewers/*) are loaded as static files directly by Chrome. Smoke tests are available at `viewers/smoke-tests.html`; manual testing uses `test-page.html` and `viewers/testing-dashboard.html`.
 
 ## Architecture
 
@@ -25,21 +25,27 @@ Only `src/offscreen-entry.js` is bundled by Vite. All other extension files (bac
 All cross-component communication uses `chrome.runtime.sendMessage` / `chrome.runtime.onMessage`:
 
 ```
-Content Script (content.js) ←→ Background Service Worker (background.js) ←→ Offscreen Document (offscreen.html + build/offscreen-entry.js)
+Content Script (content.js) ←→ Background Service Worker (build/background-entry.js) ←→ Offscreen Document (offscreen.html + build/offscreen-entry.js)
 ```
 
 - **content.js**: Runs on every page. Detects text selection, shows trigger button, displays renarration overlay.
-- **background.js** (1200+ lines): Central hub. Handles all message routing, task/persona defaults, storage management, screenshot capture/stitching, VLM calls, and WebLLM coordination.
-- **src/offscreen-entry.js**: Hosts the WebLLM engine in a Chrome offscreen document. Communicates with background.js via message passing with requestId-based response tracking.
+- **src/background/main.js** → Entry point, initializes handlers. Bundled to `build/background-entry.js`.
+- **src/background/message-handler.js** → Routes messages to handler modules.
+- **src/background/orchestrator.js** → Coordinates the 11-agent agentic pipeline.
+- **src/agents/** → Individual pipeline agents (e.g. capture, VLM, LLM, evaluation).
+- **src/handlers/** → Message handler modules for different action types.
+- **src/utils/** → Shared utilities.
+- **src/offscreen-entry.js**: Hosts the WebLLM engine in a Chrome offscreen document. Communicates with the background via message passing with requestId-based response tracking.
 
 ### Full Page Renarration Pipeline
 
-`Capture → VLM → LLM → Viewer`
+`Capture → VLM → LLM → Evaluate → Viewer`
 
 1. Background captures full-page screenshots (sliced and optionally stitched)
 2. Screenshots sent to remote VLM endpoint for content extraction
-3. Extracted text sent to LLM (WebLLM or simulated) with active task/persona
-4. Results saved to storage and opened in viewer pages
+3. Extracted text sent to LLM (WebLLM or Gemini) with active task/persona
+4. Evaluation agent scores the output; retry loop (up to 3 attempts) if below threshold
+5. Results saved to storage and opened in viewer pages
 
 ### Storage
 
@@ -56,7 +62,7 @@ Tasks have `name`, `textPrompt`, `imagePrompt`, `maxLength`, and optional `isDef
 
 ### Viewer Pages (viewers/)
 
-Standalone HTML pages that read results from chrome.storage: testing-dashboard, describe-viewer, renarration-viewer, screenshot-viewer.
+Standalone HTML pages that read results from chrome.storage: testing-dashboard, describe-viewer, renarration-viewer, screenshot-viewer, smoke-tests.
 
 ## Code Style
 
@@ -69,5 +75,4 @@ Standalone HTML pages that read results from chrome.storage: testing-dashboard, 
 
 - WebLLM requires `wasm-unsafe-eval` in the CSP (already configured in manifest.json)
 - The offscreen document is created on-demand when WebLLM is enabled
-- Some LLM/VLM processing paths still use placeholder/simulated responses — look for `simulateLocalLLM` and similar functions in background.js
 - Remote VLM requires an API key configured in the options page
