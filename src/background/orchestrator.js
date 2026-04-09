@@ -23,7 +23,7 @@ import * as guardrailsAgent from '../agents/agent-10-guardrails.js';
 const ALL_AGENTS = [
   routerAgent, intentAgent, cartographerAgent, strategistAgent, narratorAgent,
   diagramAgent, guardrailsAgent, qualityAgent, memoryAgent, feedbackAgent, predictiveAgent
-].filter(a => a && a.name);
+].filter(a => a && a.name && !a.disabled);
 
 // Send progress text to the clone sidebar's loading spinner
 function sendProgress(tabId, text) {
@@ -36,6 +36,7 @@ export async function runPipeline(request) {
     runId: generateId(),
     timestamp: Date.now(),
     tabId: request.tabId || null,
+    userId: null,
     rawRequest: request.text || request.message || '',
     chatHistory: request.chatHistory || [],
     pageMetadata: request.pageMetadata || {},
@@ -119,6 +120,7 @@ export async function runPipeline(request) {
   sendProgress(tabId, 'Loading user memory...');
   try {
     const userId = await getOrCreateUserId();
+    context.userId = userId;
     context.memory = await loadMemory(userId);
   } catch (e) { /* memory is optional */ }
 
