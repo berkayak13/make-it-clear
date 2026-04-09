@@ -11,6 +11,7 @@ import { callLLM } from '../utils/llm-dispatch.js';
 import * as routerAgent from '../agents/agent-0-router.js';
 import * as intentAgent from '../agents/agent-1-intent.js';
 import * as cartographerAgent from '../agents/agent-2-visual-cartographer.js';
+import * as meaningExtractorAgent from '../agents/agent-2b-meaning-extractor.js';
 import * as strategistAgent from '../agents/agent-3-strategist.js';
 import * as narratorAgent from '../agents/agent-4-narrator.js';
 import * as diagramAgent from '../agents/agent-5-diagram-generator.js';
@@ -21,7 +22,7 @@ import * as predictiveAgent from '../agents/agent-9-predictive-adapter.js';
 import * as guardrailsAgent from '../agents/agent-10-guardrails.js';
 
 const ALL_AGENTS = [
-  routerAgent, intentAgent, cartographerAgent, strategistAgent, narratorAgent,
+  routerAgent, intentAgent, cartographerAgent, meaningExtractorAgent, strategistAgent, narratorAgent,
   diagramAgent, guardrailsAgent, qualityAgent, memoryAgent, feedbackAgent, predictiveAgent
 ].filter(a => a && a.name);
 
@@ -44,6 +45,7 @@ export async function runPipeline(request) {
     intent: null,
     memory: { semantic: {}, episodic: [], procedural: {} },
     sectionMap: [],
+    meaningMap: [],
     screenshots: [],
     renarrationPlan: [],
     renarrations: [],
@@ -167,16 +169,21 @@ export async function runPipeline(request) {
     // Quality validator retry loop: re-run strategist → narrator → guardrails → quality
     // Agent-6 manages retryCount internally, so no increment here.
     if (context.needsRetry) {
-      if (sidebarOpen) sendProgress(tabId, `Quality check failed — replanning (attempt ${context.validation.retryCount})...`);
-      const strategist = agentMap.get('content-strategist');
-      const narrator = agentMap.get('narrator');
-      const guardrailsAgent = agentMap.get('guardrails');
-      const qualityAgent = agentMap.get('quality-validator');
-      if (strategist) await executeAgent(strategist, context);
-      if (narrator) await executeAgent(narrator, context);
-      if (guardrailsAgent) await executeAgent(guardrailsAgent, context);
-      if (qualityAgent) await executeAgent(qualityAgent, context);
-      context.needsRetry = false;
+      if (context.validation.retryCount > 3) {
+        context.needsRetry = false;
+        // Already exhausted retries — accept current output
+      } else {
+        if (sidebarOpen) sendProgress(tabId, `Quality check failed — replanning (attempt ${context.validation.retryCount})...`);
+        const strategist = agentMap.get('content-strategist');
+        const narrator = agentMap.get('narrator');
+        const guardrailsAgent = agentMap.get('guardrails');
+        const qualityAgent = agentMap.get('quality-validator');
+        if (strategist) await executeAgent(strategist, context);
+        if (narrator) await executeAgent(narrator, context);
+        if (guardrailsAgent) await executeAgent(guardrailsAgent, context);
+        if (qualityAgent) await executeAgent(qualityAgent, context);
+        context.needsRetry = false;
+      }
     }
   }
 
@@ -305,6 +312,7 @@ const AGENTS_META = [
   { id: 'pipeline-router', label: 'Pipeline Router' },
   { id: 'intent-analyst', label: 'Intent Analyst' },
   { id: 'visual-cartographer', label: 'Visual Cartographer' },
+  { id: 'meaning-extractor', label: 'Meaning Extractor' },
   { id: 'content-strategist', label: 'Content Strategist' },
   { id: 'narrator', label: 'Narrator' },
   { id: 'diagram-generator', label: 'Diagram Generator' },
@@ -332,8 +340,16 @@ async function executeAgent(agent, context) {
 }
 
 async function runBackgroundAgents(context) {
-  const agent = ALL_AGENTS.find(a => a.name === 'memory-manager');
-  if (agent) await executeAgent(agent, context);
+  for (const agentName of ['memory-manager', 'feedback-analyst', 'predictive-adapter']) {
+    const agent = ALL_AGENTS.find(a => a.name === agentName);
+    if (agent) {
+      try {
+        await executeAgent(agent, context);
+      } catch (e) {
+        console.warn(`[Orchestrator] Background agent ${agentName} failed:`, e.message);
+      }
+    }
+  }
 }
 
 async function updateVisualizerState(context) {
