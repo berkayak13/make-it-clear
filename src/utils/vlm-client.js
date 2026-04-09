@@ -5,7 +5,6 @@
 
 import { toDataUrl } from './image-processing.js';
 import { getSettingsWithTaskMigration, DEFAULT_TASKS } from './storage-helpers.js';
-import { simulateLocalVLM } from './renarration.js';
 
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 const VLM_TIMEOUT_MS = 120000;
@@ -173,12 +172,6 @@ export async function describeImage(imageUrl, taskName) {
       if (remote?.success) return remote;
     } catch (err) {
       console.warn('Remote VLM failed:', err && err.message);
-    }
-
-    // Simulator fallback (only if remote VLM failed)
-    if (simulateLocalVLM) {
-      const description = await simulateLocalVLM(imageUrl, task);
-      return { success: true, result: description };
     }
 
     return { success: false, error: 'VLM failed — Gemini API may be unreachable or misconfigured' };
