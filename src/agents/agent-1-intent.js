@@ -36,8 +36,46 @@ const KEYWORD_MAP = {
   academic:    { goal: 'rewrite in academic style', depth: 'detailed', outputStyle: 'rewrite' },
 };
 
+/**
+ * Keywords that signal the user's literacy level.
+ */
+const LITERACY_LOW_KEYWORDS = [
+  'simple', 'easy', 'basic', 'explain like', "don't understand",
+  'confused', 'eli5', 'dumb it down', 'plain english', 'plain language'
+];
+const LITERACY_HIGH_KEYWORDS = [
+  'technical', 'in-depth', 'advanced', 'scholarly', 'academic',
+  'rigorous', 'comprehensive analysis', 'peer-reviewed'
+];
+
 const VALID_DEPTHS = ['brief', 'moderate', 'detailed'];
 const VALID_STYLES = ['summary', 'explanation', 'bullet-points', 'conversational', 'rewrite'];
+const VALID_LITERACY_LEVELS = ['low', 'moderate', 'high'];
+
+/**
+ * Detect literacy level from the raw request and chat history.
+ * Returns 'low', 'moderate', or 'high'.
+ */
+function detectLiteracyLevel(rawRequest, chatHistory) {
+  const lower = (rawRequest || '').toLowerCase();
+
+  // Check keywords in the current request
+  if (LITERACY_LOW_KEYWORDS.some(kw => lower.includes(kw))) return 'low';
+  if (LITERACY_HIGH_KEYWORDS.some(kw => lower.includes(kw))) return 'high';
+
+  // Analyze chat history: short messages with simple vocabulary bias toward 'low'
+  if (Array.isArray(chatHistory) && chatHistory.length > 0) {
+    const userMessages = chatHistory.filter(t => t.role === 'user');
+    if (userMessages.length >= 2) {
+      const avgWords = userMessages.reduce((sum, t) => {
+        return sum + (t.content || '').split(/\s+/).filter(Boolean).length;
+      }, 0) / userMessages.length;
+      if (avgWords < 10) return 'low';
+    }
+  }
+
+  return 'moderate';
+}
 
 /**
  * Strip ```json fences and parse JSON from an LLM response string.
@@ -62,7 +100,7 @@ function detectIterative(rawRequest) {
  * Keyword-based fallback intent extraction — used when the LLM call
  * fails or returns unparseable output.
  */
-function extractFallbackIntent(rawRequest) {
+function extractFallbackIntent(rawRequest, chatHistory) {
   const lower = (rawRequest || '').toLowerCase();
 
   let matched = null;
@@ -82,6 +120,7 @@ function extractFallbackIntent(rawRequest) {
     targetSections: null,
     language: null,
     isIterative: detectIterative(rawRequest),
+    literacyLevel: detectLiteracyLevel(rawRequest, chatHistory),
     confidenceScore: matched ? 0.5 : 0.3,
   };
 }
@@ -90,7 +129,7 @@ function extractFallbackIntent(rawRequest) {
  * Validate and normalise an intent object parsed from LLM output,
  * filling in any missing fields with sensible defaults.
  */
-function normaliseIntent(parsed, rawRequest) {
+function normaliseIntent(parsed, rawRequest, chatHistory) {
   return {
     goal: typeof parsed.goal === 'string' ? parsed.goal : rawRequest,
     depth: VALID_DEPTHS.includes(parsed.depth) ? parsed.depth : 'moderate',
@@ -105,6 +144,9 @@ function normaliseIntent(parsed, rawRequest) {
     isIterative: typeof parsed.isIterative === 'boolean'
       ? parsed.isIterative
       : detectIterative(rawRequest),
+    literacyLevel: VALID_LITERACY_LEVELS.includes(parsed.literacyLevel)
+      ? parsed.literacyLevel
+      : detectLiteracyLevel(rawRequest, chatHistory),
     confidenceScore: typeof parsed.confidenceScore === 'number'
       ? Math.max(0, Math.min(1, parsed.confidenceScore))
       : 0.7,
@@ -147,11 +189,11 @@ export async function run(context) {
 
     if (!llmResponse.success) throw new Error(llmResponse.error);
     const parsed = parseJSON(llmResponse.result);
-    context.intent = normaliseIntent(parsed, context.rawRequest);
+    context.intent = normaliseIntent(parsed, context.rawRequest, context.chatHistory);
   } catch (err) {
     // --- Fallback: keyword-based extraction ------------------------------
     usedFallback = true;
-    context.intent = extractFallbackIntent(context.rawRequest);
+    context.intent = extractFallbackIntent(context.rawRequest, context.chatHistory);
   }
 
   // --- Logging ----------------------------------------------------------

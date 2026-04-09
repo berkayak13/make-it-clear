@@ -11,6 +11,12 @@ You are renarrating a specific section of a web page. Your job is to rewrite the
 - **Depth:** {{DEPTH}}
 - **Output style:** {{OUTPUT_STYLE}}
 
+## Literacy Level: {{LITERACY_LEVEL}}
+
+{{LITERACY_INSTRUCTION}}
+
+Adapt your writing complexity to match this literacy level. For "low" literacy: use the simplest possible language, very short sentences, and explain everything. For "high" literacy: use precise, sophisticated language appropriate for experts.
+
 ## Terminology Rules
 
 - **Preferred terms (use these):** {{PREFERRED_TERMS}}

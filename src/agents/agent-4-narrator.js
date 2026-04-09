@@ -12,12 +12,26 @@ const CONCURRENCY = 5;
 const DIAGRAM_ROLES = ['code-block', 'data-table', 'feature-list'];
 
 /**
+ * Map literacy level to a concrete writing instruction for the narrator.
+ */
+function getLiteracyInstruction(literacyLevel) {
+  if (literacyLevel === 'low') {
+    return 'IMPORTANT: Write for a reader with low literacy. Use very short sentences (max 10 words). Use only common everyday words. No jargon, no complex grammar. Explain any concept as if to someone unfamiliar with the topic.';
+  }
+  if (literacyLevel === 'high') {
+    return 'Write for an advanced reader. Use precise technical vocabulary where appropriate. Maintain academic rigor and nuanced analysis.';
+  }
+  return 'Write for a general audience with moderate literacy. Use clear, straightforward language.';
+}
+
+/**
  * Build the per-section prompt by filling in the narrator-section template.
  */
 function buildSectionPrompt(template, section, sectionPlan, context) {
   const strategy = sectionPlan?.strategy || 'rewrite';
   const intent = context.intent || {};
   const terminology = context.globalTerminology || { preferred: [], avoided: [] };
+  const literacyLevel = intent.literacyLevel || 'moderate';
 
   return template
     .replace('{{SECTION_TEXT}}', section.text || '')
@@ -26,6 +40,8 @@ function buildSectionPrompt(template, section, sectionPlan, context) {
     .replace('{{GOAL}}', intent.goal || 'rewrite for clarity')
     .replace('{{DEPTH}}', intent.depth || 'moderate')
     .replace('{{OUTPUT_STYLE}}', intent.outputStyle || 'rewrite')
+    .replace('{{LITERACY_LEVEL}}', literacyLevel)
+    .replace('{{LITERACY_INSTRUCTION}}', getLiteracyInstruction(literacyLevel))
     .replace('{{PREFERRED_TERMS}}', terminology.preferred?.join(', ') || 'none')
     .replace('{{AVOIDED_TERMS}}', terminology.avoided?.join(', ') || 'none');
 }
@@ -140,7 +156,7 @@ export async function run(context) {
   try {
     template = await loadPrompt('narrator-section');
   } catch {
-    template = 'Rewrite the following section.\n\nSection role: {{SECTION_ROLE}}\nStrategy: {{STRATEGY}}\nGoal: {{GOAL}}\nDepth: {{DEPTH}}\nOutput style: {{OUTPUT_STYLE}}\nPreferred terms: {{PREFERRED_TERMS}}\nAvoided terms: {{AVOIDED_TERMS}}\n\nText:\n{{SECTION_TEXT}}';
+    template = 'Rewrite the following section.\n\nSection role: {{SECTION_ROLE}}\nStrategy: {{STRATEGY}}\nGoal: {{GOAL}}\nDepth: {{DEPTH}}\nOutput style: {{OUTPUT_STYLE}}\nLiteracy level: {{LITERACY_LEVEL}}\n{{LITERACY_INSTRUCTION}}\nPreferred terms: {{PREFERRED_TERMS}}\nAvoided terms: {{AVOIDED_TERMS}}\n\nText:\n{{SECTION_TEXT}}';
   }
 
   const sectionMap = context.sectionMap || [];
