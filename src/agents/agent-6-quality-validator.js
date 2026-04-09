@@ -16,8 +16,8 @@ function buildRenarrationPayload(renarrations) {
 }
 
 function buildOriginalPayload(sectionMap) {
-  return Object.entries(sectionMap).map(([id, section]) =>
-    `--- Section: ${id} ---\n${section.text || section.content || ''}`
+  return sectionMap.map(section =>
+    `--- Section: ${section.id} ---\n${section.text || ''}`
   ).join('\n\n');
 }
 
@@ -32,7 +32,7 @@ export async function run(context) {
   const startTime = Date.now();
 
   const renarrations = context.renarrations || [];
-  const sectionMap = context.sectionMap || {};
+  const sectionMap = context.sectionMap || [];
   const intent = context.intent || {};
   const renarrationPlan = context.renarrationPlan || {};
 
@@ -54,8 +54,8 @@ export async function run(context) {
     prompt,
     '\n## User Intent\n',
     `Goal: ${intent.goal || 'Not specified'}`,
-    `Task: ${intent.task || 'Not specified'}`,
-    `Persona: ${intent.persona || 'Not specified'}`,
+    `Depth: ${intent.depth || 'Not specified'}`,
+    `Style: ${intent.outputStyle || 'Not specified'}`,
     intent.confidenceScore != null ? `Confidence: ${intent.confidenceScore}` : '',
     '\n## Renarration Plan\n',
     JSON.stringify(renarrationPlan, null, 2),

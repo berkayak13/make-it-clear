@@ -40,8 +40,8 @@ function runXssSanitization(renarrations) {
 
 function buildComparisonPayload(renarrations, sectionMap) {
   const pairs = renarrations.map(section => {
-    const originalSection = sectionMap?.[section.sectionId];
-    const originalText = originalSection?.text || originalSection?.content || '';
+    const originalSection = sectionMap.find(s => s.id === section.sectionId);
+    const originalText = originalSection?.text || '';
     return `--- Section: ${section.sectionId} ---\nORIGINAL:\n${originalText}\n\nRENARRATED:\n${section.text || ''}`;
   });
   return pairs.join('\n\n');
@@ -109,7 +109,7 @@ export async function run(context) {
   const startTime = Date.now();
 
   const renarrations = context.renarrations || [];
-  const sectionMap = context.sectionMap || {};
+  const sectionMap = context.sectionMap || [];
 
   const promptTemplate = await loadPrompt('guardrails-check');
 
