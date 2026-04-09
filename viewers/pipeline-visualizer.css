@@ -283,7 +283,13 @@ body {
 
 /* Guardrail flags */
 .guardrail-flag { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #ef5350; margin-bottom: 4px; }
+.guardrail-flag--bias { color: #ffa726; background: rgba(255,167,38,0.08); padding: 4px 8px; border-radius: 4px; border-left: 3px solid #ffa726; }
 .guardrail-flag__icon { font-size: 14px; }
+
+/* Error message */
+.viz-error { text-align: center; color: #ef5350; font-size: 14px; padding: 40px 20px; background: rgba(244,67,54,0.05); border: 1px solid rgba(244,67,54,0.2); border-radius: 8px; margin: 16px 0; }
+.viz-error__title { font-weight: 600; margin-bottom: 4px; }
+.viz-error__detail { font-size: 12px; color: #7a5a5a; }
 
 /* ── Code block (shared) ── */
 .code-block {

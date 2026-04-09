@@ -1,28 +1,37 @@
 async function loadScreens() {
-  const { lastScreenshots = [], lastScreenshotMeta = null } = await chrome.storage.local.get(['lastScreenshots','lastScreenshotMeta']);
   const gallery = document.getElementById('gallery');
-  gallery.innerHTML = '';
-  if (!lastScreenshots.length) {
+  try {
+    const { lastScreenshots = [], lastScreenshotMeta = null } = await chrome.storage.local.get(['lastScreenshots','lastScreenshotMeta']);
+    gallery.innerHTML = '';
+    if (!lastScreenshots.length) {
+      const div = document.createElement('div');
+      div.className = 'sv-empty';
+      div.textContent = 'No screenshots available. Run a capture from the popup.';
+      gallery.appendChild(div);
+      return;
+    }
+    // Store meta for stitch button availability
+    window.__svMeta = lastScreenshotMeta;
+    lastScreenshots.forEach((item, idx) => {
+      const card = document.createElement('div');
+      card.className = 'sv-card';
+      card.innerHTML = `
+        <header>
+          <div class="sv-meta">Slice #${idx + 1} @ y=${item.y}</div>
+          <a download="slice-${String(idx+1).padStart(2,'0')}.png" href="${item.dataUrl}" class="sv-btn" style="text-decoration:none;padding:4px 8px;border-radius:6px;background:#4c51bf;color:#fff;">Download</a>
+        </header>
+        <img class="sv-img" src="${item.dataUrl}" alt="screenshot slice ${idx+1}"/>
+      `;
+      gallery.appendChild(card);
+    });
+  } catch (err) {
+    console.error('Failed to load screenshots:', err);
+    gallery.innerHTML = '';
     const div = document.createElement('div');
     div.className = 'sv-empty';
-    div.textContent = 'No screenshots yet. Run a capture from the popup.';
+    div.textContent = 'Failed to load screenshots: ' + (err.message || 'Unknown error');
     gallery.appendChild(div);
-    return;
   }
-  // Store meta for stitch button availability
-  window.__svMeta = lastScreenshotMeta;
-  lastScreenshots.forEach((item, idx) => {
-    const card = document.createElement('div');
-    card.className = 'sv-card';
-    card.innerHTML = `
-      <header>
-        <div class="sv-meta">Slice #${idx + 1} @ y=${item.y}</div>
-        <a download="slice-${String(idx+1).padStart(2,'0')}.png" href="${item.dataUrl}" class="sv-btn" style="text-decoration:none;padding:4px 8px;border-radius:6px;background:#4c51bf;color:#fff;">Download</a>
-      </header>
-      <img class="sv-img" src="${item.dataUrl}" alt="screenshot slice ${idx+1}"/>
-    `;
-    gallery.appendChild(card);
-  });
 }
 
 document.getElementById('refreshBtn').addEventListener('click', loadScreens);

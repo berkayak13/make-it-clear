@@ -1,17 +1,18 @@
-/* Pipeline Visualizer — standalone viewer for the 11-agent agentic pipeline */
+/* Pipeline Visualizer — standalone viewer for the 12-agent agentic pipeline */
 
 const AGENTS = [
   { id: 'pipeline-router',      num: 0,  name: 'Pipeline Router',     phase: 0, x: 300, y: 40  },
   { id: 'intent-analyst',       num: 1,  name: 'Intent Analyst',      phase: 1, x: 300, y: 120 },
   { id: 'visual-cartographer',  num: 2,  name: 'Visual Cartographer', phase: 2, x: 300, y: 200 },
-  { id: 'content-strategist',   num: 3,  name: 'Content Strategist',  phase: 3, x: 300, y: 280 },
-  { id: 'narrator',             num: 4,  name: 'Narrator',            phase: 4, x: 220, y: 360 },
-  { id: 'diagram-generator',    num: 5,  name: 'Diagram Generator',   phase: 4, x: 450, y: 360 },
-  { id: 'guardrails',           num: 10, name: 'Guardrails',          phase: 5, x: 220, y: 440 },
-  { id: 'quality-validator',    num: 6,  name: 'Quality Validator',   phase: 5, x: 450, y: 440 },
-  { id: 'memory-manager',       num: 7,  name: 'Memory Mgr',         phase: 6, x: 120, y: 560 },
-  { id: 'feedback-analyst',     num: 8,  name: 'Feedback Analyst',    phase: 6, x: 300, y: 560 },
-  { id: 'predictive-adapter',   num: 9,  name: 'Predictive Adapter',  phase: 6, x: 480, y: 560 },
+  { id: 'meaning-extractor',    num: 11, name: 'Meaning Extractor',   phase: 2, x: 300, y: 280 },
+  { id: 'content-strategist',   num: 3,  name: 'Content Strategist',  phase: 3, x: 300, y: 360 },
+  { id: 'narrator',             num: 4,  name: 'Narrator',            phase: 4, x: 220, y: 440 },
+  { id: 'diagram-generator',    num: 5,  name: 'Diagram Generator',   phase: 4, x: 450, y: 440 },
+  { id: 'guardrails',           num: 10, name: 'Guardrails',          phase: 5, x: 220, y: 520 },
+  { id: 'quality-validator',    num: 6,  name: 'Quality Validator',   phase: 5, x: 450, y: 520 },
+  { id: 'memory-manager',       num: 7,  name: 'Memory Mgr',         phase: 6, x: 120, y: 640 },
+  { id: 'feedback-analyst',     num: 8,  name: 'Feedback Analyst',    phase: 6, x: 300, y: 640 },
+  { id: 'predictive-adapter',   num: 9,  name: 'Predictive Adapter',  phase: 6, x: 480, y: 640 },
 ];
 
 const AGENT_PHASE_MAP = Object.fromEntries(AGENTS.map(a => [a.id, a.phase]));
@@ -21,7 +22,7 @@ const PHASE_NAMES = ['Routing', 'Understanding', 'Vision', 'Planning', 'Executio
 const NODE_W = 150;
 const NODE_H = 50;
 const SVG_W = 650;
-const SVG_H = 640;
+const SVG_H = 720;
 
 const STATUS_COLORS = {
   idle:    { fill: '#2a2a4a', stroke: '#4a5568', dot: '#4a5568' },
@@ -32,9 +33,10 @@ const STATUS_COLORS = {
 };
 
 const CONNECTIONS = [
-  ['pipeline-router',     'intent-analyst',      false],
+  ['pipeline-router',     'intent-analyst',       false],
   ['intent-analyst',      'visual-cartographer',  false],
-  ['visual-cartographer', 'content-strategist',   false],
+  ['visual-cartographer', 'meaning-extractor',    false],
+  ['meaning-extractor',   'content-strategist',   false],
   ['content-strategist',  'narrator',             false],
   ['content-strategist',  'diagram-generator',    false],
   ['narrator',            'guardrails',           false],
@@ -94,6 +96,7 @@ function svgEl(tag, attrs) {
 
 function renderPipelineSVG() {
   const container = document.getElementById('pipelineDiagram');
+  try {
   const svg = svgEl('svg', { width: '100%', height: SVG_H, viewBox: `0 0 ${SVG_W} ${SVG_H}`, preserveAspectRatio: 'xMidYMin meet' });
 
   // Connections
@@ -112,7 +115,7 @@ function renderPipelineSVG() {
   }
 
   // Phase labels
-  const phaseYs = { 0: 55, 1: 135, 2: 215, 3: 295, 4: 375, 5: 455, 6: 575 };
+  const phaseYs = { 0: 55, 1: 135, 2: 215, 3: 375, 4: 455, 5: 535, 6: 655 };
   for (const [phase, y] of Object.entries(phaseYs)) {
     const label = svgEl('text', { x: 8, y, class: 'phase-label' });
     label.textContent = `P${phase}`;
@@ -143,7 +146,7 @@ function renderPipelineSVG() {
   }
 
   // Output node
-  const outX = 450, outY = 510;
+  const outX = 450, outY = 590;
   svg.appendChild(svgEl('rect', { x: outX, y: outY, width: 80, height: 30, rx: 15, ry: 15, fill: '#667eea', stroke: '#764ba2', 'stroke-width': 2 }));
   const outLabel = svgEl('text', { x: outX + 40, y: outY + 20, fill: '#fff', 'font-size': 12, 'font-weight': 700, 'text-anchor': 'middle' });
   outLabel.textContent = 'OUTPUT';
@@ -153,6 +156,10 @@ function renderPipelineSVG() {
 
   container.innerHTML = '';
   container.appendChild(svg);
+  } catch (err) {
+    console.error('Failed to render pipeline SVG:', err);
+    container.innerHTML = `<div class="viz-error"><div class="viz-error__title">Failed to render pipeline diagram</div><div class="viz-error__detail">${escapeHtml(err.message)}</div></div>`;
+  }
 }
 
 function updateAgentStatus(agentId, status, durationMs) {
@@ -221,12 +228,13 @@ function renderMetrics(state) {
   if (!state) {
     panel.innerHTML = `<div class="metrics-empty">
       <div class="metrics-empty__icon">📊</div>
-      <div>No pipeline data yet</div>
+      <div>No pipeline runs yet</div>
       <div class="metrics-empty__sub">Run the agentic pipeline from the popup to see metrics here.</div>
     </div>`;
     return;
   }
 
+  try {
   const totalDuration = computeTotalDuration(state);
   const agentCount = state.log?.length || 0;
   const successCount = state.log?.filter(e => e.success).length || 0;
@@ -275,11 +283,32 @@ function renderMetrics(state) {
   }
 
   if (guardrailFlags.length > 0) {
-    html += '<div class="metrics-section"><div class="metrics-section__title">Guardrail Flags</div>';
-    for (const f of guardrailFlags) {
-      const label = typeof f === 'string' ? f : `${f.type || 'unknown'}: ${f.detail || ''}`;
-      html += `<div class="guardrail-flag"><span class="guardrail-flag__icon">${f.severity === 'error' ? '🚫' : '⚠️'}</span>${escapeHtml(label)}</div>`;
+    const biasFlags = guardrailFlags.filter(f => typeof f === 'object' && f.type === 'bias');
+    const otherFlags = guardrailFlags.filter(f => typeof f === 'string' || (typeof f === 'object' && f.type !== 'bias'));
+
+    if (otherFlags.length > 0) {
+      html += '<div class="metrics-section"><div class="metrics-section__title">Guardrail Flags</div>';
+      for (const f of otherFlags) {
+        const label = typeof f === 'string' ? f : `${f.type || 'unknown'}: ${f.detail || ''}`;
+        html += `<div class="guardrail-flag"><span class="guardrail-flag__icon">${f.severity === 'error' ? '🚫' : '⚠️'}</span>${escapeHtml(label)}</div>`;
+      }
+      html += '</div>';
     }
+
+    if (biasFlags.length > 0) {
+      html += '<div class="metrics-section"><div class="metrics-section__title">Bias Warnings</div>';
+      for (const f of biasFlags) {
+        const label = `${f.detail || 'Bias detected'}`;
+        html += `<div class="guardrail-flag guardrail-flag--bias"><span class="guardrail-flag__icon">&#x26A0;</span>${escapeHtml(label)}</div>`;
+      }
+      html += '</div>';
+    }
+  }
+
+  // Show parseError flag if present
+  if (state.validation?.parseError) {
+    html += '<div class="metrics-section"><div class="metrics-section__title">Parse Errors</div>';
+    html += `<div class="guardrail-flag"><span class="guardrail-flag__icon">&#x26A0;</span>Validation response could not be parsed correctly</div>`;
     html += '</div>';
   }
 
@@ -300,6 +329,10 @@ function renderMetrics(state) {
   }
 
   panel.innerHTML = html;
+  } catch (err) {
+    console.error('Failed to render metrics:', err);
+    panel.innerHTML = `<div class="viz-error"><div class="viz-error__title">Failed to render metrics</div><div class="viz-error__detail">${escapeHtml(err.message)}</div></div>`;
+  }
 }
 
 function metricCard(label, value, variant) {
@@ -419,27 +452,32 @@ async function renderMemoryState(layer) {
 
 function renderDiagrams(state) {
   const panel = document.getElementById('diagramsPanel');
-  // Check renarrations for mermaid content
-  const diagrams = [];
-  if (state?.renarrations) {
-    for (const r of state.renarrations) {
-      if (r.mermaid) diagrams.push({ title: `Section: ${r.sectionId}`, code: r.mermaid });
+  try {
+    // Check renarrations for mermaid content
+    const diagrams = [];
+    if (state?.renarrations) {
+      for (const r of state.renarrations) {
+        if (r.mermaid) diagrams.push({ title: `Section: ${r.sectionId}`, code: r.mermaid });
+      }
     }
+    if (diagrams.length === 0) {
+      panel.innerHTML = `<div class="diagrams-empty">
+        <div class="diagrams-empty__icon">📐</div>
+        <div>No diagrams generated</div>
+        <div class="diagrams-empty__sub">Agent 5 (Diagram Generator) creates Mermaid diagrams for complex content sections.</div>
+      </div>`;
+      return;
+    }
+    panel.innerHTML = diagrams.map(d =>
+      `<div class="diagram-block">
+        <div class="diagram-block__title">${escapeHtml(d.title)}</div>
+        <div class="code-block diagram-block__code">${escapeHtml(d.code)}</div>
+      </div>`
+    ).join('');
+  } catch (err) {
+    console.error('Failed to render diagrams:', err);
+    panel.innerHTML = `<div class="viz-error"><div class="viz-error__title">Failed to render diagrams</div><div class="viz-error__detail">${escapeHtml(err.message)}</div></div>`;
   }
-  if (diagrams.length === 0) {
-    panel.innerHTML = `<div class="diagrams-empty">
-      <div class="diagrams-empty__icon">📐</div>
-      <div>No diagrams generated</div>
-      <div class="diagrams-empty__sub">Agent 5 (Diagram Generator) creates Mermaid diagrams for complex content sections.</div>
-    </div>`;
-    return;
-  }
-  panel.innerHTML = diagrams.map(d =>
-    `<div class="diagram-block">
-      <div class="diagram-block__title">${escapeHtml(d.title)}</div>
-      <div class="code-block diagram-block__code">${escapeHtml(d.code)}</div>
-    </div>`
-  ).join('');
 }
 
 /* ──────────────────────────── Run History ──────────────────────────── */
@@ -601,5 +639,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   } catch (err) {
     console.warn('Could not load pipeline state:', err.message);
+    const metricsPanel = document.getElementById('metricsPanel');
+    if (metricsPanel) {
+      metricsPanel.innerHTML = `<div class="viz-error"><div class="viz-error__title">Failed to load pipeline data</div><div class="viz-error__detail">${escapeHtml(err.message)}</div></div>`;
+    }
   }
 });
