@@ -37,3 +37,14 @@ Return ONLY a valid JSON array of flags (no markdown, no explanation). Each flag
 - Use "warning" severity for subtle bias introduction or minor factual drift
 - Return an empty array `[]` if no issues are found
 - Return ONLY the JSON array
+
+## Bias Detection
+
+Additionally check for bias introduced during renarration:
+- Political bias: Does the renarration add political slant not in the original?
+- Stereotypes: Are gender, racial, or cultural stereotypes introduced?
+- Cultural insensitivity: Is culturally specific content handled respectfully?
+- Opinion as fact: Are opinions presented as established facts?
+
+For each bias issue found, include in your response:
+{"type": "bias", "severity": "warning", "sectionId": "<id>", "issue": "<description>"}
