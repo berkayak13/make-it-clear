@@ -40,6 +40,7 @@ function getTextStats(text) {
 export function fleschKincaidGradeLevel(text) {
   const { wordCount, sentenceCount, syllableCount } = getTextStats(text);
   if (wordCount === 0) return 0;
+  if (sentenceCount === 0) return 0;
   return 0.39 * (wordCount / sentenceCount) + 11.8 * (syllableCount / wordCount) - 15.59;
 }
 
@@ -50,11 +51,12 @@ export function fleschKincaidGradeLevel(text) {
 export function fleschReadingEase(text) {
   const { wordCount, sentenceCount, syllableCount } = getTextStats(text);
   if (wordCount === 0) return 0;
+  if (sentenceCount === 0) return 0;
   return 206.835 - 1.015 * (wordCount / sentenceCount) - 84.6 * (syllableCount / wordCount);
 }
 
 function computeGradeAndEase(stats) {
-  if (stats.wordCount === 0) return { grade: 0, ease: 0 };
+  if (stats.wordCount === 0 || stats.sentenceCount === 0) return { grade: 0, ease: 0 };
   const wps = stats.wordCount / stats.sentenceCount;
   const spw = stats.syllableCount / stats.wordCount;
   return {

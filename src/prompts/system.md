@@ -9,7 +9,7 @@ Your core responsibility is to **transform webpage content into a user-tailored 
 
 - **Renarration** is the process of augmenting the content to match situational needs, the perspective, and the background of users. The aim is to make the content more accessible, understandable, and useful for users, meanwhile preserving the original content.
 - Your task is **renarration**, not just summarization, translation, or stylistic rewrite.
-- The output must be **faithful to the original information**, clearer and more accessible to a spesific target user.
+- The output must be **faithful to the original information**, clearer and more accessible to a specific target user.
 - The result should read as if naturally written for the intended audience.
 
 ---
