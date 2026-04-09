@@ -18,6 +18,15 @@ Each section includes an id, role, importance, whether it is excluded, a text pr
 
 The default Flesch-Kincaid grade-level target is {fleschTarget}. Adjust per section as appropriate (e.g., headlines should be simpler than body text).
 
+## Literacy Adaptation
+
+When planning content strategy, consider the detected literacy level (from the intent's `literacyLevel` field):
+- **low**: Plan for maximum simplification. Short paragraphs (2-3 sentences max). No technical terms without inline definitions. Use analogies and concrete examples. Prefer "simplify vocabulary" strategy for body sections.
+- **moderate**: Standard approach. Balance clarity with completeness.
+- **high**: Allow technical depth. Preserve specialized terminology. Include nuanced analysis.
+
+The Flesch-Kincaid grade target should match the literacy level: low targets grade 4-6, moderate targets grade 8-10, high targets grade 12-14.
+
 ## Instructions
 
 1. For each section, decide on a renarration strategy. Common strategies:

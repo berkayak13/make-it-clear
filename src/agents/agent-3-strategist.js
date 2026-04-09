@@ -40,6 +40,11 @@ function parseJSON(raw) {
  * intent depth and optional persona hints.
  */
 function resolveFleschTarget(intent, memory) {
+  // Literacy level takes precedence over depth-based logic
+  const literacyLevel = intent?.literacyLevel || 'moderate';
+  if (literacyLevel === 'low') return 5;   // midpoint of grade 4-6
+  if (literacyLevel === 'high') return 13;  // midpoint of grade 12-14
+
   const persona = memory?.semantic?.personaType || memory?.personaType || null;
 
   if (persona) {
@@ -76,7 +81,7 @@ function sectionPreview(section) {
  * Generate a simple fallback plan when the LLM call fails.
  * Every non-excluded, non-skip section gets strategy "rewrite" with defaults.
  */
-function buildFallbackPlan(sectionMap, fleschTarget) {
+function buildFallbackPlan(sectionMap, fleschTarget, literacyLevel) {
   const plan = [];
   for (const section of sectionMap) {
     const role = section.role || 'body';
@@ -94,9 +99,12 @@ function buildFallbackPlan(sectionMap, fleschTarget) {
       continue;
     }
 
+    // For low literacy, use "simplify vocabulary" strategy and shorter word count
+    const strategy = literacyLevel === 'low' ? 'simplify vocabulary' : 'rewrite';
+
     plan.push({
       sectionId: section.id,
-      strategy: 'rewrite',
+      strategy,
       fleschTarget,
       wordCountTarget: null,
       bestOfN: BEST_OF_N_ROLES.has(role),
@@ -194,6 +202,8 @@ export async function run(context) {
       }));
     }
 
+    const literacyLevel = intent.literacyLevel || 'moderate';
+
     const filledPrompt = promptTemplate
       .replace('{intent}', JSON.stringify({
         goal: intent.goal,
@@ -201,6 +211,7 @@ export async function run(context) {
         outputStyle: intent.outputStyle,
         focusAreas: intent.focusAreas,
         isIterative: intent.isIterative || false,
+        literacyLevel,
       }))
       .replace('{sectionMap}', JSON.stringify(sectionsForPrompt))
       .replace('{memoryPreferences}', memoryPrefs)
@@ -259,7 +270,7 @@ export async function run(context) {
   } catch (err) {
     // --- Fallback: simple rule-based plan --------------------------------
     usedFallback = true;
-    context.renarrationPlan = buildFallbackPlan(sectionMap, fleschTarget);
+    context.renarrationPlan = buildFallbackPlan(sectionMap, fleschTarget, intent.literacyLevel || 'moderate');
     context.globalTerminology = { use: [], avoid: [] };
 
     // Still apply replan signal to fallback plan

@@ -14,6 +14,15 @@ Rate each criterion on a scale of 1-5:
 
 4. **toneConsistency** — How consistent is the voice, register, and style across all sections? (1=wildly inconsistent tone, 5=perfectly uniform voice)
 
+## Literacy Appropriateness
+
+Check that the renarration matches the target literacy level:
+- For "low" literacy: Verify sentences are short, vocabulary is basic, no unexplained jargon exists.
+- For "moderate" literacy: Verify balanced complexity -- clear but not oversimplified.
+- For "high" literacy: Verify technical precision and depth are maintained, specialized vocabulary is preserved.
+
+Include a "literacyAppropriate" score (1-5) in your evaluation, where 1 means the output completely mismatches the target literacy level and 5 means it is perfectly adapted.
+
 ## Previous Failure Memory
 
 {{failureMemory}}
@@ -30,7 +39,8 @@ Return ONLY a valid JSON object (no markdown, no explanation):
     "coherence": 4,
     "coverage": 5,
     "intentAlignment": 4,
-    "toneConsistency": 3
+    "toneConsistency": 3,
+    "literacyAppropriate": 4
   },
   "flaggedSections": [
     {

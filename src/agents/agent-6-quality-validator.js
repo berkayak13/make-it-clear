@@ -71,7 +71,7 @@ export async function run(context) {
     { tier: 'quality' }
   );
 
-  let scores = { coherence: 3, coverage: 3, intentAlignment: 3, toneConsistency: 3 };
+  let scores = { coherence: 3, coverage: 3, intentAlignment: 3, toneConsistency: 3, literacyAppropriate: 3 };
   let flaggedSections = [];
 
   try {
@@ -85,7 +85,8 @@ export async function run(context) {
           coherence: parsed.scores.coherence || 3,
           coverage: parsed.scores.coverage || 3,
           intentAlignment: parsed.scores.intentAlignment || 3,
-          toneConsistency: parsed.scores.toneConsistency || 3
+          toneConsistency: parsed.scores.toneConsistency || 3,
+          literacyAppropriate: parsed.scores.literacyAppropriate || 3
         };
       }
       if (Array.isArray(parsed.flaggedSections)) {
@@ -98,8 +99,9 @@ export async function run(context) {
 
   const averageScore = (
     scores.coherence + scores.coverage +
-    scores.intentAlignment + scores.toneConsistency
-  ) / 4;
+    scores.intentAlignment + scores.toneConsistency +
+    scores.literacyAppropriate
+  ) / 5;
 
   const passed = averageScore >= PASS_THRESHOLD;
 
