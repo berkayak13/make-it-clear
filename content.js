@@ -125,17 +125,27 @@ function showOverlay(content, x, y, runId) {
 
 function sendFeedback(feedbackType, correctedText) {
   const statusEl = document.getElementById('feedbackStatus');
-  chrome.runtime.sendMessage({
-    action: 'submit-feedback',
-    runId: lastRunId,
-    feedbackType,
-    correctedText: correctedText || null
-  }, (res) => {
-    if (statusEl) {
-      statusEl.textContent = res?.success ? 'Feedback sent!' : 'Error';
-      setTimeout(() => { if (statusEl) statusEl.textContent = ''; }, 2000);
-    }
-  });
+  function flashStatus(msg) {
+    if (!statusEl) return;
+    statusEl.textContent = msg;
+    setTimeout(() => { if (statusEl) statusEl.textContent = ''; }, 2000);
+  }
+  try {
+    chrome.runtime.sendMessage({
+      action: 'submit-feedback',
+      runId: lastRunId,
+      feedbackType,
+      correctedText: correctedText || null
+    }, (res) => {
+      if (chrome.runtime.lastError) {
+        flashStatus('Failed to send feedback');
+        return;
+      }
+      flashStatus(res?.success ? 'Feedback sent!' : 'Failed to send feedback');
+    });
+  } catch (e) {
+    flashStatus('Failed to send feedback');
+  }
 }
 
 function hideOverlay() {
@@ -398,15 +408,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     sendResponse({ success: true });
   } else if (request.action === 'update-clone-progress') {
     updateCloneProgress(request.text || '');
-    sendResponse({ success: true });
-  }
-  // Keep old actions working for backward compat
-  else if (request.action === 'show-split-loading') {
-    sendResponse({ success: true });
-  } else if (request.action === 'show-split-renarration') {
-    sendResponse({ success: true });
-  } else if (request.action === 'hide-split-renarration') {
-    hideCloneSidebar();
     sendResponse({ success: true });
   }
 });

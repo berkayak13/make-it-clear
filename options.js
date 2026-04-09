@@ -463,12 +463,14 @@ function setupEventListeners() {
     fbProjectInput.addEventListener('change', () => {
       chrome.storage.local.set({ firebaseProjectId: fbProjectInput.value.trim() });
       showSaveStatus('Firebase Project ID saved');
+      showFbSaveStatus();
     });
   }
   if (fbApiKeyInput) {
     fbApiKeyInput.addEventListener('change', () => {
       chrome.storage.local.set({ firebaseApiKey: fbApiKeyInput.value.trim() });
       showSaveStatus('Firebase API Key saved');
+      showFbSaveStatus();
     });
   }
 
@@ -504,19 +506,21 @@ function openTaskModal(taskKey) {
   const modal = document.getElementById('taskModal');
   const modalTitle = document.getElementById('modalTitle');
   
+  const nameInput = document.getElementById('taskNameInput');
+  nameInput.style.borderColor = '';
   if (taskKey) {
     // Edit existing task
     const task = currentTasks[taskKey];
     modalTitle.textContent = 'Edit Task';
-    document.getElementById('taskNameInput').value = task.name;
+    nameInput.value = task.name;
     document.getElementById('textPromptInput').value = task.textPrompt;
   } else {
     // Create new task
     modalTitle.textContent = 'Add Custom Task';
-    document.getElementById('taskNameInput').value = '';
+    nameInput.value = '';
     document.getElementById('textPromptInput').value = '';
   }
-  
+
   modal.style.display = 'flex';
 }
 
@@ -531,14 +535,16 @@ function openPersonaModal(key) {
   editingPersonaKey = key;
   const modal = document.getElementById('personaModal');
   const title = document.getElementById('personaModalTitle');
+  const nameInput = document.getElementById('personaNameInput');
+  nameInput.style.borderColor = '';
   if (key) {
     const p = currentPersonas[key];
     title.textContent = 'Edit Persona';
-    document.getElementById('personaNameInput').value = p.name;
+    nameInput.value = p.name;
     document.getElementById('personaAddendumInput').value = p.systemAddendum || p.description || '';
   } else {
     title.textContent = 'Add Persona';
-    document.getElementById('personaNameInput').value = '';
+    nameInput.value = '';
     document.getElementById('personaAddendumInput').value = '';
   }
   modal.style.display = 'flex';
@@ -551,9 +557,17 @@ function closePersonaModal() {
 
 // Save task
 async function saveTask() {
-  const name = document.getElementById('taskNameInput').value.trim();
+  const nameInput = document.getElementById('taskNameInput');
+  const name = nameInput.value.trim();
   const textPrompt = document.getElementById('textPromptInput').value.trim();
-  if (!name || !textPrompt) {
+  if (!name) {
+    alert('Task name is required.');
+    nameInput.focus();
+    nameInput.style.borderColor = '#e53e3e';
+    return;
+  }
+  nameInput.style.borderColor = '';
+  if (!textPrompt) {
     alert('Please fill in all fields');
     return;
   }
@@ -584,9 +598,17 @@ async function saveTask() {
 
 // NEW save persona
 async function savePersona() {
-  const name = document.getElementById('personaNameInput').value.trim();
+  const nameInput = document.getElementById('personaNameInput');
+  const name = nameInput.value.trim();
   let addendum = document.getElementById('personaAddendumInput').value.trim();
-  if (!name || !addendum) {
+  if (!name) {
+    alert('Persona name is required.');
+    nameInput.focus();
+    nameInput.style.borderColor = '#e53e3e';
+    return;
+  }
+  nameInput.style.borderColor = '';
+  if (!addendum) {
     alert('Persona name and text prompt are required.');
     return;
   }
@@ -689,6 +711,15 @@ function showSaveStatus(message) {
   setTimeout(() => {
     status.textContent = '';
   }, 3000);
+}
+
+function showFbSaveStatus() {
+  const el = document.getElementById('fbSaveStatus');
+  if (!el) return;
+  el.style.display = 'inline';
+  setTimeout(() => {
+    el.style.display = 'none';
+  }, 2000);
 }
 
 function applyTemplate(template, taskText, personaText, readingGoalText) {
