@@ -32,3 +32,14 @@ Return ONLY a valid JSON object (no markdown, no explanation):
 - The `averageScore` should be the mean of the four scores
 - The `improvementSuggestion` should be concrete and actionable (e.g., "Simplify vocabulary — words like 'methodology' are too advanced for this persona")
 - Return ONLY the JSON object
+
+IMPORTANT: You MUST return your evaluation as valid JSON. Use exactly this format:
+{
+  "appropriateness": <1-5>,
+  "faithfulness": <1-5>,
+  "clarity": <1-5>,
+  "tone": <1-5>,
+  "averageScore": <1.0-5.0>,
+  "improvementSuggestion": "<brief suggestion>"
+}
+Do not include any text outside the JSON object.

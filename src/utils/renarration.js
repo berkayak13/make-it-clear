@@ -27,65 +27,6 @@ export function truncateForContext(text, maxChars = 12000) {
 }
 
 // ---------------------------------------------------------------------------
-// Simulate local LLM processing
-// ---------------------------------------------------------------------------
-
-export async function simulateLocalLLM(text, task) {
-  await new Promise(resolve => setTimeout(resolve, 500));
-
-  const originalLength = text.length;
-  const words = text.split(/\s+/);
-  const fallbackMaxLength = Math.min(200, originalLength);
-  const maxLength = Number.isFinite(task?.maxLength) && task.maxLength > 0
-    ? task.maxLength
-    : fallbackMaxLength;
-
-  switch (task.name) {
-    case 'Simple Language':
-      return `Simplified version: ${text.substring(0, Math.min(maxLength, originalLength))}. This means the content is about ${words.length} key ideas presented in an easier way.`;
-
-    case 'Detailed Explanation':
-      return `Detailed analysis: ${text}\n\nThis text contains ${words.length} words and covers several important points. The main ideas are interconnected and provide comprehensive information about the topic.`;
-
-    case 'Academic Style':
-      return `In scholarly terms, the aforementioned content posits: ${text.substring(0, Math.min(maxLength, originalLength))}. This represents a formal interpretation of the source material.`;
-
-    case 'Summary':
-      return `Brief summary: ${text.substring(0, Math.min(100, originalLength))}...`;
-
-    default:
-      return text;
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Simulate local VLM processing
-// ---------------------------------------------------------------------------
-
-export async function simulateLocalVLM(imageUrl, task) {
-  await new Promise(resolve => setTimeout(resolve, 800));
-
-  const imageName = imageUrl.split('/').pop().split('?')[0];
-
-  switch (task.name) {
-    case 'Simple Language':
-      return `This is an image showing visual content. The image appears to be "${imageName}". It contains various elements arranged on the page.`;
-
-    case 'Detailed Explanation':
-      return `Comprehensive image analysis: This image (${imageName}) contains multiple visual elements. The composition includes foreground and background elements with specific positioning. Colors, shapes, and textures contribute to the overall visual message. The image serves a specific purpose within the context of the page.`;
-
-    case 'Academic Style':
-      return `Visual analysis: The image denoted as "${imageName}" presents a structured composition wherein various elements are arranged according to design principles. The visual hierarchy and spatial relationships suggest intentional placement for communicative purposes.`;
-
-    case 'Summary':
-      return `Image: ${imageName} - Contains visual elements relevant to the page content.`;
-
-    default:
-      return `Image description: ${imageName}`;
-  }
-}
-
-// ---------------------------------------------------------------------------
 // renarrateText
 // ---------------------------------------------------------------------------
 
@@ -151,13 +92,11 @@ export async function renarrateText(text, taskName, overrideTask, options = {}) 
       temperature: 0.3
     });
     if (result && result.success) return { ...result, promptInfo };
-    console.warn('LLM call failed, falling back to simulator:', result && result.error);
+    console.warn('LLM call failed:', result && result.error);
   } catch (e) {
-    console.warn('LLM unavailable, falling back:', e && e.message);
+    console.warn('LLM unavailable:', e && e.message);
   }
-  // Fallback: simulate processing with local model
-  const renarrated = await simulateLocalLLM(text, personaAugmentedTask);
-  return { success: true, result: renarrated, promptInfo };
+  return { success: false, error: 'LLM call failed and no fallback available', promptInfo };
 }
 
 // ---------------------------------------------------------------------------
@@ -219,6 +158,9 @@ export async function agenticRenarrateText(text, taskName, overrideTask, options
 
   for (let i = 0; i < maxAttempts; i++) {
     const attemptOpts = { ...options };
+    if (promptAugmentation && promptAugmentation.length > 500) {
+      promptAugmentation = promptAugmentation.slice(0, 500);
+    }
     if (promptAugmentation) attemptOpts.promptAugmentation = promptAugmentation;
 
     const result = await renarrateText(text, taskName, overrideTask, attemptOpts);

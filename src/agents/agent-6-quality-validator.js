@@ -71,7 +71,7 @@ export async function run(context) {
     { tier: 'quality' }
   );
 
-  let scores = { coherence: 3, coverage: 3, intentAlignment: 3, toneConsistency: 3 };
+  let scores = { coherence: 0, coverage: 0, intentAlignment: 0, toneConsistency: 0 };
   let flaggedSections = [];
 
   try {
@@ -82,10 +82,10 @@ export async function run(context) {
       const parsed = JSON.parse(jsonMatch[0]);
       if (parsed.scores) {
         scores = {
-          coherence: parsed.scores.coherence || 3,
-          coverage: parsed.scores.coverage || 3,
-          intentAlignment: parsed.scores.intentAlignment || 3,
-          toneConsistency: parsed.scores.toneConsistency || 3
+          coherence: parsed.scores.coherence || 0,
+          coverage: parsed.scores.coverage || 0,
+          intentAlignment: parsed.scores.intentAlignment || 0,
+          toneConsistency: parsed.scores.toneConsistency || 0
         };
       }
       if (Array.isArray(parsed.flaggedSections)) {
@@ -102,6 +102,7 @@ export async function run(context) {
   ) / 4;
 
   const passed = averageScore >= PASS_THRESHOLD;
+  const parseError = scores.coherence === 0 && scores.coverage === 0;
 
   // Build updated failure memory if validation failed
   const updatedFailureMemory = [...failureMemory];
@@ -118,6 +119,7 @@ export async function run(context) {
   context.validation = {
     scores: { ...scores, averageScore },
     passed,
+    parseError,
     retryCount,
     failureMemory: updatedFailureMemory,
     flaggedSections
