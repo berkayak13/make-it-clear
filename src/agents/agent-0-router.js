@@ -82,7 +82,7 @@ export async function run(context) {
     }
 
     context.pipelineType = pipelineType;
-    context.agentPlan = PIPELINE_CONFIGS[pipelineType];
+    context.agentPlan = [...(PIPELINE_CONFIGS[pipelineType] || [])];
 
     context.log.push({
       agent: name,
@@ -95,7 +95,7 @@ export async function run(context) {
   } catch (err) {
     // On any failure, default to full pipeline so processing continues
     context.pipelineType = 'full';
-    context.agentPlan = PIPELINE_CONFIGS.full;
+    context.agentPlan = [...PIPELINE_CONFIGS.full];
 
     context.log.push({
       agent: name,

@@ -13,7 +13,7 @@ export const requiredFields = [];
 
 /**
  * Analyze user feedback and extract preference/procedural updates.
- * @param {object} feedbackEvent — { type, originalText, renaratedText, correctedText, sectionId }
+ * @param {object} feedbackEvent — { type, originalText, renarratedText, correctedText, sectionId }
  * @param {object} context — pipeline context with userId, agentTrace, etc.
  * @returns {{ preferenceUpdates: object, proceduralUpdates: Array<{agentName:string, rule:string, confidence:number}> }}
  */
@@ -92,7 +92,7 @@ async function handleThumbsDown(userId, feedbackEvent, context) {
 async function handleCorrection(userId, feedbackEvent, context) {
   const result = { preferenceUpdates: {}, proceduralUpdates: [] };
 
-  const original = feedbackEvent.renaratedText || feedbackEvent.originalText || '';
+  const original = feedbackEvent.renarratedText || feedbackEvent.originalText || '';
   const corrected = feedbackEvent.correctedText || '';
 
   if (!original || !corrected) return result;
