@@ -161,6 +161,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
       } catch (e) {
         if (renarrateStatus) renarrateStatus.textContent = 'Error: ' + (e.message || 'unknown');
+        addSystemMessage('Pipeline error: ' + (e.message || 'unknown'));
       }
     });
   }

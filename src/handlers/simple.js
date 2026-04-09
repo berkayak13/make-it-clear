@@ -53,7 +53,10 @@ export const simpleHandlers = {
       'remoteVLMModel',
       'remoteVLMEndpoint',
       'personas',
-      'currentPersona'
+      'currentPersona',
+      'currentTask',
+      'tasks',
+      'systemPromptTemplate'
     ]);
   },
 
