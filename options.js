@@ -439,6 +439,9 @@ function setupEventListeners() {
       chrome.storage.local.set({ useAgenticPipeline: agenticOpt.checked });
       showSaveStatus('Agentic pipeline ' + (agenticOpt.checked ? 'enabled' : 'disabled'));
     });
+    chrome.storage.local.get(['useAgenticPipeline'], r => {
+      agenticOpt.checked = !!r.useAgenticPipeline;
+    });
   }
 
   const loggingOpt = document.getElementById('enableResearchLoggingOpt');
@@ -446,6 +449,9 @@ function setupEventListeners() {
     loggingOpt.addEventListener('change', () => {
       chrome.storage.local.set({ enableResearchLogging: loggingOpt.checked });
       showSaveStatus('Research logging ' + (loggingOpt.checked ? 'enabled' : 'disabled'));
+    });
+    chrome.storage.local.get(['enableResearchLogging'], r => {
+      loggingOpt.checked = !!r.enableResearchLogging;
     });
   }
 
