@@ -187,15 +187,4 @@ export const simpleHandlers = {
     return chrome.storage.local.get(['useAgenticPipeline', 'enableResearchLogging', 'studyUserId']);
   },
 
-  'run-test-cases': async (_request, _sender) => {
-    return { success: false, error: 'Not yet migrated to new pipeline' };
-  },
-
-  'evaluate-log-entry': async (_request, _sender) => {
-    return { success: false, error: 'Not yet migrated to new pipeline' };
-  },
-
-  'export-logs': async (_request, _sender) => {
-    return { success: false, error: 'Not yet migrated to new pipeline' };
-  }
 };

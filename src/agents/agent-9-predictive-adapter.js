@@ -256,7 +256,7 @@ export async function run(context) {
 
   const elapsed = Date.now() - start;
   if (context.log) {
-    context.log.push({ agent: name, phase, durationMs: elapsed });
+    context.log.push({ agent: name, phase, durationMs: elapsed, success: true, detail: `${suggestions.length} suggestions` });
   }
 
   return { suggestions, greeting };

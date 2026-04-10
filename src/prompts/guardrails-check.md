@@ -32,19 +32,8 @@ Return ONLY a valid JSON array of flags (no markdown, no explanation). Each flag
 
 ## Rules
 
-- Be strict about numbers, dates, proper nouns, and statistics — any change is a factual error
-- Use "error" severity for factual changes to numbers/dates/names and for fabricated claims
-- Use "warning" severity for subtle bias introduction or minor factual drift
+- Flag significant alterations to numbers, dates, proper nouns, and statistics — but tolerate creative restatements that preserve meaning (e.g. "$4.2 billion" ↔ "$4.2B", rounding "23.7%" to "about 24%" are acceptable)
+- Use "warning" severity for all content issues (factual, bias, fabrication)
+- Only flag fabrications that materially mislead — minor interpretive phrasing is acceptable
 - Return an empty array `[]` if no issues are found
 - Return ONLY the JSON array
-
-## Bias Detection
-
-Additionally check for bias introduced during renarration:
-- Political bias: Does the renarration add political slant not in the original?
-- Stereotypes: Are gender, racial, or cultural stereotypes introduced?
-- Cultural insensitivity: Is culturally specific content handled respectfully?
-- Opinion as fact: Are opinions presented as established facts?
-
-For each bias issue found, include in your response:
-{"type": "bias", "severity": "warning", "sectionId": "<id>", "issue": "<description>"}

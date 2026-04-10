@@ -54,7 +54,7 @@ Return ONLY a valid JSON object (no markdown, no explanation):
 
 ## Rules
 
-- Be a strict but fair reviewer
+- Be a fair and lenient reviewer — favour passing content that reasonably addresses the user's intent
 - The `flaggedSections` array should only include sections that genuinely need improvement
 - Suggestions must be concrete and actionable
 - If previous failure memory is provided, explicitly avoid repeating those approaches

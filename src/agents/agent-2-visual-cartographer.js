@@ -77,30 +77,48 @@ export async function run(context) {
     context.screenshots = images; // [{y, dataUrl}, ...]
   }
 
-  // 2. Attempt VLM-based analysis
-  let sectionMap = null;
+  // 2. If sectionMap was already populated by orchestrator (from DOM extraction),
+  //    use VLM only to enrich it with roles/importance. Keep original DOM IDs and text.
+  const existingSections = context.sectionMap || [];
   let method = 'none';
+
   if (context.screenshots && context.screenshots.length > 0) {
     try {
-      sectionMap = await vlmAnalysis(context.screenshots);
-      if (sectionMap) method = 'vlm';
+      const vlmSections = await vlmAnalysis(context.screenshots);
+      if (vlmSections && existingSections.length > 0) {
+        // Enrich existing DOM sections with VLM metadata (role, importance, visualContext)
+        // Match by index position since both are in page order
+        for (let i = 0; i < existingSections.length && i < vlmSections.length; i++) {
+          const vlm = vlmSections[i];
+          if (vlm.role && vlm.role !== 'body') existingSections[i].role = vlm.role;
+          if (typeof vlm.importance === 'number') existingSections[i].importance = vlm.importance;
+          if (vlm.excluded) existingSections[i].excluded = vlm.excluded;
+          if (vlm.visualContext) existingSections[i].visualContext = vlm.visualContext;
+        }
+        method = 'vlm-enriched';
+      } else if (vlmSections && existingSections.length === 0) {
+        // No DOM sections — use VLM sections directly
+        context.sectionMap = vlmSections;
+        method = 'vlm';
+      }
     } catch (err) {
-      console.warn('[visual-cartographer] VLM analysis failed, falling back to DOM:', err?.message || err);
+      console.warn('[visual-cartographer] VLM analysis failed, keeping DOM sections:', err?.message || err);
     }
   }
 
-  // 3. Fallback: DOM-based extraction via content script
-  if (!sectionMap && context.tabId) {
+  // 3. Fallback: DOM-based extraction if nothing exists yet
+  if ((!context.sectionMap || context.sectionMap.length === 0) && context.tabId) {
     try {
-      sectionMap = await domFallback(context.tabId);
-      if (sectionMap.length > 0) method = 'dom';
+      const domSections = await domFallback(context.tabId);
+      if (domSections.length > 0) {
+        context.sectionMap = domSections;
+        method = 'dom';
+      }
     } catch (err) {
       console.warn('[visual-cartographer] DOM fallback failed:', err?.message || err);
-      sectionMap = [];
+      context.sectionMap = [];
     }
   }
-
-  context.sectionMap = sectionMap || [];
 
   // 4. Log timing
   const elapsed = Date.now() - t0;
@@ -109,6 +127,8 @@ export async function run(context) {
     agent: name,
     phase,
     durationMs: elapsed,
+    success: true,
+    detail: `${context.sectionMap.length} sections via ${method}`,
     sections: context.sectionMap.length,
     method,
   });

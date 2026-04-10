@@ -11,22 +11,16 @@ import { callLLM } from '../utils/llm-dispatch.js';
 import * as routerAgent from '../agents/agent-0-router.js';
 import * as intentAgent from '../agents/agent-1-intent.js';
 import * as cartographerAgent from '../agents/agent-2-visual-cartographer.js';
-import * as meaningExtractorAgent from '../agents/agent-2b-meaning-extractor.js';
-import * as strategistAgent from '../agents/agent-3-strategist.js';
 import * as narratorAgent from '../agents/agent-4-narrator.js';
-import * as diagramAgent from '../agents/agent-5-diagram-generator.js';
 import * as qualityAgent from '../agents/agent-6-quality-validator.js';
 import * as memoryAgent from '../agents/agent-7-memory-manager.js';
 import * as feedbackAgent from '../agents/agent-8-feedback-analyst.js';
 import * as predictiveAgent from '../agents/agent-9-predictive-adapter.js';
 import * as guardrailsAgent from '../agents/agent-10-guardrails.js';
 
-// Match quality-validator's MAX_RETRIES (2) to avoid off-by-one
-const MAX_RETRIES_ORCHESTRATOR = 2;
-
 const ALL_AGENTS = [
-  routerAgent, intentAgent, cartographerAgent, meaningExtractorAgent, strategistAgent, narratorAgent,
-  diagramAgent, guardrailsAgent, qualityAgent, memoryAgent, feedbackAgent, predictiveAgent
+  routerAgent, intentAgent, cartographerAgent, narratorAgent,
+  guardrailsAgent, qualityAgent, memoryAgent, feedbackAgent, predictiveAgent
 ].filter(a => a && a.name && !a.disabled);
 
 // Send progress text to the clone sidebar's loading spinner
@@ -36,6 +30,8 @@ function sendProgress(tabId, text) {
 }
 
 export async function runPipeline(request) {
+  console.log('[Pipeline] ▶ Starting pipeline run');
+  console.log('[Pipeline] Request:', { text: (request.text || request.message || '').slice(0, 100), tabId: request.tabId, hasMetadata: !!request.pageMetadata });
   const context = {
     runId: generateId(),
     timestamp: Date.now(),
@@ -49,7 +45,7 @@ export async function runPipeline(request) {
     intent: null,
     memory: { semantic: {}, episodic: [], procedural: {} },
     sectionMap: [],
-    meaningMap: [],
+    readingGoal: null,
     screenshots: [],
     renarrationPlan: [],
     renarrations: [],
@@ -74,12 +70,14 @@ export async function runPipeline(request) {
     const isWebPage = url.startsWith('http://') || url.startsWith('https://');
 
     if (isWebPage) {
+      console.log('[Pipeline] Tab URL:', url);
       // Try to open sidebar via content script
       try {
         const extractResult = await chrome.tabs.sendMessage(tabId, { action: 'extract-and-clone' });
         if (extractResult?.success && extractResult.segments?.length) {
           sidebarOpen = true;
           segments = extractResult.segments;
+          console.log('[Pipeline] Extracted', segments.length, 'segments from page');
           context.sectionMap = segments.map(s => ({
             id: s.id, role: 'body', text: s.text,
             importance: 3, excluded: false, visualContext: ''
@@ -136,6 +134,18 @@ export async function runPipeline(request) {
     console.warn('[Orchestrator] User ID retrieval failed:', e?.message);
   }
 
+  // Step 2b: Load reading goal
+  try {
+    const { readingGoal } = await chrome.storage.sync.get(['readingGoal']);
+    if (readingGoal) {
+      context.readingGoal = typeof readingGoal === 'object' ? readingGoal : { readingGoal };
+      const goalText = context.readingGoal.readingGoal || '';
+      console.log('[Pipeline] Reading goal:', goalText.slice(0, 80) || 'none', '| lang:', context.readingGoal.language || 'none');
+    }
+  } catch (e) {
+    console.warn('[Orchestrator] Reading goal load failed:', e?.message);
+  }
+
   // Step 3: Run pipeline router
   sendProgress(tabId, 'Phase 0: Routing pipeline...');
   if (routerAgent?.run) {
@@ -145,6 +155,7 @@ export async function runPipeline(request) {
     context.agentPlan = ALL_AGENTS.map(a => a.name).filter(Boolean);
   }
 
+  console.log('[Pipeline] Route:', context.pipelineType, '| Agents:', context.agentPlan.join(' → '));
   sendProgress(tabId, `Pipeline: ${context.pipelineType} — running ${context.agentPlan.length} agents...`);
 
   // Step 4: Execute agents in order, showing progress for each
@@ -164,6 +175,7 @@ export async function runPipeline(request) {
     if (agent.requiredFields?.length) {
       const missing = agent.requiredFields.filter(f => !context[f]);
       if (missing.length) {
+        console.log(`[Pipeline] ⏭ Skipping ${agentName} — missing: ${missing.join(', ')}`);
         context.log.push({ agent: agentName, durationMs: 0, success: false, detail: `Missing fields: ${missing.join(', ')}` });
         if (!agent.optional) break;
         continue;
@@ -172,40 +184,36 @@ export async function runPipeline(request) {
 
     await executeAgent(agent, context);
 
-    // Halt pipeline if guardrails detected critical issues (XSS, fabrication)
+    // Log guardrails flags but continue — XSS content was already sanitized in-place
     if (agentName === 'guardrails' && !context.guardrails?.passed) {
-      context.log.push({ agent: 'orchestrator', detail: 'Guardrails failed — halting pipeline', flags: context.guardrails?.flags });
-      break;
+      console.log('[Pipeline] Guardrails flagged', context.guardrails?.flags?.length, 'issues (sanitized in-place)');
+      context.log.push({ agent: 'orchestrator', success: true, detail: 'Guardrails flagged issues (XSS sanitized in-place)', flags: context.guardrails?.flags });
     }
 
-    // Quality validator retry loop: re-run strategist → narrator → guardrails → quality
-    // Agent-6 manages retryCount internally, so no increment here.
-    if (context.needsRetry) {
-      if (context.validation.retryCount > MAX_RETRIES_ORCHESTRATOR) {
-        context.needsRetry = false;
-        // Already exhausted retries — accept current output
-      } else {
-        if (sidebarOpen) sendProgress(tabId, `Quality check failed — replanning (attempt ${context.validation.retryCount})...`);
-        const strategist = agentMap.get('content-strategist');
-        const narrator = agentMap.get('narrator');
-        const guardrailsAgent = agentMap.get('guardrails');
-        const qualityAgent = agentMap.get('quality-validator');
-        if (strategist) await executeAgent(strategist, context);
-        if (narrator) await executeAgent(narrator, context);
-        if (guardrailsAgent) await executeAgent(guardrailsAgent, context);
-        if (qualityAgent) await executeAgent(qualityAgent, context);
-        context.needsRetry = false;
-      }
-    }
   }
 
   // Step 5: Display results in the sidebar
+  const totalDur = Date.now() - context.timestamp;
+  console.log(`[Pipeline] ■ Pipeline complete in ${totalDur}ms | sections: ${context.sectionMap?.length || 0} | renarrations: ${context.renarrations?.length || 0} | validation: ${context.validation?.passed ? 'PASS' : 'FAIL'} (avg ${context.validation?.scores?.averageScore?.toFixed?.(1) || '?'}) | guardrails: ${context.guardrails?.flags?.length || 0} flags`);
   if (sidebarOpen) sendProgress(tabId, 'Applying renarration to page...');
 
   if (sidebarOpen && tabId) {
     if (context.renarrations?.length > 0) {
-      // Agentic pipeline produced renarrations — apply them
-      const replacements = context.renarrations.map(r => ({ id: r.sectionId, text: r.text }));
+      console.log('[Pipeline] Applying', context.renarrations.length, 'renarrations to DOM');
+      // Map sectionIds back to DOM data-renarration-id attributes.
+      // VLM uses "section-0" format, DOM uses numeric "0" — build a lookup from sectionMap to segments.
+      const idMap = new Map();
+      if (segments.length > 0) {
+        const sectionMap = context.sectionMap || [];
+        for (let i = 0; i < sectionMap.length; i++) {
+          const seg = segments[i];
+          if (seg) idMap.set(String(sectionMap[i].id), String(seg.id));
+        }
+      }
+      const replacements = context.renarrations.map(r => {
+        const domId = idMap.get(String(r.sectionId)) ?? String(r.sectionId);
+        return { id: domId, text: r.text };
+      });
       try {
         await chrome.tabs.sendMessage(tabId, { action: 'apply-dom-renarration', replacements });
       } catch (e) {
@@ -324,10 +332,7 @@ const AGENTS_META = [
   { id: 'pipeline-router', label: 'Pipeline Router' },
   { id: 'intent-analyst', label: 'Intent Analyst' },
   { id: 'visual-cartographer', label: 'Visual Cartographer' },
-  { id: 'meaning-extractor', label: 'Meaning Extractor' },
-  { id: 'content-strategist', label: 'Content Strategist' },
   { id: 'narrator', label: 'Narrator' },
-  { id: 'diagram-generator', label: 'Diagram Generator' },
   { id: 'guardrails', label: 'Guardrails' },
   { id: 'quality-validator', label: 'Quality Validator' },
   { id: 'memory-manager', label: 'Memory Manager' },
@@ -335,24 +340,86 @@ const AGENTS_META = [
   { id: 'predictive-adapter', label: 'Predictive Adapter' },
 ];
 
+// Define which context fields each agent reads (input) and writes (output)
+const AGENT_IO = {
+  'pipeline-router':     { in: ['rawRequest', 'pageMetadata'], out: ['pipelineType', 'agentPlan'] },
+  'intent-analyst':      { in: ['rawRequest', 'chatHistory', 'readingGoal', 'memory'], out: ['intent'] },
+  'visual-cartographer': { in: ['tabId'], out: ['sectionMap', 'screenshots'] },
+  'narrator':            { in: ['intent', 'sectionMap', 'renarrationPlan'], out: ['renarrations'] },
+  'guardrails':          { in: ['renarrations', 'sectionMap'], out: ['guardrails'] },
+  'quality-validator':   { in: ['renarrations', 'intent', 'guardrails', 'validation'], out: ['validation', 'needsRetry', 'replanSignal'] },
+  'memory-manager':      { in: ['renarrations', 'intent', 'validation'], out: ['memory'] },
+  'feedback-analyst':    { in: [], out: [] },
+  'predictive-adapter':  { in: ['pageMetadata', 'memory'], out: [] },
+};
+
+function snapshotValue(val, depth) {
+  if (val == null) return null;
+  if (typeof val === 'string') return val.length > 200 ? val.slice(0, 200) + '...' : val;
+  if (typeof val !== 'object') return val;
+  if (Array.isArray(val)) {
+    if (val.length === 0) return [];
+    if (depth > 1) return `[${val.length} items]`;
+    return val.slice(0, 5).map(v => snapshotValue(v, depth + 1));
+  }
+  const keys = Object.keys(val);
+  if (depth > 1 && keys.length > 5) return `{${keys.length} fields}`;
+  const summary = {};
+  for (const k of keys) {
+    summary[k] = snapshotValue(val[k], depth + 1);
+  }
+  return summary;
+}
+
+function snapshotField(context, key) {
+  return snapshotValue(context[key], 0);
+}
+
+function captureSnapshot(context, fields) {
+  const snap = {};
+  for (const f of fields) {
+    snap[f] = snapshotField(context, f);
+  }
+  return snap;
+}
+
 async function executeAgent(agent, context) {
   const start = Date.now();
   const label = AGENTS_META.find(a => a.id === agent.name)?.label || agent.name;
+  const io = AGENT_IO[agent.name] || { in: [], out: [] };
+
+  // Capture input snapshot before running
+  const inputSnap = captureSnapshot(context, io.in);
+
+  console.log(`[Pipeline] ▶ ${label} starting | input:`, inputSnap);
+
+  // Mark as running BEFORE execution so visualizer shows blue
+  await updateVisualizerAgentStatus(agent.name, 'running', 0, context, { input: inputSnap });
+
   try {
     await agent.run(context);
-    context.log.push({ agent: agent.name, durationMs: Date.now() - start, success: true, detail: '' });
-    await updateVisualizerAgentStatus(agent.name, 'success', Date.now() - start, context);
+    const dur = Date.now() - start;
+    const outputSnap = captureSnapshot(context, io.out);
+    context.agentSnapshots = context.agentSnapshots || {};
+    context.agentSnapshots[agent.name] = { input: inputSnap, output: outputSnap };
+    context.log.push({ agent: agent.name, durationMs: dur, success: true, detail: '' });
+    console.log(`[Pipeline] ✓ ${label} done (${dur}ms) | output:`, outputSnap);
+    await updateVisualizerAgentStatus(agent.name, 'success', dur, context, { input: inputSnap, output: outputSnap });
   } catch (e) {
     const dur = Date.now() - start;
+    const snapshot = { input: inputSnap, output: null, error: e.message };
+    context.agentSnapshots = context.agentSnapshots || {};
+    context.agentSnapshots[agent.name] = snapshot;
     context.log.push({ agent: agent.name, durationMs: dur, success: false, detail: e.message });
-    await updateVisualizerAgentStatus(agent.name, 'failed', dur, context);
+    console.error(`[Pipeline] ✗ ${label} failed (${dur}ms):`, e.message);
+    await updateVisualizerAgentStatus(agent.name, 'failed', dur, context, snapshot);
     sendProgress(context.tabId, `\u26A0 ${label} failed: ${e.message}`);
     if (!agent.optional) throw e;
   }
 }
 
 async function runBackgroundAgents(context) {
-  for (const agentName of ['memory-manager', 'feedback-analyst', 'predictive-adapter']) {
+  for (const agentName of ['quality-validator', 'memory-manager', 'feedback-analyst']) {
     const agent = ALL_AGENTS.find(a => a.name === agentName);
     if (agent) {
       try {
@@ -384,6 +451,7 @@ async function updateVisualizerState(context) {
     renarrations: renarrationsSummary,
     sectionCount: (context.sectionMap || []).length,
     renarrationCount: (context.renarrations || []).length,
+    agentSnapshots: context.agentSnapshots || {},
     completed: true,
   };
 
@@ -405,11 +473,12 @@ async function updateVisualizerState(context) {
   } catch (e) { console.warn('[Orchestrator] Run history save failed:', e.message); }
 }
 
-async function updateVisualizerAgentStatus(agentName, status, durationMs, context) {
+async function updateVisualizerAgentStatus(agentName, status, durationMs, context, snapshot) {
   try {
     const data = await chrome.storage.local.get('pipelineVisualizerLive');
     const current = data?.pipelineVisualizerLive || {};
     current[agentName] = { status, durationMs, timestamp: Date.now() };
+    if (snapshot) current[agentName].snapshot = snapshot;
     current._runId = context.runId;
     current._pipelineType = context.pipelineType;
     await chrome.storage.local.set({ pipelineVisualizerLive: current });

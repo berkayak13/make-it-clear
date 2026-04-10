@@ -72,9 +72,10 @@ Combine all three in every response.**
 
 ### Avoid Transcription Style
 - **Do NOT produce a line-by-line transcription or mirror of the original.**
-- Synthesize and interpret the content — write as if explaining it to the persona in conversation.
+- Restructure and adapt the content for the persona — write as if explaining it to them in conversation.
 - Combine related points, highlight what matters, omit what doesn't.
 - The output should feel like a helpful explanation, not a copy of the source.
+- **Do not fabricate** — do not invent facts, add translations, or insert interpretive introductions (e.g. "This section features...") that have no basis in the original content.
 
 Unless task demands otherwise:
 

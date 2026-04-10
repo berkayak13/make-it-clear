@@ -129,18 +129,19 @@ function extractFallbackIntent(rawRequest, chatHistory) {
  * Validate and normalise an intent object parsed from LLM output,
  * filling in any missing fields with sensible defaults.
  */
-function normaliseIntent(parsed, rawRequest, chatHistory) {
+function normaliseIntent(parsed, rawRequest, chatHistory, readingGoal) {
+  const rg = readingGoal && typeof readingGoal === 'object' ? readingGoal : {};
   return {
-    goal: typeof parsed.goal === 'string' ? parsed.goal : rawRequest,
-    depth: VALID_DEPTHS.includes(parsed.depth) ? parsed.depth : 'moderate',
-    focusAreas: Array.isArray(parsed.focusAreas) ? parsed.focusAreas : [],
-    outputStyle: VALID_STYLES.includes(parsed.outputStyle) ? parsed.outputStyle : 'rewrite',
+    goal: typeof parsed.goal === 'string' ? parsed.goal : (rg.readingGoal || rawRequest),
+    depth: VALID_DEPTHS.includes(parsed.depth) ? parsed.depth : (VALID_DEPTHS.includes(rg.desiredDepth) ? rg.desiredDepth : 'moderate'),
+    focusAreas: Array.isArray(parsed.focusAreas) && parsed.focusAreas.length > 0 ? parsed.focusAreas : (rg.focusAreas || []),
+    outputStyle: VALID_STYLES.includes(parsed.outputStyle) ? parsed.outputStyle : (VALID_STYLES.includes(rg.outputStyle) ? rg.outputStyle : 'rewrite'),
     terminology: {
       preferred: Array.isArray(parsed.terminology?.preferred) ? parsed.terminology.preferred : [],
       avoided: Array.isArray(parsed.terminology?.avoided) ? parsed.terminology.avoided : [],
     },
     targetSections: Array.isArray(parsed.targetSections) ? parsed.targetSections : null,
-    language: typeof parsed.language === 'string' ? parsed.language : null,
+    language: typeof parsed.language === 'string' ? parsed.language : (rg.language || null),
     isIterative: typeof parsed.isIterative === 'boolean'
       ? parsed.isIterative
       : detectIterative(rawRequest),
@@ -149,7 +150,7 @@ function normaliseIntent(parsed, rawRequest, chatHistory) {
       : detectLiteracyLevel(rawRequest, chatHistory),
     confidenceScore: typeof parsed.confidenceScore === 'number'
       ? Math.max(0, Math.min(1, parsed.confidenceScore))
-      : 0.7,
+      : (rg.readingGoal ? 0.9 : 0.7),
   };
 }
 
@@ -167,6 +168,21 @@ export async function run(context) {
     // --- Build LLM input ------------------------------------------------
     const promptTemplate = await loadPrompt('intent-analysis');
 
+    // Enrich rawRequest with reading goal + memory episodes
+    let enrichedRequest = context.rawRequest || '';
+    const rg = context.readingGoal;
+    if (rg) {
+      const goalText = typeof rg === 'object' ? rg.readingGoal : rg;
+      if (goalText) enrichedRequest += `\n\nUser's reading goal: ${goalText}`;
+      if (rg.additionalInstructions) enrichedRequest += `\nAdditional instructions: ${rg.additionalInstructions}`;
+      if (rg.language) enrichedRequest += `\nUser's language: ${rg.language}`;
+    }
+    const episodes = context.memory?.episodic || [];
+    if (episodes.length > 0) {
+      const history = episodes.slice(0, 3).map(e => `- ${e.intent || e.taskName || 'session'} (${e.outcome || ''})`).join('\n');
+      enrichedRequest += `\n\nUser's recent session history:\n${history}`;
+    }
+
     const chatSnippet = (context.chatHistory || [])
       .map(turn => `${turn.role}: ${turn.content}`)
       .join('\n');
@@ -176,7 +192,7 @@ export async function run(context) {
       : 'none';
 
     const filledPrompt = promptTemplate
-      .replace('{rawRequest}', context.rawRequest || '')
+      .replace('{rawRequest}', enrichedRequest)
       .replace('{chatHistory}', chatSnippet || 'none')
       .replace('{memoryProfile}', memorySnippet);
 
@@ -189,12 +205,12 @@ export async function run(context) {
 
     if (!llmResponse.success) throw new Error(llmResponse.error);
     const parsed = parseJSON(llmResponse.result);
-    context.intent = normaliseIntent(parsed, context.rawRequest, context.chatHistory);
+    context.intent = normaliseIntent(parsed, context.rawRequest, context.chatHistory, rg);
   } catch (err) {
     // --- Fallback: keyword-based extraction, normalised for consistency ---
     usedFallback = true;
     const fallback = extractFallbackIntent(context.rawRequest, context.chatHistory);
-    context.intent = normaliseIntent(fallback, context.rawRequest, context.chatHistory);
+    context.intent = normaliseIntent(fallback, context.rawRequest, context.chatHistory, rg);
   }
 
   // --- Logging ----------------------------------------------------------

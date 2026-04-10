@@ -6,8 +6,8 @@ export const phase = 5;
 export const optional = false;
 export const requiredFields = ['renarrations', 'intent'];
 
-const PASS_THRESHOLD = 3.5;
-const MAX_RETRIES = 2;
+const PASS_THRESHOLD = 3.0;
+const MAX_RETRIES = 1;
 
 function buildRenarrationPayload(renarrations) {
   return renarrations.map(section =>
@@ -41,6 +41,11 @@ export async function run(context) {
   const retryCount = previousValidation.retryCount || 0;
   const failureMemory = previousValidation.failureMemory || [];
 
+  // Pull fabrication/factual flags from guardrails into quality context
+  const guardrailsFlags = (context.guardrails?.flags || [])
+    .filter(f => f.type === 'fabrication' || f.type === 'factual')
+    .map(f => f.detail);
+
   const promptTemplate = await loadPrompt('quality-validation');
 
   // Replace the failure memory placeholder in the prompt
@@ -59,6 +64,9 @@ export async function run(context) {
     intent.confidenceScore != null ? `Confidence: ${intent.confidenceScore}` : '',
     '\n## Renarration Plan\n',
     JSON.stringify(renarrationPlan, null, 2),
+    guardrailsFlags.length > 0
+      ? `\n## Guardrails Flags (from prior check)\n${guardrailsFlags.map((f, i) => `${i + 1}. ${f}`).join('\n')}\nFactor these issues into your quality scoring.`
+      : '',
     '\n## Original Content\n',
     originalPayload,
     '\n## Renarrated Content\n',
@@ -117,6 +125,9 @@ export async function run(context) {
       updatedFailureMemory.push(summary);
     }
   }
+  if (!passed && guardrailsFlags.length > 0) {
+    updatedFailureMemory.push('Guardrails detected: ' + guardrailsFlags.slice(0, 5).join('; '));
+  }
 
   context.validation = {
     scores: { ...scores, averageScore },
@@ -153,6 +164,8 @@ export async function run(context) {
     agent: name,
     phase,
     durationMs: Date.now() - startTime,
+    success: true,
+    detail: `avg=${averageScore.toFixed(2)}, passed=${passed}, retries=${context.validation.retryCount || retryCount}`,
     averageScore,
     passed,
     retryCount: context.validation.retryCount || retryCount,

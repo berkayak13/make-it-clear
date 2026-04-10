@@ -7,9 +7,9 @@ export const optional = false;
 export const requiredFields = [];
 
 const PIPELINE_CONFIGS = {
-  full: ['pipeline-router', 'intent-analyst', 'visual-cartographer', 'content-strategist', 'narrator', 'diagram-generator', 'guardrails', 'quality-validator'],
-  lite: ['pipeline-router', 'intent-analyst', 'content-strategist', 'narrator', 'guardrails', 'quality-validator'],
-  translate: ['pipeline-router', 'intent-analyst', 'narrator', 'quality-validator'],
+  full: ['pipeline-router', 'intent-analyst', 'visual-cartographer', 'narrator', 'guardrails'],
+  lite: ['pipeline-router', 'intent-analyst', 'narrator', 'guardrails'],
+  translate: ['pipeline-router', 'intent-analyst', 'narrator', 'guardrails'],
   annotate: ['pipeline-router', 'intent-analyst', 'narrator']
 };
 

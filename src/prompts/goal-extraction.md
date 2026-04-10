@@ -20,7 +20,8 @@ You are a structured data extractor. Given a conversation transcript between a u
   "desiredDepth": "brief|moderate|detailed",
   "focusAreas": ["topic1", "topic2"],
   "outputStyle": "summary|explanation|bullet-points|conversational",
-  "additionalInstructions": "Any specific user requests not captured above"
+  "additionalInstructions": "Any specific user requests not captured above",
+  "language": "ISO 639-1 code of the language the user chatted in (e.g. 'tr', 'en', 'de')"
 }
 ```
 
@@ -31,3 +32,4 @@ You are a structured data extractor. Given a conversation transcript between a u
 - `focusAreas` is an array of strings. Use an empty array `[]` if no specific focus was mentioned.
 - `outputStyle` must be exactly one of: `summary`, `explanation`, `bullet-points`, `conversational`. Default to `summary` if unclear.
 - `additionalInstructions` captures any specific requests (e.g., "avoid jargon", "include examples"). Use empty string `""` if none.
+- `language` must be the ISO 639-1 code detected from the user's messages in the conversation. Default to `"en"` if unclear.

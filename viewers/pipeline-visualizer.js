@@ -4,25 +4,21 @@ const AGENTS = [
   { id: 'pipeline-router',      num: 0,  name: 'Pipeline Router',     phase: 0, x: 300, y: 40  },
   { id: 'intent-analyst',       num: 1,  name: 'Intent Analyst',      phase: 1, x: 300, y: 120 },
   { id: 'visual-cartographer',  num: 2,  name: 'Visual Cartographer', phase: 2, x: 300, y: 200 },
-  { id: 'meaning-extractor',    num: 11, name: 'Meaning Extractor',   phase: 2, x: 300, y: 280 },
-  { id: 'content-strategist',   num: 3,  name: 'Content Strategist',  phase: 3, x: 300, y: 360 },
-  { id: 'narrator',             num: 4,  name: 'Narrator',            phase: 4, x: 220, y: 440 },
-  { id: 'diagram-generator',    num: 5,  name: 'Diagram Generator',   phase: 4, x: 450, y: 440 },
-  { id: 'guardrails',           num: 10, name: 'Guardrails',          phase: 5, x: 220, y: 520 },
-  { id: 'quality-validator',    num: 6,  name: 'Quality Validator',   phase: 5, x: 450, y: 520 },
-  { id: 'memory-manager',       num: 7,  name: 'Memory Mgr',         phase: 6, x: 120, y: 640 },
-  { id: 'feedback-analyst',     num: 8,  name: 'Feedback Analyst',    phase: 6, x: 300, y: 640 },
-  { id: 'predictive-adapter',   num: 9,  name: 'Predictive Adapter',  phase: 6, x: 480, y: 640 },
+  { id: 'narrator',             num: 4,  name: 'Narrator',            phase: 4, x: 300, y: 300 },
+  { id: 'guardrails',           num: 10, name: 'Guardrails',          phase: 5, x: 300, y: 380 },
+  { id: 'quality-validator',    num: 6,  name: 'Quality Validator',   phase: 6, x: 120, y: 480 },
+  { id: 'memory-manager',       num: 7,  name: 'Memory Mgr',         phase: 6, x: 300, y: 480 },
+  { id: 'feedback-analyst',     num: 8,  name: 'Feedback Analyst',    phase: 6, x: 480, y: 480 },
 ];
 
 const AGENT_PHASE_MAP = Object.fromEntries(AGENTS.map(a => [a.id, a.phase]));
 
-const PHASE_NAMES = ['Routing', 'Understanding', 'Vision', 'Planning', 'Execution', 'Validation', 'Learning'];
+const PHASE_NAMES = ['Routing', 'Understanding', 'Vision', '', 'Execution', 'Sanitization', 'Background'];
 
 const NODE_W = 150;
 const NODE_H = 50;
 const SVG_W = 650;
-const SVG_H = 780;
+const SVG_H = 580;
 
 const STATUS_COLORS = {
   idle:    { fill: '#2a2a4a', stroke: '#4a5568', dot: '#4a5568' },
@@ -35,17 +31,11 @@ const STATUS_COLORS = {
 const CONNECTIONS = [
   ['pipeline-router',     'intent-analyst',       false],
   ['intent-analyst',      'visual-cartographer',  false],
-  ['visual-cartographer', 'meaning-extractor',    false],
-  ['meaning-extractor',   'content-strategist',   false],
-  ['content-strategist',  'narrator',             false],
-  ['content-strategist',  'diagram-generator',    false],
+  ['visual-cartographer', 'narrator',             false],
   ['narrator',            'guardrails',           false],
-  ['diagram-generator',   'quality-validator',    false],
-  ['guardrails',          'quality-validator',     false],
-  ['quality-validator',   'content-strategist',   true],
-  ['quality-validator',   'memory-manager',       false],
-  ['quality-validator',   'feedback-analyst',     false],
-  ['quality-validator',   'predictive-adapter',   false],
+  ['guardrails',          'quality-validator',    false],
+  ['guardrails',          'memory-manager',       false],
+  ['guardrails',          'feedback-analyst',     false],
 ];
 
 let currentState = null;
@@ -126,7 +116,7 @@ function renderPipelineSVG() {
   }
 
   // Phase labels
-  const phaseYs = { 0: 55, 1: 135, 2: 240, 3: 375, 4: 455, 5: 535, 6: 655 };
+  const phaseYs = { 0: 55, 1: 135, 2: 215, 4: 315, 5: 395, 6: 495 };
   for (const [phase, y] of Object.entries(phaseYs)) {
     const label = svgEl('text', { x: 8, y, class: 'phase-label' });
     label.textContent = `P${phase}`;
@@ -176,7 +166,7 @@ function renderPipelineSVG() {
   }
 
   // Output node — placed below the Phase 6 learning agents
-  const outX = 260, outY = 720;
+  const outX = 260, outY = 540;
   svg.appendChild(svgEl('rect', { x: outX, y: outY, width: 80, height: 30, rx: 15, ry: 15, fill: '#667eea', stroke: '#764ba2', 'stroke-width': 2 }));
   const outLabel = svgEl('text', { x: outX + 40, y: outY + 20, fill: '#fff', 'font-size': 12, 'font-weight': 700, 'text-anchor': 'middle' });
   outLabel.textContent = 'OUTPUT';
@@ -384,44 +374,59 @@ function formatLabel(key) {
 
 /* ──────────────────────────── Data Inspector ──────────────────────────── */
 
-function showAgentData(agentId) {
+async function showAgentData(agentId) {
   switchTab('inspector');
   const panel = document.getElementById('inspectorPanel');
   if (!panel) return;
   const agent = AGENTS.find(a => a.id === agentId);
   const label = agent ? `Agent #${agent.num}: ${agent.name}` : agentId;
 
-  if (!currentState?.log) {
-    panel.innerHTML = `<div class="inspector-header">${escapeHtml(label)}</div>
-      <div class="inspector-placeholder">No pipeline data available. Run a pipeline first.</div>`;
-    return;
+  // Try completed state first, then fall back to live data
+  let snapshot = currentState?.agentSnapshots?.[agentId] || null;
+  let logEntry = currentState?.log?.find(e => e.agent === agentId) || null;
+  let liveStatus = null;
+
+  // Check live data for in-flight agents
+  try {
+    const { pipelineVisualizerLive } = await chrome.storage.local.get('pipelineVisualizerLive');
+    const liveAgent = pipelineVisualizerLive?.[agentId];
+    if (liveAgent) {
+      liveStatus = liveAgent.status;
+      if (!snapshot && liveAgent.snapshot) snapshot = liveAgent.snapshot;
+    }
+  } catch { /* best-effort */ }
+
+  let statusBadge;
+  if (liveStatus === 'running') {
+    statusBadge = '<span class="inspector-badge inspector-badge--running">Running...</span>';
+  } else if (logEntry) {
+    statusBadge = `<span class="inspector-badge inspector-badge--${logEntry.success ? 'success' : 'failed'}">${logEntry.success ? 'Success' : 'Failed'} (${formatDuration(logEntry.durationMs)})</span>`;
+  } else if (liveStatus) {
+    statusBadge = `<span class="inspector-badge inspector-badge--${liveStatus}">${liveStatus}</span>`;
+  } else {
+    statusBadge = '<span class="inspector-badge inspector-badge--idle">Not executed</span>';
   }
 
-  // Find this agent's log entry
-  const logEntry = currentState.log.find(e => e.agent === agentId);
-  // Build context data relevant to this agent
-  const contextData = {};
-  if (logEntry) contextData.execution = logEntry;
-  if (agent) {
-    contextData.phase = agent.phase;
-    contextData.phaseName = PHASE_NAMES[agent.phase];
-    // Show relevant pipeline context based on phase
-    if (agent.phase === 0 && currentState.pipelineType) contextData.pipelineType = currentState.pipelineType;
-    if (agent.phase === 0 && currentState.agentPlan) contextData.agentPlan = currentState.agentPlan;
-    if (agent.phase >= 1 && currentState.intent) contextData.intent = currentState.intent;
-    if (agent.phase >= 2) contextData.sectionCount = currentState.sectionCount;
-    if (agent.phase >= 4) contextData.renarrationCount = currentState.renarrationCount;
-    if (agent.phase >= 5 && currentState.validation) contextData.validation = currentState.validation;
-    if (agent.phase >= 5 && currentState.guardrails) contextData.guardrails = currentState.guardrails;
-    if (agent.phase >= 6 && currentState.memory) contextData.memory = currentState.memory;
+  let html = `<div class="inspector-header">${escapeHtml(label)} ${statusBadge}</div>`;
+
+  if (snapshot) {
+    html += `<div class="inspector-section"><div class="inspector-section__title">Input</div>
+      <div class="code-block json-viewer">${syntaxHighlight(JSON.stringify(snapshot.input, null, 2))}</div></div>`;
+    if (snapshot.output) {
+      html += `<div class="inspector-section"><div class="inspector-section__title">Output</div>
+        <div class="code-block json-viewer">${syntaxHighlight(JSON.stringify(snapshot.output, null, 2))}</div></div>`;
+    }
+    if (snapshot.error) {
+      html += `<div class="inspector-section"><div class="inspector-section__title">Error</div>
+        <div class="guardrail-flag"><span class="guardrail-flag__icon">!</span>${escapeHtml(snapshot.error)}</div></div>`;
+    }
+  } else if (liveStatus === 'running') {
+    html += `<div class="inspector-placeholder">Agent is currently running — input will appear when it completes.</div>`;
+  } else if (!currentState?.log) {
+    html += `<div class="inspector-placeholder">No pipeline data available. Run a pipeline first.</div>`;
   }
 
-  const statusBadge = logEntry
-    ? `<span class="inspector-badge inspector-badge--${logEntry.success ? 'success' : 'failed'}">${logEntry.success ? 'Success' : 'Failed'} (${formatDuration(logEntry.durationMs)})</span>`
-    : '<span class="inspector-badge inspector-badge--idle">Not executed</span>';
-
-  panel.innerHTML = `<div class="inspector-header">${escapeHtml(label)} ${statusBadge}</div>
-    <div class="code-block json-viewer">${syntaxHighlight(JSON.stringify(contextData, null, 2))}</div>`;
+  panel.innerHTML = html;
 }
 
 function syntaxHighlight(json) {

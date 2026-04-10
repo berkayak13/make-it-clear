@@ -2,7 +2,6 @@
 let currentSessionId = null;
 let userMessageCount = 0;
 let generatedGoal = null;
-let generatedPersona = null;
 let sending = false;
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -22,16 +21,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   const sendBtn = document.getElementById('sendBtn');
   const newSessionBtn = document.getElementById('newSessionBtn');
   const setGoalBtn = document.getElementById('setGoalBtn');
-  const generatePersonaBtn = document.getElementById('generatePersonaBtn');
   const secondaryActions = document.getElementById('secondaryActions');
   const goalPreview = document.getElementById('goalPreview');
   const applyGoalBtn = document.getElementById('applyGoalBtn');
   const discardGoalBtn = document.getElementById('discardGoalBtn');
   const goalDismiss = document.getElementById('goalDismiss');
-  const personaPreview = document.getElementById('personaPreview');
-  const applyPersonaBtn = document.getElementById('applyPersonaBtn');
-  const discardPersonaBtn = document.getElementById('discardPersonaBtn');
-  const personaDismiss = document.getElementById('personaDismiss');
   const userBadge = document.getElementById('userBadge');
   const quickRepliesContainer = document.getElementById('quickReplies');
   const refinementBanner = document.getElementById('refinementBanner');
@@ -210,32 +204,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     setGoalBtn.textContent = 'Set Reading Goal';
   });
 
-  // Generate Persona
-  generatePersonaBtn.addEventListener('click', async () => {
-    if (!currentSessionId) return;
-    generatePersonaBtn.disabled = true;
-    generatePersonaBtn.textContent = 'Generating...';
-    try {
-      const res = await chrome.runtime.sendMessage({ action: 'chatbot-generate-persona', sessionId: currentSessionId });
-      if (res?.success && res.persona) {
-        generatedPersona = res.persona;
-        showPersonaPreview(res.persona);
-      } else {
-        addSystemMessage('Failed to generate persona: ' + (res?.error || 'Unknown error'));
-      }
-    } catch (e) {
-      addSystemMessage('Error generating persona: ' + e.message);
-    }
-    generatePersonaBtn.disabled = false;
-    generatePersonaBtn.textContent = 'Generate Persona';
-  });
-
   // Goal preview actions
   applyGoalBtn.addEventListener('click', async () => {
     if (!generatedGoal) return;
     applyGoalBtn.disabled = true;
     try {
-      await chrome.storage.sync.set({ readingGoal: generatedGoal.readingGoal || '' });
+      await chrome.storage.sync.set({ readingGoal: generatedGoal });
       addSystemMessage('Reading goal applied: "' + (generatedGoal.readingGoal || '') + '"');
       goalPreview.style.display = 'none';
       generatedGoal = null;
@@ -253,39 +227,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   goalDismiss.addEventListener('click', () => {
     goalPreview.style.display = 'none';
     generatedGoal = null;
-  });
-
-  // Persona preview actions
-  applyPersonaBtn.addEventListener('click', async () => {
-    if (!generatedPersona || !currentSessionId) return;
-    applyPersonaBtn.disabled = true;
-    try {
-      const res = await chrome.runtime.sendMessage({
-        action: 'chatbot-apply-persona',
-        sessionId: currentSessionId,
-        persona: generatedPersona
-      });
-      if (res?.success) {
-        addSystemMessage('Persona "' + generatedPersona.name + '" applied successfully! It is now your active persona.');
-        personaPreview.style.display = 'none';
-        generatedPersona = null;
-      } else {
-        addSystemMessage('Failed to apply persona: ' + (res?.error || 'Unknown error'));
-      }
-    } catch (e) {
-      addSystemMessage('Error applying persona: ' + e.message);
-    }
-    applyPersonaBtn.disabled = false;
-  });
-
-  discardPersonaBtn.addEventListener('click', () => {
-    personaPreview.style.display = 'none';
-    generatedPersona = null;
-  });
-
-  personaDismiss.addEventListener('click', () => {
-    personaPreview.style.display = 'none';
-    generatedPersona = null;
   });
 
   // Refinement banner
@@ -340,11 +281,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         `;
         updateActionButtons();
         goalPreview.style.display = 'none';
-        personaPreview.style.display = 'none';
         quickRepliesContainer.style.display = 'none';
         quickRepliesContainer.innerHTML = '';
         generatedGoal = null;
-        generatedPersona = null;
       }
     } catch (e) {
       chatMessages.innerHTML = '<div class="chat-msg model chat-msg--system">Failed to start session. Please reload the extension.</div>';
@@ -483,17 +422,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     setText('goalPreviewStyle', goal.outputStyle || '');
     setText('goalPreviewNotes', goal.additionalInstructions || 'None');
     goalPreview.style.display = 'block';
-  }
-
-  function showPersonaPreview(persona) {
-    if (!persona) return;
-    const setText = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
-    setText('personaPreviewName', persona.name || '');
-    setText('personaPreviewDesc', persona.description || '');
-    setText('personaPreviewExpertise',
-      (persona.expertiseDomains || []).join(', ') + (persona.expertiseLevel ? ' (' + persona.expertiseLevel + ')' : ''));
-    setText('personaPreviewInterests', (persona.interests || []).join(', '));
-    personaPreview.style.display = 'block';
   }
 
   async function checkFeedbackRefinement() {
