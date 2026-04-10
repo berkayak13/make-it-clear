@@ -28,8 +28,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   const refineBannerDismiss = document.getElementById('refineBannerDismiss');
 
   // Load user ID
-  const { userId } = await chrome.runtime.sendMessage({ action: 'get-user-id' });
-  userBadge.textContent = userId || '--';
+  try {
+    const { userId } = await chrome.runtime.sendMessage({ action: 'get-user-id' });
+    userBadge.textContent = userId || '--';
+  } catch {
+    userBadge.textContent = '--';
+  }
 
   // Try restoring existing session
   const { currentChatSessionId } = await chrome.storage.local.get(['currentChatSessionId']);
@@ -335,9 +339,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   function addSystemMessage(text) {
     const div = document.createElement('div');
-    div.className = 'chat-msg model';
-    div.style.background = '#f0fff4';
-    div.style.borderColor = '#c6f6d5';
+    div.className = 'chat-msg model chat-msg--system';
     div.textContent = text;
     chatMessages.appendChild(div);
     chatMessages.scrollTop = chatMessages.scrollHeight;

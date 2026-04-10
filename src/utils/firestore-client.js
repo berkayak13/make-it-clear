@@ -1,7 +1,8 @@
 import { generateId } from './id.js';
 
 const FIRESTORE_DEFAULT_PROJECT_ID = 'renarration-research';
-const FIRESTORE_DEFAULT_API_KEY = 'AIzaSyB7WIlE0klfLmUKvO7JWF69Q2ioh2z_MBU';
+// API key must be configured via options page — no hardcoded default
+const FIRESTORE_DEFAULT_API_KEY = '';
 
 export const RESEARCH_STORES = {
   chatSessions: { keyPath: 'sessionId' },
@@ -106,11 +107,16 @@ export async function researchPut(storeName, record) {
   const url = `${base}/${storeName}/${docId}?key=${config.apiKey}`;
   const body = { fields: toFirestoreFields(record) };
 
-  const resp = await fetch(url, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  });
+  let resp;
+  try {
+    resp = await fetch(url, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+  } catch (networkErr) {
+    throw new Error(`Firestore PUT network error: ${networkErr?.message || networkErr}`);
+  }
   if (!resp.ok) {
     const err = await resp.text();
     throw new Error(`Firestore PUT failed (${resp.status}): ${err}`);

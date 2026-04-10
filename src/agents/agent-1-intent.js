@@ -191,9 +191,10 @@ export async function run(context) {
     const parsed = parseJSON(llmResponse.result);
     context.intent = normaliseIntent(parsed, context.rawRequest, context.chatHistory);
   } catch (err) {
-    // --- Fallback: keyword-based extraction ------------------------------
+    // --- Fallback: keyword-based extraction, normalised for consistency ---
     usedFallback = true;
-    context.intent = extractFallbackIntent(context.rawRequest, context.chatHistory);
+    const fallback = extractFallbackIntent(context.rawRequest, context.chatHistory);
+    context.intent = normaliseIntent(fallback, context.rawRequest, context.chatHistory);
   }
 
   // --- Logging ----------------------------------------------------------

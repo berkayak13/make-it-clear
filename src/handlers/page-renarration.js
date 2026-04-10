@@ -160,7 +160,13 @@ async function describePageScreenshot(tabId) {
 /**
  * Full pipeline: capture -> remote VLM -> LLM renarration.
  */
+let _pageRenarrationLock = false;
+
 async function renarratePage(tabId) {
+  if (_pageRenarrationLock) {
+    return { success: false, error: 'Page renarration already in progress' };
+  }
+  _pageRenarrationLock = true;
   try {
     if (tabId) {
       chrome.tabs.sendMessage(tabId, { action: 'show-split-loading' }).catch(() => {});
@@ -250,6 +256,8 @@ async function renarratePage(tabId) {
       chrome.tabs.sendMessage(tabId, { action: 'hide-split-renarration' }).catch(() => {});
     }
     return { success: false, error: error?.message || String(error) };
+  } finally {
+    _pageRenarrationLock = false;
   }
 }
 

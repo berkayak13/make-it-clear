@@ -155,7 +155,7 @@ export async function describeImage(imageUrl, taskName) {
 
     // Always use Gemini for VLM — on-device WebLLM cannot handle images.
     // Remote VLM is used even when the LLM provider is set to on-device.
-    const model = settings.remoteVLMModel || 'gemini-2.5-pro';
+    const model = settings.remoteVLMModel || 'gemini-2.5-flash';
     const endpoint = settings.remoteVLMEndpoint ||
       'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent';
 

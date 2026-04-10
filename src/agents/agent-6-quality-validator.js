@@ -77,7 +77,7 @@ export async function run(context) {
   try {
     if (!response?.success) throw new Error(response?.error || 'LLM call failed');
     const text = response.result || '';
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    const jsonMatch = text.match(/\{[\s\S]*?\}/);
     if (jsonMatch) {
       const parsed = JSON.parse(jsonMatch[0]);
       if (parsed.scores) {
@@ -127,8 +127,9 @@ export async function run(context) {
     flaggedSections
   };
 
-  // Retry signal: if failed and under retry limit, signal orchestrator to re-plan
-  if (!passed && retryCount < MAX_RETRIES) {
+  // Retry signal: if failed and under retry limit, signal orchestrator to re-plan.
+  // Do NOT retry on parse errors — those are infrastructure failures, not quality issues.
+  if (!passed && !parseError && retryCount < MAX_RETRIES) {
     context.validation.retryCount = retryCount + 1;
     context.needsRetry = true;
     context.replanSignal = {

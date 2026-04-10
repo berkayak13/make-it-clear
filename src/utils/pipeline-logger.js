@@ -46,6 +46,7 @@ export async function appendPipelineLog(entry) {
   // If too large (> 2MB), aggressively trim
   let toStore = next;
   if (nextSize > PIPELINE_LOG_MAX_SIZE_BYTES) {
+    console.warn(`[pipeline-logger] Logs exceed ${PIPELINE_LOG_MAX_SIZE_BYTES} bytes (${nextSize}), trimming from ${next.length} to 20 entries`);
     toStore = next.slice(0, 20);
   }
 

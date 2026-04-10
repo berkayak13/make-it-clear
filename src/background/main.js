@@ -15,7 +15,7 @@ chrome.runtime.onInstalled.addListener(() => {
     useWebLLM: true,
     webllmModel: 'gemma-2-2b-it-q4f16_1-MLC',
     useRemoteVLM: true,
-    remoteVLMModel: 'gemini-2.5-pro',
+    remoteVLMModel: 'gemini-2.5-flash',
     remoteVLMEndpoint:
       'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent',
     personas: DEFAULT_PERSONAS,

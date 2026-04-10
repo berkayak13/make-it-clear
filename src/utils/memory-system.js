@@ -19,7 +19,7 @@ async function getFirestoreConfig() {
   const stored = await chrome.storage.local.get(['firebaseProjectId', 'firebaseApiKey']);
   _fsConfig = {
     projectId: stored.firebaseProjectId || 'renarration-research',
-    apiKey: stored.firebaseApiKey || 'AIzaSyB7WIlE0klfLmUKvO7JWF69Q2ioh2z_MBU'
+    apiKey: stored.firebaseApiKey || ''
   };
   return _fsConfig;
 }
@@ -114,8 +114,7 @@ async function firestoreQuery(collection, fieldPath, op, value) {
           op,
           value: toFirestoreValue(value)
         }
-      },
-      orderBy: [{ field: { fieldPath: 'timestamp' }, direction: 'DESCENDING' }]
+      }
     }
   };
   const resp = await fetch(url, {
@@ -172,6 +171,7 @@ async function saveSemantic(profile) {
 
 async function loadEpisodicSessions(userId, limit = 10) {
   const sessions = await firestoreQuery('chatSessions', 'userId', 'EQUAL', userId);
+  sessions.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
   return sessions.slice(0, limit);
 }
 
@@ -331,7 +331,7 @@ export async function updateProcedural(_userId, agentName, instruction) {
     for (let i = 1; i < rules.length; i++) {
       if (rules[i].confidence < rules[minIdx].confidence) minIdx = i;
     }
-    if (entry.confidence > rules[minIdx].confidence) {
+    if (entry.confidence >= rules[minIdx].confidence) {
       rules[minIdx] = entry;
     }
   }

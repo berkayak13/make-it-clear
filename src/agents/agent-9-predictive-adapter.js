@@ -218,7 +218,8 @@ export async function run(context) {
 
   let episodes = [];
   try {
-    episodes = await getRelevantEpisodic(pageMetadata.url, pageMetadata.title);
+    const userId = context.memory?.semantic?.userId || context.userId || '';
+    episodes = await getRelevantEpisodic(userId, pageMetadata.url, pageMetadata.title);
   } catch {
     // episodic memory unavailable
   }

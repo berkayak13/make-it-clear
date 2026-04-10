@@ -21,6 +21,9 @@ import * as feedbackAgent from '../agents/agent-8-feedback-analyst.js';
 import * as predictiveAgent from '../agents/agent-9-predictive-adapter.js';
 import * as guardrailsAgent from '../agents/agent-10-guardrails.js';
 
+// Match quality-validator's MAX_RETRIES (2) to avoid off-by-one
+const MAX_RETRIES_ORCHESTRATOR = 2;
+
 const ALL_AGENTS = [
   routerAgent, intentAgent, cartographerAgent, meaningExtractorAgent, strategistAgent, narratorAgent,
   diagramAgent, guardrailsAgent, qualityAgent, memoryAgent, feedbackAgent, predictiveAgent
@@ -89,9 +92,9 @@ export async function runPipeline(request) {
         try {
           await chrome.scripting.executeScript({ target: { tabId }, files: ['content.js'] });
           await chrome.scripting.insertCSS({ target: { tabId }, files: ['content.css'] });
-          // Retry with backoff until content script responds
+          // Retry with backoff until content script responds (deduplication: stop on first success)
           let extractResult = null;
-          for (const delay of [200, 500, 1000]) {
+          for (const delay of [300, 800]) {
             await new Promise(r => setTimeout(r, delay));
             try {
               extractResult = await chrome.tabs.sendMessage(tabId, { action: 'extract-and-clone' });
@@ -123,8 +126,15 @@ export async function runPipeline(request) {
   try {
     const userId = await getOrCreateUserId();
     context.userId = userId;
-    context.memory = await loadMemory(userId);
-  } catch (e) { /* memory is optional */ }
+    try {
+      context.memory = await loadMemory(userId);
+    } catch (memErr) {
+      console.warn('[Orchestrator] Memory load failed, using defaults:', memErr?.message);
+      // Keep the default stub: { semantic: {}, episodic: [], procedural: {} }
+    }
+  } catch (e) {
+    console.warn('[Orchestrator] User ID retrieval failed:', e?.message);
+  }
 
   // Step 3: Run pipeline router
   sendProgress(tabId, 'Phase 0: Routing pipeline...');
@@ -171,7 +181,7 @@ export async function runPipeline(request) {
     // Quality validator retry loop: re-run strategist → narrator → guardrails → quality
     // Agent-6 manages retryCount internally, so no increment here.
     if (context.needsRetry) {
-      if (context.validation.retryCount > 3) {
+      if (context.validation.retryCount > MAX_RETRIES_ORCHESTRATOR) {
         context.needsRetry = false;
         // Already exhausted retries — accept current output
       } else {
@@ -355,15 +365,44 @@ async function runBackgroundAgents(context) {
 }
 
 async function updateVisualizerState(context) {
-  await chrome.storage.local.set({
-    pipelineVisualizer: {
-      runId: context.runId, timestamp: context.timestamp,
-      pipelineType: context.pipelineType, agentPlan: context.agentPlan,
-      log: context.log, validation: context.validation, guardrails: context.guardrails,
-      sectionCount: context.sectionMap.length, renarrationCount: context.renarrations.length,
-      completed: true
+  // Strip large text from renarrations but keep mermaid diagrams + sectionId
+  const renarrationsSummary = (context.renarrations || []).map(r => ({
+    sectionId: r.sectionId,
+    ...(r.mermaid ? { mermaid: r.mermaid } : {}),
+  }));
+
+  const state = {
+    runId: context.runId, timestamp: context.timestamp,
+    pipelineType: context.pipelineType, agentPlan: context.agentPlan,
+    log: context.log, validation: context.validation, guardrails: context.guardrails,
+    intent: context.intent || null,
+    memory: context.memory ? {
+      semantic: context.memory.semantic || {},
+      episodic: (context.memory.episodic || []).slice(0, 10),
+      procedural: context.memory.procedural || {},
+    } : null,
+    renarrations: renarrationsSummary,
+    sectionCount: (context.sectionMap || []).length,
+    renarrationCount: (context.renarrations || []).length,
+    completed: true,
+  };
+
+  await chrome.storage.local.set({ pipelineVisualizer: state });
+
+  // Also persist per-run state so historical runs retain full detail
+  try {
+    const { pipelineRunHistory = {} } = await chrome.storage.local.get('pipelineRunHistory');
+    pipelineRunHistory[context.runId] = state;
+    // Keep only last 20 runs to avoid storage bloat
+    const keys = Object.keys(pipelineRunHistory);
+    if (keys.length > 20) {
+      const sorted = keys.sort((a, b) =>
+        (pipelineRunHistory[a].timestamp || 0) - (pipelineRunHistory[b].timestamp || 0)
+      );
+      for (const k of sorted.slice(0, keys.length - 20)) delete pipelineRunHistory[k];
     }
-  });
+    await chrome.storage.local.set({ pipelineRunHistory });
+  } catch (e) { console.warn('[Orchestrator] Run history save failed:', e.message); }
 }
 
 async function updateVisualizerAgentStatus(agentName, status, durationMs, context) {
@@ -383,7 +422,9 @@ export async function runPredictiveAdapter(tabId, pageMetadata) {
   try {
     const userId = await getOrCreateUserId();
     context.memory = await loadMemory(userId);
-  } catch (e) {}
+  } catch (e) {
+    console.warn('[runPredictiveAdapter] Memory load failed:', e?.message);
+  }
   const result = await predictiveAgent.run(context);
   return { suggestions: result?.suggestions || [], greeting: result?.greeting || '' };
 }

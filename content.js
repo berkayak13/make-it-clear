@@ -60,11 +60,14 @@ function removeOverlay() {
   }
 }
 
+// Per-overlay run ID to avoid cross-contamination between concurrent selections
 let lastRunId = null;
+let _overlayCounter = 0;
 
 function showOverlay(content, x, y, runId) {
   if (!renarrationOverlay) return;
   lastRunId = runId || null;
+  _overlayCounter++;
 
   const feedbackHtml = runId ? `
       <div class="renarration-feedback">
@@ -158,10 +161,12 @@ function hideOverlay() {
 let selectionHandler = null;
 
 function setupEventListeners() {
-  // Handle text selection
+  // Remove old handler first to prevent duplicates on toggle
+  if (selectionHandler) {
+    document.removeEventListener('mouseup', selectionHandler);
+  }
   selectionHandler = handleTextSelection;
   document.addEventListener('mouseup', selectionHandler);
-  
 }
 
 function removeEventListeners() {
@@ -278,6 +283,12 @@ function buildCloneSidebar() {
   clone.querySelectorAll('script').forEach(s => s.remove());
   // Remove our own UI elements
   clone.querySelectorAll('#renarration-overlay, #renarration-split-panel, #renarration-trigger-btn, #renarration-clone-frame').forEach(el => el.remove());
+  // Strip inline event handlers from cloned HTML to prevent execution in sandbox
+  clone.querySelectorAll('*').forEach(el => {
+    for (const attr of [...el.attributes]) {
+      if (attr.name.startsWith('on')) el.removeAttribute(attr.name);
+    }
+  });
 
   // Add base tag for resolving relative URLs
   let head = clone.querySelector('head');

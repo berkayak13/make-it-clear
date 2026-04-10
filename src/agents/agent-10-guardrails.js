@@ -8,11 +8,20 @@ export const requiredFields = ['renarrations'];
 
 function sanitizeHtml(text) {
   return text
+    // Remove dangerous tags including SVG
+    .replace(/<\/?(?:script|iframe|object|embed|form|input|button|svg|math|animate|set)\b[^>]*>/gi, '')
     .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-    .replace(/<iframe\b[^>]*>.*?<\/iframe>/gi, '')
+    .replace(/<iframe\b[^>]*>[\s\S]*?<\/iframe>/gi, '')
+    .replace(/<svg\b[^>]*>[\s\S]*?<\/svg>/gi, '')
+    // Remove event handlers (whitespace-tolerant)
     .replace(/\bon\w+\s*=\s*["'][^"']*["']/gi, '')
-    .replace(/javascript\s*:/gi, '')
-    .replace(/<\/?(?:script|iframe|object|embed|form|input|button)\b[^>]*>/gi, '');
+    .replace(/\bon\w+\s*=\s*[^\s>]*/gi, '')
+    // Remove javascript: and data: URIs (including encoded variants)
+    .replace(/(?:java|&#\d+;|&#x[0-9a-f]+;)*\s*(?:script|&#\d+;|&#x[0-9a-f]+;)*\s*:/gi, '')
+    .replace(/data\s*:\s*text\/html/gi, '')
+    // Remove CSS expression injection
+    .replace(/expression\s*\(/gi, '')
+    .replace(/url\s*\(\s*["']?\s*javascript/gi, '');
 }
 
 /** Sanitizes renarrated text in-place and returns flags for any stripped XSS content. */
@@ -74,12 +83,16 @@ async function runBiasChecks(comparisonPayload) {
     if (!jsonMatch) return [];
 
     const parsed = JSON.parse(jsonMatch[0]);
-    return Array.isArray(parsed) ? parsed.map(f => ({
-      type: 'bias',
-      severity: 'warning',
-      sectionId: f.sectionId || '',
-      detail: f.issue || f.detail || '',
-    })) : [];
+    const SEVERE_BIAS = /hate\s*speech|slur|discriminat|dehumaniz|racial\s*epithet/i;
+    return Array.isArray(parsed) ? parsed.map(f => {
+      const detail = f.issue || f.detail || '';
+      return {
+        type: 'bias',
+        severity: SEVERE_BIAS.test(detail) ? 'error' : 'warning',
+        sectionId: f.sectionId || '',
+        detail,
+      };
+    }) : [];
   } catch (err) {
     console.warn('Guardrails: bias check failed:', err?.message);
     return [];
@@ -117,10 +130,14 @@ export async function run(context) {
   // then LLM checks and bias checks run in parallel on the already-sanitized text
   const xssFlags = runXssSanitization(renarrations);
   const comparisonPayload = buildComparisonPayload(renarrations, sectionMap);
-  const [llmFlags, biasFlags] = await Promise.all([
+  const results = await Promise.allSettled([
     runLlmChecks(comparisonPayload, promptTemplate),
     runBiasChecks(comparisonPayload),
   ]);
+  const llmFlags = results[0].status === 'fulfilled' ? results[0].value : [];
+  const biasFlags = results[1].status === 'fulfilled' ? results[1].value : [];
+  if (results[0].status === 'rejected') console.warn('Guardrails: LLM checks failed:', results[0].reason?.message);
+  if (results[1].status === 'rejected') console.warn('Guardrails: bias checks failed:', results[1].reason?.message);
 
   // Bias flags are warnings only — they should not block the pipeline
   const allFlags = [...xssFlags, ...llmFlags, ...biasFlags];

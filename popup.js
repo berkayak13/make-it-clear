@@ -3,6 +3,7 @@ let currentSessionId = null;
 let userMessageCount = 0;
 let generatedGoal = null;
 let generatedPersona = null;
+let sending = false;
 
 document.addEventListener('DOMContentLoaded', async () => {
   // --- DOM references ---
@@ -14,7 +15,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   const setupToggle = document.getElementById('setupToggle');
   const renarrateStatus = document.getElementById('renarrateStatus');
   const optionsLink = document.getElementById('optionsLink');
-  const testingDashboardLink = document.getElementById('testingDashboardLink');
 
   // Chat DOM
   const chatMessages = document.getElementById('chatMessages');
@@ -39,11 +39,18 @@ document.addEventListener('DOMContentLoaded', async () => {
   const refineBannerDismiss = document.getElementById('refineBannerDismiss');
 
   // --- Load settings ---
-  const settings = await chrome.storage.sync.get([
-    'currentTask', 'currentProfile', 'llmProvider', 'useWebLLM',
-    'tasks', 'profiles'
-  ]);
-  const localSettings = await chrome.storage.local.get(['useAgenticPipeline']);
+  let settings, localSettings;
+  try {
+    settings = await chrome.storage.sync.get([
+      'currentTask', 'currentProfile', 'llmProvider', 'useWebLLM',
+      'tasks', 'profiles'
+    ]);
+    localSettings = await chrome.storage.local.get(['useAgenticPipeline']);
+  } catch (e) {
+    console.warn('[Popup] Failed to load settings, using defaults:', e?.message);
+    settings = {};
+    localSettings = {};
+  }
 
   // Backward compat: profiles -> tasks
   let tasks = settings.tasks;
@@ -108,6 +115,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // --- Setup card accordion ---
   setupToggle.addEventListener('click', () => {
     setupCard.classList.toggle('card--collapsed');
+    setupToggle.setAttribute('aria-expanded', !setupCard.classList.contains('card--collapsed'));
   });
 
   // --- LLM Provider ---
@@ -299,12 +307,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  if (testingDashboardLink) {
-    testingDashboardLink.addEventListener('click', async (e) => {
-      e.preventDefault();
-      await chrome.tabs.create({ url: chrome.runtime.getURL('viewers/testing-dashboard.html') });
-    });
-  }
 
   const pipelineVisualizerLink = document.getElementById('pipelineVisualizerLink');
   if (pipelineVisualizerLink) {
@@ -344,15 +346,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         generatedGoal = null;
         generatedPersona = null;
       }
-    } catch {
-      // silently fail
+    } catch (e) {
+      chatMessages.innerHTML = '<div class="chat-msg model chat-msg--system">Failed to start session. Please reload the extension.</div>';
     }
   }
 
   async function sendMessage() {
     const text = chatInput.value.trim();
-    if (!text || !currentSessionId) return;
+    if (!text || !currentSessionId || sending) return;
 
+    sending = true;
     chatInput.value = '';
     chatInput.style.height = 'auto';
     sendBtn.disabled = true;
@@ -374,19 +377,20 @@ document.addEventListener('DOMContentLoaded', async () => {
         sessionId: currentSessionId,
         message: text
       });
-      typingEl.remove();
+      if (typingEl.parentElement) typingEl.remove();
       if (res?.success && res.reply) {
         renderModelReply(res.reply);
       } else {
         appendBubble('model', 'Sorry, I encountered an error: ' + (res?.error || 'Unknown'));
       }
     } catch (e) {
-      typingEl.remove();
+      if (typingEl.parentElement) typingEl.remove();
       appendBubble('model', 'Connection error: ' + e.message);
+    } finally {
+      sending = false;
+      sendBtn.disabled = false;
+      chatInput.focus();
     }
-
-    sendBtn.disabled = false;
-    chatInput.focus();
   }
 
   function renderModelReply(text) {
@@ -436,9 +440,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   function addSystemMessage(text) {
     const div = document.createElement('div');
-    div.className = 'chat-msg model';
-    div.style.background = '#f0fff4';
-    div.style.borderColor = '#c6f6d5';
+    div.className = 'chat-msg model chat-msg--system';
     div.textContent = text;
     chatMessages.appendChild(div);
     chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -473,20 +475,24 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   function showGoalPreview(goal) {
-    document.getElementById('goalPreviewText').textContent = goal.readingGoal || '';
-    document.getElementById('goalPreviewDepth').textContent = goal.desiredDepth || '';
-    document.getElementById('goalPreviewFocus').textContent = (goal.focusAreas || []).join(', ') || 'None specified';
-    document.getElementById('goalPreviewStyle').textContent = goal.outputStyle || '';
-    document.getElementById('goalPreviewNotes').textContent = goal.additionalInstructions || 'None';
+    if (!goal) return;
+    const setText = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+    setText('goalPreviewText', goal.readingGoal || '');
+    setText('goalPreviewDepth', goal.desiredDepth || '');
+    setText('goalPreviewFocus', (goal.focusAreas || []).join(', ') || 'None specified');
+    setText('goalPreviewStyle', goal.outputStyle || '');
+    setText('goalPreviewNotes', goal.additionalInstructions || 'None');
     goalPreview.style.display = 'block';
   }
 
   function showPersonaPreview(persona) {
-    document.getElementById('personaPreviewName').textContent = persona.name || '';
-    document.getElementById('personaPreviewDesc').textContent = persona.description || '';
-    document.getElementById('personaPreviewExpertise').textContent =
-      (persona.expertiseDomains || []).join(', ') + (persona.expertiseLevel ? ' (' + persona.expertiseLevel + ')' : '');
-    document.getElementById('personaPreviewInterests').textContent = (persona.interests || []).join(', ');
+    if (!persona) return;
+    const setText = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+    setText('personaPreviewName', persona.name || '');
+    setText('personaPreviewDesc', persona.description || '');
+    setText('personaPreviewExpertise',
+      (persona.expertiseDomains || []).join(', ') + (persona.expertiseLevel ? ' (' + persona.expertiseLevel + ')' : ''));
+    setText('personaPreviewInterests', (persona.interests || []).join(', '));
     personaPreview.style.display = 'block';
   }
 

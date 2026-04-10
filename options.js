@@ -84,7 +84,7 @@ const DEFAULT_PERSONAS = {
 
 const DEFAULT_REMOTE_VLM = {
   useRemoteVLM: false,
-  remoteVLMModel: 'gemini-2.5-pro',
+  remoteVLMModel: 'gemini-2.5-flash',
   remoteVLMEndpoint: 'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent',
   remoteVLMApiKey: ''
 };
@@ -151,7 +151,7 @@ async function loadSettings() {
   const fbProjectInput = document.getElementById('firebaseProjectId');
   const fbApiKeyInput = document.getElementById('firebaseApiKey');
   if (fbProjectInput) fbProjectInput.value = local.firebaseProjectId || 'renarration-research';
-  if (fbApiKeyInput) fbApiKeyInput.value = local.firebaseApiKey || 'AIzaSyB7WIlE0klfLmUKvO7JWF69Q2ioh2z_MBU';
+  if (fbApiKeyInput) fbApiKeyInput.value = local.firebaseApiKey || '';
 
   boilerplateText = await fetch(chrome.runtime.getURL('src/prompts/system.md')).then(r => r.text()).catch(() => '');
   
@@ -590,7 +590,11 @@ async function saveTask() {
     currentTasks[editingTaskKey] = task;
   } else {
     // Create new task with unique key
-    const key = name.toLowerCase().replace(/\s+/g, '-');
+    let key = name.toLowerCase().replace(/\s+/g, '-');
+    // Avoid collision with existing task keys
+    if (currentTasks[key]) {
+      key = key + '-' + Date.now().toString(36);
+    }
     currentTasks[key] = { ...task, isDefault: false };
   }
   
@@ -665,8 +669,13 @@ async function deletePersona(key) {
   showSaveStatus('Persona deleted');
 }
 
-// Save settings
+// Save settings (debounced to prevent concurrent writes)
+let _saveSettingsTimer = null;
 async function saveSettings() {
+  if (_saveSettingsTimer) clearTimeout(_saveSettingsTimer);
+  _saveSettingsTimer = setTimeout(() => _doSaveSettings(), 200);
+}
+async function _doSaveSettings() {
   const useRemoteVLM = document.getElementById('useRemoteVLM').checked;
   const remoteVLMEndpoint = document.getElementById('remoteVLMEndpoint').value.trim() || DEFAULT_REMOTE_VLM.remoteVLMEndpoint;
   const remoteVLMModel = document.getElementById('remoteVLMModel').value.trim() || DEFAULT_REMOTE_VLM.remoteVLMModel;
@@ -685,29 +694,34 @@ async function saveSettings() {
 // Extend reset to also restore personas
 async function resetToDefaults() {
   if (confirm('Reset all settings to defaults? This will remove custom tasks and personas.')) {
-    currentTasks = DEFAULT_TASKS;
-    currentPersonas = DEFAULT_PERSONAS;
-    currentPersonaActive = 'general';
-    systemPromptTemplate = buildDefaultTemplate(boilerplateText);
-    currentReadingGoal = '';
-    await chrome.storage.sync.set({
-      tasks: DEFAULT_TASKS,
-      personas: DEFAULT_PERSONAS,
-      currentTask: 'simple',
-      currentPersona: 'general',
-      enabled: true,
-      llmProvider: 'remote',
-      systemPromptTemplate,
-      readingGoal: '',
-      useRemoteVLM: DEFAULT_REMOTE_VLM.useRemoteVLM,
-      remoteVLMEndpoint: DEFAULT_REMOTE_VLM.remoteVLMEndpoint,
-      remoteVLMModel: DEFAULT_REMOTE_VLM.remoteVLMModel
-    });
-    await chrome.storage.local.set({ remoteVLMApiKey: DEFAULT_REMOTE_VLM.remoteVLMApiKey });
-    await loadSettings();
-    hydrateActiveSelectors();
-    updateEffectiveSystemPrompt();
-    showSaveStatus('Reset to defaults');
+    try {
+      currentTasks = DEFAULT_TASKS;
+      currentPersonas = DEFAULT_PERSONAS;
+      currentPersonaActive = 'general';
+      systemPromptTemplate = buildDefaultTemplate(boilerplateText);
+      currentReadingGoal = '';
+      await chrome.storage.sync.set({
+        tasks: DEFAULT_TASKS,
+        personas: DEFAULT_PERSONAS,
+        currentTask: 'simple',
+        currentPersona: 'general',
+        enabled: true,
+        llmProvider: 'remote',
+        systemPromptTemplate,
+        readingGoal: '',
+        useRemoteVLM: DEFAULT_REMOTE_VLM.useRemoteVLM,
+        remoteVLMEndpoint: DEFAULT_REMOTE_VLM.remoteVLMEndpoint,
+        remoteVLMModel: DEFAULT_REMOTE_VLM.remoteVLMModel
+      });
+      await chrome.storage.local.set({ remoteVLMApiKey: DEFAULT_REMOTE_VLM.remoteVLMApiKey });
+      await loadSettings();
+      hydrateActiveSelectors();
+      updateEffectiveSystemPrompt();
+      showSaveStatus('Reset to defaults');
+    } catch (e) {
+      console.error('[Options] Reset to defaults failed:', e?.message);
+      showSaveStatus('Reset failed — please try again');
+    }
   }
 }
 
@@ -746,6 +760,18 @@ function queueSystemPromptSave() {
     showSaveStatus('System prompt template saved');
   }, 400);
 }
+
+// Flush pending debounced save on page close to prevent data loss (M8)
+window.addEventListener('beforeunload', () => {
+  if (templateSaveTimer) {
+    clearTimeout(templateSaveTimer);
+    const templateEl = document.getElementById('systemPromptTemplate');
+    if (templateEl) {
+      // navigator.sendBeacon is not available for chrome.storage, so use sync set
+      chrome.storage.sync.set({ systemPromptTemplate: templateEl.value });
+    }
+  }
+});
 
 async function restoreSystemPromptTemplate() {
   const templateEl = document.getElementById('systemPromptTemplate');

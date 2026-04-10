@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Renarration Assistant</title>
+  <link rel="stylesheet" href="tokens.css">
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
@@ -14,13 +15,13 @@
       </div>
       <div class="header-right">
         <span class="user-badge" id="userBadge">--</span>
-        <button class="new-session-btn" id="newSessionBtn" title="New conversation">+</button>
+        <button class="new-session-btn" id="newSessionBtn" title="New conversation" aria-label="Start new conversation">+</button>
       </div>
     </div>
 
     <!-- Setup Card (collapsible) -->
     <div class="card card--collapsed" id="setupCard">
-      <div class="card-header card-header--toggle" id="setupToggle">
+      <div class="card-header card-header--toggle" id="setupToggle" aria-expanded="false">
         <h3>Setup</h3>
         <span class="card-chevron">&#9662;</span>
       </div>
@@ -59,7 +60,7 @@
       <div class="goal-preview" id="goalPreview" style="display:none;">
         <div class="preview-header">
           <span>Reading Goal</span>
-          <button class="preview-dismiss" id="goalDismiss">&times;</button>
+          <button class="preview-dismiss" id="goalDismiss" aria-label="Dismiss reading goal">&times;</button>
         </div>
         <div class="preview-body">
           <div class="preview-field"><strong>Goal:</strong> <span id="goalPreviewText"></span></div>
@@ -77,7 +78,7 @@
       <div class="persona-preview" id="personaPreview" style="display:none;">
         <div class="preview-header">
           <span>Generated Persona</span>
-          <button class="preview-dismiss" id="personaDismiss">&times;</button>
+          <button class="preview-dismiss" id="personaDismiss" aria-label="Dismiss persona preview">&times;</button>
         </div>
         <div class="preview-body">
           <div class="preview-field"><strong>Name:</strong> <span id="personaPreviewName"></span></div>
@@ -94,7 +95,7 @@
       <div class="refinement-banner" id="refinementBanner" style="display:none;">
         <span>Multiple negative feedbacks detected. Consider refining your persona.</span>
         <button class="btn btn--secondary btn--sm" id="refineBannerBtn">Refine</button>
-        <button class="preview-dismiss" id="refineBannerDismiss">&times;</button>
+        <button class="preview-dismiss" id="refineBannerDismiss" aria-label="Dismiss refinement suggestion">&times;</button>
       </div>
 
       <div class="quick-replies" id="quickReplies" style="display:none;"></div>
@@ -105,8 +106,8 @@
           <button class="secondary-action-link" id="generatePersonaBtn">Generate Persona</button>
         </div>
         <div class="chat-input-row">
-          <textarea id="chatInput" placeholder="Type a message..." rows="1"></textarea>
-          <button class="send-btn" id="sendBtn" title="Send">&#9654;</button>
+          <textarea id="chatInput" placeholder="Type a message..." rows="1" aria-label="Chat message input"></textarea>
+          <button class="send-btn" id="sendBtn" title="Send" aria-label="Send message">&#9654;</button>
         </div>
       </div>
     </div>
@@ -114,8 +115,6 @@
     <!-- Footer -->
     <div class="footer-bar">
       <a href="#" id="optionsLink" class="footer-link">Settings</a>
-      <span class="footer-separator">|</span>
-      <a href="#" id="testingDashboardLink" class="footer-link">Testing Dashboard</a>
       <span class="footer-separator">|</span>
       <a href="#" id="pipelineVisualizerLink" class="footer-link">Pipeline Visualizer</a>
     </div>

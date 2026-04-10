@@ -22,7 +22,7 @@ const PHASE_NAMES = ['Routing', 'Understanding', 'Vision', 'Planning', 'Executio
 const NODE_W = 150;
 const NODE_H = 50;
 const SVG_W = 650;
-const SVG_H = 720;
+const SVG_H = 780;
 
 const STATUS_COLORS = {
   idle:    { fill: '#2a2a4a', stroke: '#4a5568', dot: '#4a5568' },
@@ -43,10 +43,14 @@ const CONNECTIONS = [
   ['diagram-generator',   'quality-validator',    false],
   ['guardrails',          'quality-validator',     false],
   ['quality-validator',   'content-strategist',   true],
+  ['quality-validator',   'memory-manager',       false],
+  ['quality-validator',   'feedback-analyst',     false],
+  ['quality-validator',   'predictive-adapter',   false],
 ];
 
 let currentState = null;
 let pipelineRunning = false;
+const agentElementCache = new Map();
 
 /* ──────────────────────────── Utilities ──────────────────────────── */
 
@@ -62,10 +66,16 @@ function formatDuration(ms) {
 function capitalize(str) { return str.charAt(0).toUpperCase() + str.slice(1); }
 
 function switchTab(tabName) {
-  document.querySelectorAll('.viz-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.viz-tab').forEach(t => {
+    t.classList.remove('active');
+    t.setAttribute('aria-selected', 'false');
+  });
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
   const btn = document.querySelector(`[data-tab="${tabName}"]`);
-  if (btn) btn.classList.add('active');
+  if (btn) {
+    btn.classList.add('active');
+    btn.setAttribute('aria-selected', 'true');
+  }
   const panel = document.getElementById(tabName + 'Panel');
   if (panel) panel.classList.add('active');
 }
@@ -96,6 +106,7 @@ function svgEl(tag, attrs) {
 
 function renderPipelineSVG() {
   const container = document.getElementById('pipelineDiagram');
+  if (!container) return;
   try {
   const svg = svgEl('svg', { width: '100%', height: SVG_H, viewBox: `0 0 ${SVG_W} ${SVG_H}`, preserveAspectRatio: 'xMidYMin meet' });
 
@@ -115,7 +126,7 @@ function renderPipelineSVG() {
   }
 
   // Phase labels
-  const phaseYs = { 0: 55, 1: 135, 2: 215, 3: 375, 4: 455, 5: 535, 6: 655 };
+  const phaseYs = { 0: 55, 1: 135, 2: 240, 3: 375, 4: 455, 5: 535, 6: 655 };
   for (const [phase, y] of Object.entries(phaseYs)) {
     const label = svgEl('text', { x: 8, y, class: 'phase-label' });
     label.textContent = `P${phase}`;
@@ -141,18 +152,38 @@ function renderPipelineSVG() {
     g.appendChild(label);
     const dur = svgEl('text', { x: agent.x + NODE_W - 8, y: agent.y + 16, class: 'agent-node__duration', 'text-anchor': 'end', 'data-agent-dur': agent.id });
     g.appendChild(dur);
+    g.setAttribute('tabindex', '0');
+    g.setAttribute('role', 'button');
+    g.setAttribute('aria-label', `${agent.name}, phase ${agent.phase}`);
     g.addEventListener('click', () => showAgentData(agent.id));
+    g.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        showAgentData(agent.id);
+      }
+    });
     svg.appendChild(g);
   }
 
-  // Output node
-  const outX = 450, outY = 590;
+  // Build element cache for fast updates
+  agentElementCache.clear();
+  for (const agent of AGENTS) {
+    agentElementCache.set(agent.id, {
+      rect: svg.querySelector(`[data-agent-rect="${agent.id}"]`),
+      dot:  svg.querySelector(`[data-agent-dot="${agent.id}"]`),
+      dur:  svg.querySelector(`[data-agent-dur="${agent.id}"]`),
+    });
+  }
+
+  // Output node — placed below the Phase 6 learning agents
+  const outX = 260, outY = 720;
   svg.appendChild(svgEl('rect', { x: outX, y: outY, width: 80, height: 30, rx: 15, ry: 15, fill: '#667eea', stroke: '#764ba2', 'stroke-width': 2 }));
   const outLabel = svgEl('text', { x: outX + 40, y: outY + 20, fill: '#fff', 'font-size': 12, 'font-weight': 700, 'text-anchor': 'middle' });
   outLabel.textContent = 'OUTPUT';
   svg.appendChild(outLabel);
-  const qv = AGENTS.find(a => a.id === 'quality-validator');
-  svg.appendChild(svgEl('line', { x1: qv.x + NODE_W / 2, y1: qv.y + NODE_H, x2: outX + 40, y2: outY, class: 'connector' }));
+  // Connect feedback-analyst (center Phase 6 agent) down to OUTPUT
+  const fb = AGENTS.find(a => a.id === 'feedback-analyst');
+  svg.appendChild(svgEl('line', { x1: fb.x + NODE_W / 2, y1: fb.y + NODE_H, x2: outX + 40, y2: outY, class: 'connector' }));
 
   container.innerHTML = '';
   container.appendChild(svg);
@@ -164,15 +195,16 @@ function renderPipelineSVG() {
 
 function updateAgentStatus(agentId, status, durationMs) {
   const colors = STATUS_COLORS[status] || STATUS_COLORS.idle;
-  const rect = document.querySelector(`[data-agent-rect="${agentId}"]`);
+  const cached = agentElementCache.get(agentId);
+  const rect = cached?.rect || document.querySelector(`[data-agent-rect="${agentId}"]`);
   if (rect) {
     rect.setAttribute('class', `agent-node__rect agent-node__rect--${status}`);
     rect.setAttribute('fill', colors.fill);
     rect.setAttribute('stroke', colors.stroke);
   }
-  const dot = document.querySelector(`[data-agent-dot="${agentId}"]`);
+  const dot = cached?.dot || document.querySelector(`[data-agent-dot="${agentId}"]`);
   if (dot) dot.setAttribute('fill', colors.dot);
-  const dur = document.querySelector(`[data-agent-dur="${agentId}"]`);
+  const dur = cached?.dur || document.querySelector(`[data-agent-dur="${agentId}"]`);
   if (dur && typeof durationMs === 'number' && durationMs > 0) dur.textContent = formatDuration(durationMs);
 }
 
@@ -188,6 +220,7 @@ function applyLogToAgents(log) {
 
 function updatePipelineBadge(type) {
   const badge = document.getElementById('pipelineBadge');
+  if (!badge) return;
   if (!type) { badge.textContent = 'No active pipeline'; badge.className = 'pipeline-badge'; return; }
   badge.textContent = `${capitalize(type)} Pipeline`;
   badge.className = `pipeline-badge pipeline-badge--${type.toLowerCase()}`;
@@ -197,6 +230,7 @@ function updatePipelineBadge(type) {
 
 function renderPhaseTimeline(state) {
   const container = document.getElementById('phaseTimeline');
+  if (!container) return;
   if (!state?.log?.length) {
     container.innerHTML = PHASE_NAMES.map((name, i) =>
       `<div class="phase-segment phase-segment--${i}" style="flex:1">${name}</div>`
@@ -225,9 +259,10 @@ function renderPhaseTimeline(state) {
 
 function renderMetrics(state) {
   const panel = document.getElementById('metricsPanel');
+  if (!panel) return;
   if (!state) {
     panel.innerHTML = `<div class="metrics-empty">
-      <div class="metrics-empty__icon">📊</div>
+      <div class="metrics-empty__icon"></div>
       <div>No pipeline runs yet</div>
       <div class="metrics-empty__sub">Run the agentic pipeline from the popup to see metrics here.</div>
     </div>`;
@@ -290,7 +325,7 @@ function renderMetrics(state) {
       html += '<div class="metrics-section"><div class="metrics-section__title">Guardrail Flags</div>';
       for (const f of otherFlags) {
         const label = typeof f === 'string' ? f : `${f.type || 'unknown'}: ${f.detail || ''}`;
-        html += `<div class="guardrail-flag"><span class="guardrail-flag__icon">${f.severity === 'error' ? '🚫' : '⚠️'}</span>${escapeHtml(label)}</div>`;
+        html += `<div class="guardrail-flag"><span class="guardrail-flag__icon">${f.severity === 'error' ? '!' : '\u26A0'}</span>${escapeHtml(label)}</div>`;
       }
       html += '</div>';
     }
@@ -299,7 +334,7 @@ function renderMetrics(state) {
       html += '<div class="metrics-section"><div class="metrics-section__title">Bias Warnings</div>';
       for (const f of biasFlags) {
         const label = `${f.detail || 'Bias detected'}`;
-        html += `<div class="guardrail-flag guardrail-flag--bias"><span class="guardrail-flag__icon">&#x26A0;</span>${escapeHtml(label)}</div>`;
+        html += `<div class="guardrail-flag guardrail-flag--bias"><span class="guardrail-flag__icon">!</span>${escapeHtml(label)}</div>`;
       }
       html += '</div>';
     }
@@ -308,7 +343,7 @@ function renderMetrics(state) {
   // Show parseError flag if present
   if (state.validation?.parseError) {
     html += '<div class="metrics-section"><div class="metrics-section__title">Parse Errors</div>';
-    html += `<div class="guardrail-flag"><span class="guardrail-flag__icon">&#x26A0;</span>Validation response could not be parsed correctly</div>`;
+    html += `<div class="guardrail-flag"><span class="guardrail-flag__icon">!</span>Validation response could not be parsed correctly</div>`;
     html += '</div>';
   }
 
@@ -317,9 +352,9 @@ function renderMetrics(state) {
     html += '<div class="metrics-section"><div class="metrics-section__title">Agent Execution Log</div>';
     html += '<div class="agent-log">';
     for (const entry of state.log) {
-      const icon = entry.success ? '✅' : '❌';
+      const iconCls = entry.success ? 'agent-log__icon--ok' : 'agent-log__icon--fail';
       html += `<div class="agent-log__entry">
-        <span class="agent-log__icon">${icon}</span>
+        <span class="agent-log__icon ${iconCls}"></span>
         <span class="agent-log__name">${escapeHtml(entry.agent)}</span>
         <span class="agent-log__dur">${formatDuration(entry.durationMs)}</span>
         ${entry.detail ? `<span class="agent-log__detail">${escapeHtml(entry.detail)}</span>` : ''}
@@ -352,6 +387,7 @@ function formatLabel(key) {
 function showAgentData(agentId) {
   switchTab('inspector');
   const panel = document.getElementById('inspectorPanel');
+  if (!panel) return;
   const agent = AGENTS.find(a => a.id === agentId);
   const label = agent ? `Agent #${agent.num}: ${agent.name}` : agentId;
 
@@ -377,6 +413,7 @@ function showAgentData(agentId) {
     if (agent.phase >= 4) contextData.renarrationCount = currentState.renarrationCount;
     if (agent.phase >= 5 && currentState.validation) contextData.validation = currentState.validation;
     if (agent.phase >= 5 && currentState.guardrails) contextData.guardrails = currentState.guardrails;
+    if (agent.phase >= 6 && currentState.memory) contextData.memory = currentState.memory;
   }
 
   const statusBadge = logEntry
@@ -404,6 +441,7 @@ function syntaxHighlight(json) {
 
 async function renderMemoryState(layer) {
   const panel = document.getElementById('memoryPanel');
+  if (!panel) return;
   const activeLayer = layer || 'semantic';
 
   let html = '<div class="memory-tabs">';
@@ -452,6 +490,7 @@ async function renderMemoryState(layer) {
 
 function renderDiagrams(state) {
   const panel = document.getElementById('diagramsPanel');
+  if (!panel) return;
   try {
     // Check renarrations for mermaid content
     const diagrams = [];
@@ -462,7 +501,6 @@ function renderDiagrams(state) {
     }
     if (diagrams.length === 0) {
       panel.innerHTML = `<div class="diagrams-empty">
-        <div class="diagrams-empty__icon">📐</div>
         <div>No diagrams generated</div>
         <div class="diagrams-empty__sub">Agent 5 (Diagram Generator) creates Mermaid diagrams for complex content sections.</div>
       </div>`;
@@ -484,6 +522,7 @@ function renderDiagrams(state) {
 
 async function loadRunHistory() {
   const listEl = document.getElementById('runList');
+  if (!listEl) return;
   try {
     const { pipelineLogs } = await chrome.storage.local.get('pipelineLogs');
     const logs = (pipelineLogs || []).filter(e => e.stage === 'pipeline-complete');
@@ -498,11 +537,11 @@ async function loadRunHistory() {
       const status = run.success ? 'success' : 'failed';
       const ts = run.timestampIso ? new Date(run.timestampIso).toLocaleString() : 'Unknown';
       const dur = formatDuration(run.duration);
-      return `<div class="run-item" data-run-index="${idx}">
+      return `<button class="run-item" data-run-index="${idx}">
         <div><span class="run-item__status run-item__status--${status}"></span><span class="run-item__type run-item__type--${type.toLowerCase()}">${type}</span></div>
         <div class="run-item__time">${escapeHtml(ts)}</div>
         <div class="run-item__duration">${dur} · ${run.agentCount || 0} agents</div>
-      </div>`;
+      </button>`;
     }).join('');
     listEl.querySelectorAll('.run-item').forEach(el => {
       el.addEventListener('click', () => selectRun(parseInt(el.dataset.runIndex, 10)));
@@ -523,28 +562,35 @@ async function selectRun(index) {
     const active = document.querySelector(`[data-run-index="${index}"]`);
     if (active) active.classList.add('run-item--active');
 
-    // Load the full visualizer state for this run
-    const { pipelineVisualizer } = await chrome.storage.local.get('pipelineVisualizer');
-    if (pipelineVisualizer && pipelineVisualizer.runId === run.runId) {
+    // Try per-run history first, then fall back to current visualizer state
+    const { pipelineRunHistory, pipelineVisualizer } = await chrome.storage.local.get([
+      'pipelineRunHistory', 'pipelineVisualizer',
+    ]);
+    if (pipelineRunHistory?.[run.runId]) {
+      currentState = pipelineRunHistory[run.runId];
+    } else if (pipelineVisualizer?.runId === run.runId) {
       currentState = pipelineVisualizer;
     } else {
-      // Build state from the pipeline-complete log entry
-      currentState = { ...run, log: [] };
+      // Best-effort from the log entry itself
+      currentState = { ...run, log: [], validation: { scores: {}, passed: run.success }, guardrails: { passed: true, flags: [] } };
     }
 
     // Reset all agents then apply states
     for (const agent of AGENTS) updateAgentStatus(agent.id, 'idle', 0);
     if (currentState.log) applyLogToAgents(currentState.log);
 
-    updatePipelineBadge(run.pipelineType);
+    updatePipelineBadge(run.pipelineType || currentState.pipelineType);
     renderPhaseTimeline(currentState);
     renderMetrics(currentState);
     renderDiagrams(currentState);
-  } catch { /* silent */ }
+  } catch (err) {
+    console.warn('Failed to load run:', err);
+  }
 }
 
 async function clearVisualizerState() {
-  await chrome.storage.local.remove(['pipelineVisualizer', 'pipelineVisualizerLive']);
+  await chrome.storage.local.remove(['pipelineVisualizer', 'pipelineVisualizerLive', 'pipelineRunHistory']);
+  document.querySelectorAll('.run-item').forEach(el => el.classList.remove('run-item--active'));
   currentState = null;
   for (const agent of AGENTS) updateAgentStatus(agent.id, 'idle', 0);
   updatePipelineBadge(null);
@@ -567,16 +613,26 @@ function initTabs() {
 
 /* ──────────────────────────── Storage Listener ──────────────────────────── */
 
+let _storageListener = null;
+
 function initStorageListener() {
-  chrome.storage.onChanged.addListener((changes, area) => {
+  // Remove previous listener to prevent leaks on reload
+  if (_storageListener) {
+    chrome.storage.onChanged.removeListener(_storageListener);
+  }
+  _storageListener = (changes, area) => {
     if (area !== 'local') return;
 
     if (changes.pipelineVisualizerLive) {
       const live = changes.pipelineVisualizerLive.newValue;
-      if (!live) return;
+      if (!live) {
+        // Live state was cleared (pipeline finished or reset)
+        setRunningState(false);
+        return;
+      }
       setRunningState(true);
-      for (const [agentName, data] of Object.entries(live)) {
-        if (agentName.startsWith('_')) continue;
+      for (const [agentName, data] of Object.entries(live || {})) {
+        if (agentName.startsWith('_') || !data) continue;
         updateAgentStatus(agentName, data.status, data.durationMs);
       }
       if (live._pipelineType) updatePipelineBadge(live._pipelineType);
@@ -594,7 +650,8 @@ function initStorageListener() {
         loadRunHistory();
       }
     }
-  });
+  };
+  chrome.storage.onChanged.addListener(_storageListener);
 }
 
 /* ──────────────────────────── Init ──────────────────────────── */
@@ -611,10 +668,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Empty states
   renderMetrics(null);
   renderPhaseTimeline(null);
-  document.getElementById('inspectorPanel').innerHTML =
+  const inspectorPanel = document.getElementById('inspectorPanel');
+  if (inspectorPanel) inspectorPanel.innerHTML =
     '<div class="inspector-placeholder">Click an agent node in the diagram above to inspect its data.</div>';
-  document.getElementById('diagramsPanel').innerHTML =
-    '<div class="diagrams-empty"><div class="diagrams-empty__icon">📐</div><div>No diagrams generated</div></div>';
+  const diagramsPanel = document.getElementById('diagramsPanel');
+  if (diagramsPanel) diagramsPanel.innerHTML =
+    '<div class="diagrams-empty"><div>No diagrams generated</div></div>';
 
   await loadRunHistory();
 
@@ -624,8 +683,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     ]);
 
     if (pipelineVisualizerLive) {
-      for (const [agentName, data] of Object.entries(pipelineVisualizerLive)) {
-        if (!agentName.startsWith('_')) updateAgentStatus(agentName, data.status, data.durationMs);
+      // Detect if a pipeline is currently running (has live data but not yet completed)
+      const liveEntries = Object.entries(pipelineVisualizerLive || {});
+      const hasRunningAgents = liveEntries.some(
+        ([k, v]) => !k.startsWith('_') && v?.status === 'running'
+      );
+      if (hasRunningAgents || (!pipelineVisualizer?.completed && pipelineVisualizerLive._runId)) {
+        setRunningState(true);
+      }
+      for (const [agentName, data] of liveEntries) {
+        if (!agentName.startsWith('_') && data) updateAgentStatus(agentName, data.status, data.durationMs);
       }
       if (pipelineVisualizerLive._pipelineType) updatePipelineBadge(pipelineVisualizerLive._pipelineType);
     }

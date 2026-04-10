@@ -5,7 +5,7 @@ const GEMINI_TIMEOUT_MS = 60000;
 
 const TIER_MODELS = {
   fast: 'gemini-2.5-flash',
-  quality: 'gemini-2.5-pro'
+  quality: 'gemini-2.5-flash'
 };
 
 /**
@@ -26,7 +26,7 @@ export async function getEffectiveLLMProvider() {
  */
 export async function callGeminiChat(conversationContents, systemInstruction, overrides = {}) {
   const settings = await chrome.storage.sync.get(['remoteVLMModel', 'remoteVLMEndpoint']);
-  const model = overrides.model || settings.remoteVLMModel || 'gemini-2.5-pro';
+  const model = overrides.model || settings.remoteVLMModel || 'gemini-2.5-flash';
   const endpoint = settings.remoteVLMEndpoint ||
     'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent';
 

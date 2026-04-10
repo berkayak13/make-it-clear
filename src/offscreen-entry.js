@@ -46,13 +46,11 @@ async function webllmRenarrateText(text, task) {
   if (!isReady || !engine) return { success: false, error: 'WebLLM not initialized' };
   try {
     if (engine.chat?.completions?.create) {
-      console.log('WebLLM chat completion request:', formatMessages(task, text));
       const res = await engine.chat.completions.create({
         messages: formatMessages(task, text),
         temperature: 0.3,
         stream: false,
       });
-      console.log('WebLLM chat completion result:', res);
       const content = res?.choices?.[0]?.message?.content || '';
       return { success: true, result: content };
     }
@@ -97,29 +95,33 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   (async () => {
     let result;
-    if (type === 'webllm-init') {
-      await initEngineIfNeeded(payload?.modelId);
-      result = { success: !!engine };
-    } else if (type === 'webllm-renarrate-text') {
-      // Ensure engine is ready with the requested model if provided
-      if (!isReady || (payload?.modelId && payload.modelId !== lastModelId)) {
+    try {
+      if (type === 'webllm-init') {
         await initEngineIfNeeded(payload?.modelId);
+        result = { success: !!engine };
+      } else if (type === 'webllm-renarrate-text') {
+        if (!isReady || (payload?.modelId && payload.modelId !== lastModelId)) {
+          await initEngineIfNeeded(payload?.modelId);
+        }
+        result = await webllmRenarrateText(payload?.text, payload?.task);
+      } else if (type === 'webllm-chat') {
+        if (!isReady || (payload?.modelId && payload.modelId !== lastModelId)) {
+          await initEngineIfNeeded(payload?.modelId);
+        }
+        result = await webllmChat(payload?.messages || [], {
+          modelId: payload?.modelId,
+          temperature: payload?.temperature
+        });
+      } else {
+        result = { success: false, error: 'Unknown offscreen message type' };
       }
-      result = await webllmRenarrateText(payload?.text, payload?.task);
-    } else if (type === 'webllm-chat') {
-      if (!isReady || (payload?.modelId && payload.modelId !== lastModelId)) {
-        await initEngineIfNeeded(payload?.modelId);
-      }
-      result = await webllmChat(payload?.messages || [], {
-        modelId: payload?.modelId,
-        temperature: payload?.temperature
-      });
-    } else {
-      result = { success: false, error: 'Unknown offscreen message type' };
+    } catch (e) {
+      result = { success: false, error: e?.message || String(e) };
     }
     chrome.runtime.sendMessage({ __offscreenResponse: true, requestId, payload: result });
   })();
 
-  sendResponse && sendResponse({ ack: true });
+  // Return true to keep the message channel open; do NOT call sendResponse
+  // since the actual response is sent via chrome.runtime.sendMessage above.
   return true;
 });

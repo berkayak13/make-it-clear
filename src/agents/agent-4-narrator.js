@@ -68,11 +68,17 @@ async function narrateSection(section, sectionPlan, context, template) {
  * Generate N variants, self-score each, and return the best.
  */
 async function narrateWithBestOfN(section, sectionPlan, context, template) {
-  const variants = await Promise.all([
+  const results = await Promise.allSettled([
     narrateSection(section, sectionPlan, context, template),
     narrateSection(section, sectionPlan, context, template),
     narrateSection(section, sectionPlan, context, template)
   ]);
+  const variants = results
+    .filter(r => r.status === 'fulfilled')
+    .map(r => r.value);
+  if (variants.length === 0) {
+    throw new Error('All best-of-N variants failed');
+  }
 
   // Self-score each variant
   const scorePrompt = `Rate the following renarration on a scale of 1-5 for clarity, faithfulness, and style. Return ONLY a number.\n\nOriginal: ${section.text}\n\nRenarration: `;
@@ -160,7 +166,7 @@ export async function run(context) {
   }
 
   const sectionMap = context.sectionMap || [];
-  const sections = Array.isArray(sectionMap) ? sectionMap : Object.values(sectionMap);
+  const sections = Array.isArray(sectionMap) ? sectionMap : (sectionMap && typeof sectionMap === 'object' ? Object.values(sectionMap) : []);
 
   const renarrations = [];
 

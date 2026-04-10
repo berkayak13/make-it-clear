@@ -296,8 +296,8 @@ function renderExport() {
       <h4>${name}</h4>
       <p style="font-size:12px;color:#718096;margin-bottom:8px;">${count} records</p>
       <div class="btn-group">
-        <button onclick="exportStore('${name}', 'json')"${disabled}>JSON</button>
-        <button onclick="exportStore('${name}', 'csv')"${disabled}>CSV</button>
+        <button onclick="exportStore(this.dataset.store, 'json')" data-store="${escapeHtml(name)}"${disabled}>JSON</button>
+        <button onclick="exportStore(this.dataset.store, 'csv')" data-store="${escapeHtml(name)}"${disabled}>CSV</button>
       </div>
     </div>`;
   }).join('') + `

@@ -224,9 +224,10 @@ export async function run(context) {
       { tier: 'quality' }
     );
 
+    if (!llmResponse?.success) throw new Error(llmResponse?.error || 'LLM call failed');
     const responseText = typeof llmResponse === 'string'
       ? llmResponse
-      : llmResponse?.result || JSON.stringify(llmResponse);
+      : llmResponse?.result || '';
 
     const parsed = parseJSON(responseText);
 

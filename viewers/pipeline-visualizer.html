@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ReNarrator — Pipeline Visualizer</title>
+  <link rel="stylesheet" href="../tokens.css">
   <link rel="stylesheet" href="pipeline-visualizer.css">
 </head>
 <body>
@@ -18,13 +19,13 @@
         <span>Running</span>
       </div>
       <div class="pipeline-badge" id="pipelineBadge">Idle</div>
-      <button class="clear-btn" id="clearBtn" title="Clear visualizer state">Clear</button>
+      <button class="clear-btn" id="clearBtn" title="Clear visualizer state" aria-label="Clear visualizer state">Clear</button>
     </div>
   </header>
 
   <div class="viz-layout">
     <aside class="run-history" id="runHistory">
-      <h3>Pipeline Runs</h3>
+      <h2>Pipeline Runs</h2>
       <div id="runList"></div>
     </aside>
 
@@ -36,19 +37,19 @@
       <div class="pipeline-diagram" id="pipelineDiagram"></div>
 
       <!-- Tabs -->
-      <div class="viz-tabs">
-        <button class="viz-tab active" data-tab="metrics">Metrics</button>
-        <button class="viz-tab" data-tab="inspector">Data Inspector</button>
-        <button class="viz-tab" data-tab="memory">Memory State</button>
-        <button class="viz-tab" data-tab="diagrams">Diagrams</button>
+      <div class="viz-tabs" role="tablist">
+        <button class="viz-tab active" data-tab="metrics" role="tab" aria-selected="true" aria-controls="metricsPanel">Metrics</button>
+        <button class="viz-tab" data-tab="inspector" role="tab" aria-selected="false" aria-controls="inspectorPanel">Data Inspector</button>
+        <button class="viz-tab" data-tab="memory" role="tab" aria-selected="false" aria-controls="memoryPanel">Memory State</button>
+        <button class="viz-tab" data-tab="diagrams" role="tab" aria-selected="false" aria-controls="diagramsPanel">Diagrams</button>
       </div>
 
       <!-- Tab Panels -->
       <div class="tab-content" id="tabContent">
-        <div id="metricsPanel" class="tab-panel active"></div>
-        <div id="inspectorPanel" class="tab-panel"></div>
-        <div id="memoryPanel" class="tab-panel"></div>
-        <div id="diagramsPanel" class="tab-panel"></div>
+        <div id="metricsPanel" class="tab-panel active" role="tabpanel"></div>
+        <div id="inspectorPanel" class="tab-panel" role="tabpanel"></div>
+        <div id="memoryPanel" class="tab-panel" role="tabpanel"></div>
+        <div id="diagramsPanel" class="tab-panel" role="tabpanel"></div>
       </div>
     </main>
   </div>
