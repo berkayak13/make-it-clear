@@ -1,11 +1,11 @@
 import { ensureOffscreen, postToOffscreen } from './offscreen-bridge.js';
 
-const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
-const GEMINI_TIMEOUT_MS = 60000;
+const OPENAI_API_KEY = import.meta.env.VITE_OPENAI_API_KEY;
+const OPENAI_TIMEOUT_MS = 30000;
 
 const TIER_MODELS = {
-  fast: 'gemini-2.5-flash',
-  quality: 'gemini-2.5-flash'
+  fast: 'gpt-4o-mini',
+  quality: 'gpt-4o-mini'
 };
 
 /**
@@ -19,66 +19,56 @@ export async function getEffectiveLLMProvider() {
 }
 
 /**
- * Call Gemini API with native Gemini conversation format.
- * @param {Array} conversationContents - Gemini-format [{role, parts}]
- * @param {string} systemInstruction - System instruction text
+ * Call OpenAI Chat Completions API.
+ * @param {Array} messages - OpenAI-format [{role, content}]
+ * @param {string} systemPrompt - System instruction text
+ * @param {object} options - { model, temperature }
  * @returns {{success: boolean, result?: string, error?: string}}
  */
-export async function callGeminiChat(conversationContents, systemInstruction, overrides = {}) {
-  const settings = await chrome.storage.sync.get(['remoteVLMModel', 'remoteVLMEndpoint']);
-  const model = overrides.model || settings.remoteVLMModel || 'gemini-2.5-flash';
-  const endpoint = settings.remoteVLMEndpoint ||
-    'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent';
+export async function callOpenAIChat(messages, systemPrompt, options = {}) {
+  const apiKey = OPENAI_API_KEY;
+  if (!apiKey) return { success: false, error: 'OpenAI API key not configured (set VITE_OPENAI_API_KEY in .env)' };
 
-  const replaced = endpoint.replace('{model}', model);
-  const url = replaced.includes('key=')
-    ? replaced
-    : `${replaced}${replaced.includes('?') ? '&' : '?'}key=${encodeURIComponent(GEMINI_API_KEY)}`;
+  const model = options.model || TIER_MODELS.quality;
 
-  const body = {
-    contents: conversationContents,
-    generationConfig: { temperature: 0.7 }
-  };
-  if (systemInstruction) {
-    body.system_instruction = { parts: [{ text: systemInstruction }] };
+  const llmMessages = [];
+  if (systemPrompt) {
+    llmMessages.push({ role: 'system', content: systemPrompt });
   }
+  llmMessages.push(...messages);
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), GEMINI_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), OPENAI_TIMEOUT_MS);
+
   try {
-    const res = await fetch(url, {
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model,
+        messages: llmMessages,
+        temperature: options.temperature ?? 0.7,
+      }),
       signal: controller.signal
     });
     clearTimeout(timer);
+
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
-      return { success: false, error: `Gemini API error: ${res.status} ${errText}` };
+      return { success: false, error: `OpenAI API error: ${res.status} ${errText}` };
     }
+
     const data = await res.json();
-    const text = data?.candidates?.[0]?.content?.parts?.map(p => p.text).join('\n').trim();
-    if (!text) return { success: false, error: 'No content returned from Gemini' };
+    const text = data?.choices?.[0]?.message?.content?.trim();
+    if (!text) return { success: false, error: 'No content returned from OpenAI' };
     return { success: true, result: text };
   } catch (err) {
     clearTimeout(timer);
     return { success: false, error: err?.message || String(err) };
   }
-}
-
-/**
- * Convert OpenAI-format messages to Gemini format and call callGeminiChat.
- * Filters out system messages (handled via systemInstruction param).
- */
-export async function callGeminiChatFromMessages(messages, systemPrompt, overrides = {}) {
-  const contents = messages
-    .filter(m => m.role !== 'system')
-    .map(m => ({
-      role: m.role === 'assistant' ? 'model' : 'user',
-      parts: [{ text: m.content }]
-    }));
-  return callGeminiChat(contents, systemPrompt, overrides);
 }
 
 /**
@@ -110,12 +100,11 @@ export async function callWebLLMChat(messages, systemPrompt, options = {}) {
 }
 
 /**
- * Unified LLM dispatch: routes to remote (Gemini) or on-device (WebLLM)
+ * Unified LLM dispatch: routes to remote (OpenAI) or on-device (WebLLM)
  * based on global llmProvider setting.
  * @param {Array} messages - OpenAI-format [{role, content}]
  * @param {string} systemPrompt - System instruction text
  * @param {object} options - { forceProvider, temperature, modelId, timeoutMs, tier }
- *   tier: 'fast' uses gemini-2.5-flash, 'quality' uses gemini-2.5-pro
  */
 export async function callLLM(messages, systemPrompt, options = {}) {
   const provider = options.forceProvider || await getEffectiveLLMProvider();
@@ -124,11 +113,9 @@ export async function callLLM(messages, systemPrompt, options = {}) {
     return callWebLLMChat(messages, systemPrompt, options);
   }
 
-  // For remote/Gemini, handle tier-based model override without mutating storage
-  const overrides = {};
-  if (options.tier && TIER_MODELS[options.tier]) {
-    overrides.model = TIER_MODELS[options.tier];
-  }
-
-  return callGeminiChatFromMessages(messages, systemPrompt, overrides);
+  const model = (options.tier && TIER_MODELS[options.tier]) || TIER_MODELS.quality;
+  return callOpenAIChat(messages, systemPrompt, { ...options, model });
 }
+
+// Keep Gemini exports for VLM (visual-cartographer uses Gemini directly)
+export { callOpenAIChat as callRemoteChat };

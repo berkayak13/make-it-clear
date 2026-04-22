@@ -10,6 +10,7 @@ import { callLLM } from '../utils/llm-dispatch.js';
 
 import * as routerAgent from '../agents/agent-0-router.js';
 import * as intentAgent from '../agents/agent-1-intent.js';
+import { runExtraction } from '../agents/agent-extraction.js';
 import * as cartographerAgent from '../agents/agent-2-visual-cartographer.js';
 import * as narratorAgent from '../agents/agent-4-narrator.js';
 import * as qualityAgent from '../agents/agent-6-quality-validator.js';
@@ -116,6 +117,31 @@ export async function runPipeline(request) {
       }
     } else {
       console.warn('[Orchestrator] Tab is not a web page:', url);
+    }
+  }
+
+  // Step 1.5: Run extraction (VLM + LLM, no chat) to get a compact knowledge
+  // snapshot of the page. Stores result at chrome.storage.local.lastExtraction
+  // and also exposes it on context.extraction for downstream agents.
+  if (tabId && sidebarOpen) {
+    sendProgress(tabId, 'Extracting page knowledge...');
+    try {
+      const extraction = await runExtraction({
+        tabId,
+        pageMetadata: context.pageMetadata,
+        onProgress: (text) => sendProgress(tabId, text),
+      });
+      context.extraction = extraction;
+      try {
+        chrome.runtime.sendMessage({
+          action: 'extraction-update',
+          status: 'done',
+          extraction,
+        }).catch(() => {});
+      } catch {}
+    } catch (e) {
+      console.warn('[Orchestrator] Extraction step failed:', e?.message);
+      context.extraction = { error: e?.message || String(e) };
     }
   }
 

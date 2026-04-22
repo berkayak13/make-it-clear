@@ -48,6 +48,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Check for feedback refinement suggestion
   checkFeedbackRefinement();
 
+  // Wire up the extraction panel
+  setupExtractionPanel();
+
   // Event listeners
   sendBtn.addEventListener('click', sendMessage);
   chatInput.addEventListener('keydown', (e) => {
@@ -320,6 +323,154 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('goalPreviewStyle').textContent = goal.outputStyle || '';
     document.getElementById('goalPreviewNotes').textContent = goal.additionalInstructions || 'None';
     goalPreview.style.display = 'block';
+  }
+
+  function setupExtractionPanel() {
+    const extractBtn = document.getElementById('extractBtn');
+    const statusEl = document.getElementById('extractionStatus');
+    const bodyEl = document.getElementById('extractionBody');
+    if (!extractBtn || !statusEl || !bodyEl) return;
+
+    // Restore the most recent extraction on open
+    chrome.runtime.sendMessage({ action: 'get-last-extraction' })
+      .then((res) => {
+        if (res?.success && res.extraction) {
+          renderExtraction(res.extraction);
+        }
+      })
+      .catch(() => {});
+
+    extractBtn.addEventListener('click', async () => {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab?.id) {
+        setExtractionStatus('No active tab', true);
+        return;
+      }
+      if (!tab.url?.startsWith('http')) {
+        setExtractionStatus('Cannot extract from this page', true);
+        return;
+      }
+
+      extractBtn.disabled = true;
+      extractBtn.textContent = 'Extracting...';
+      setExtractionStatus('Capturing screenshots and extracting...', false);
+
+      try {
+        const res = await chrome.runtime.sendMessage({
+          action: 'run-extraction',
+          tabId: tab.id,
+          pageMetadata: { url: tab.url, title: tab.title || '' },
+        });
+        if (res?.success && res.extraction) {
+          renderExtraction(res.extraction);
+        } else {
+          setExtractionStatus('Extraction failed: ' + (res?.error || 'unknown'), true);
+        }
+      } catch (e) {
+        setExtractionStatus('Extraction error: ' + (e.message || e), true);
+      } finally {
+        extractBtn.disabled = false;
+        extractBtn.textContent = 'Extract';
+      }
+    });
+
+    // Listen for live progress + completion (e.g. when full pipeline runs extraction)
+    chrome.runtime.onMessage.addListener((msg) => {
+      if (msg?.action === 'extraction-progress' && msg.text) {
+        setExtractionStatus(msg.text, false);
+      } else if (msg?.action === 'extraction-update') {
+        if (msg.status === 'done' && msg.extraction) {
+          renderExtraction(msg.extraction);
+        } else if (msg.status === 'failed') {
+          setExtractionStatus('Extraction failed: ' + (msg.error || 'unknown'), true);
+        } else if (msg.status === 'running') {
+          setExtractionStatus('Extracting...', false);
+        }
+      }
+    });
+
+    function setExtractionStatus(text, isError) {
+      statusEl.textContent = text;
+      statusEl.classList.toggle('is-error', !!isError);
+      statusEl.style.display = 'block';
+    }
+
+    function renderExtraction(result) {
+      if (!result || result.error) {
+        setExtractionStatus(result?.error ? 'Extraction failed: ' + result.error : 'No extraction', true);
+        bodyEl.style.display = 'none';
+        return;
+      }
+      const k = result.knowledge || {};
+      const ageMin = result.at ? Math.max(0, Math.round((Date.now() - new Date(result.at).getTime()) / 60000)) : null;
+      setExtractionStatus(
+        `Extracted${ageMin != null ? ' ' + (ageMin === 0 ? 'just now' : ageMin + 'm ago') : ''} · ${result.sliceCount || 0} slice${result.sliceCount === 1 ? '' : 's'}`,
+        false
+      );
+
+      const sections = [];
+      if (k.title) sections.push(section('Title', textNode(k.title)));
+      if (k.topic) sections.push(section('Topic', textNode(k.topic)));
+      if (k.summary) sections.push(section('Summary', textNode(k.summary)));
+      if (Array.isArray(k.facts) && k.facts.length) {
+        const ul = document.createElement('ul');
+        ul.className = 'extraction-facts';
+        for (const f of k.facts) {
+          const li = document.createElement('li');
+          li.textContent = f;
+          ul.appendChild(li);
+        }
+        sections.push(section('Facts', ul));
+      }
+      if (Array.isArray(k.entities) && k.entities.length) {
+        sections.push(section('Entities', chips(k.entities)));
+      }
+      if (Array.isArray(k.keyTerms) && k.keyTerms.length) {
+        sections.push(section('Key Terms', chips(k.keyTerms)));
+      }
+
+      const meta = document.createElement('div');
+      meta.className = 'extraction-meta';
+      meta.textContent = `${result.rawCharCount || 0} raw chars · ${result.durationMs || 0}ms${result.partial ? ' · partial' : ''}`;
+      sections.push(meta);
+
+      bodyEl.innerHTML = '';
+      sections.forEach((el) => bodyEl.appendChild(el));
+      bodyEl.style.display = 'flex';
+    }
+
+    function section(label, content) {
+      const wrap = document.createElement('div');
+      wrap.className = 'extraction-section';
+      const lbl = document.createElement('div');
+      lbl.className = 'extraction-section-label';
+      lbl.textContent = label;
+      wrap.appendChild(lbl);
+      const value = document.createElement('div');
+      value.className = 'extraction-section-value';
+      if (typeof content === 'string') value.textContent = content;
+      else value.appendChild(content);
+      wrap.appendChild(value);
+      return wrap;
+    }
+
+    function textNode(text) {
+      const span = document.createElement('span');
+      span.textContent = text;
+      return span;
+    }
+
+    function chips(items) {
+      const wrap = document.createElement('div');
+      wrap.className = 'extraction-chips';
+      for (const item of items) {
+        const chip = document.createElement('span');
+        chip.className = 'extraction-chip';
+        chip.textContent = item;
+        wrap.appendChild(chip);
+      }
+      return wrap;
+    }
   }
 
   async function checkFeedbackRefinement() {

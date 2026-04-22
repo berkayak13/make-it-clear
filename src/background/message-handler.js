@@ -7,6 +7,7 @@ import { pageHandlers } from '../handlers/page-renarration.js';
 import { simpleHandlers } from '../handlers/simple.js';
 import { runPipeline, runPredictiveAdapter } from './orchestrator.js';
 import { resolveOffscreenResponse } from '../utils/offscreen-bridge.js';
+import { runExtraction } from '../agents/agent-extraction.js';
 
 const agenticHandlers = {
   'run-agentic-pipeline': async (request, sender) => {
@@ -41,6 +42,44 @@ const agenticHandlers = {
   'get-pipeline-visualizer': async () => {
     const data = await chrome.storage.local.get(['pipelineVisualizer', 'pipelineVisualizerLive']);
     return { success: true, ...data };
+  },
+  'run-extraction': async (request, sender) => {
+    const tabId = request?.tabId ?? sender?.tab?.id;
+    if (!tabId) return { success: false, error: 'No tabId' };
+
+    const notify = (status, extraction = null, error = null) => {
+      try {
+        chrome.runtime.sendMessage({
+          action: 'extraction-update',
+          status,
+          extraction,
+          error,
+        }).catch(() => {});
+      } catch {}
+    };
+
+    notify('running');
+    try {
+      const result = await runExtraction({
+        tabId,
+        pageMetadata: request?.pageMetadata || {},
+        onProgress: (text) => {
+          try {
+            chrome.runtime.sendMessage({ action: 'extraction-progress', text }).catch(() => {});
+          } catch {}
+        },
+      });
+      notify('done', result);
+      return { success: true, extraction: result };
+    } catch (e) {
+      const msg = e?.message || String(e);
+      notify('failed', null, msg);
+      return { success: false, error: msg };
+    }
+  },
+  'get-last-extraction': async () => {
+    const { lastExtraction } = await chrome.storage.local.get(['lastExtraction']);
+    return { success: true, extraction: lastExtraction || null };
   },
 };
 
