@@ -25,11 +25,34 @@ function getResponseText(data) {
   return chunks.join('').trim();
 }
 
+function supportsTemperature(model) {
+  const normalized = String(model || '').toLowerCase();
+  return !(
+    normalized.startsWith('gpt-5') ||
+    normalized.startsWith('gpt-oss') ||
+    /^o\d/.test(normalized)
+  );
+}
+
+function buildResponseBody(payload) {
+  const body = {
+    store: false,
+    ...payload,
+  };
+
+  if (body.temperature !== undefined && !supportsTemperature(body.model)) {
+    delete body.temperature;
+  }
+
+  return body;
+}
+
 async function createResponse(payload, timeoutMs = OPENAI_TIMEOUT_MS) {
   requireApiKey();
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const body = buildResponseBody(payload);
 
   try {
     const res = await fetch('https://api.openai.com/v1/responses', {
@@ -38,15 +61,36 @@ async function createResponse(payload, timeoutMs = OPENAI_TIMEOUT_MS) {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${OPENAI_API_KEY}`,
       },
-      body: JSON.stringify({
-        store: false,
-        ...payload,
-      }),
+      body: JSON.stringify(body),
       signal: controller.signal,
     });
 
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
+      if (body.temperature !== undefined && errText.includes("Unsupported parameter: 'temperature'")) {
+        const retryBody = { ...body };
+        delete retryBody.temperature;
+        const retryRes = await fetch('https://api.openai.com/v1/responses', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${OPENAI_API_KEY}`,
+          },
+          body: JSON.stringify(retryBody),
+          signal: controller.signal,
+        });
+
+        if (retryRes.ok) {
+          const retryData = await retryRes.json();
+          if (retryData?.error) {
+            throw new Error(retryData.error.message || 'OpenAI returned an error');
+          }
+          return retryData;
+        }
+
+        const retryErrText = await retryRes.text().catch(() => '');
+        throw new Error(`OpenAI API error ${retryRes.status}: ${retryErrText || retryRes.statusText}`);
+      }
       throw new Error(`OpenAI API error ${res.status}: ${errText || res.statusText}`);
     }
 
@@ -80,7 +124,7 @@ export async function callOpenAIText({ systemPrompt = '', userText = '', model, 
   return { text, response: data };
 }
 
-export async function callOpenAIJson({ systemPrompt = '', prompt = '', images = [], schema, schemaName = 'structured_output', model, timeoutMs } = {}) {
+export async function callOpenAIJson({ systemPrompt = '', prompt = '', images = [], schema, schemaName = 'structured_output', model, maxOutputTokens, timeoutMs } = {}) {
   const content = [{ type: 'input_text', text: String(prompt || '') }];
   for (const image of images) {
     const imageUrl = typeof image === 'string' ? image : image?.dataUrl;
@@ -96,6 +140,7 @@ export async function callOpenAIJson({ systemPrompt = '', prompt = '', images = 
     model: model || (images.length ? OPENAI_VISION_MODEL : OPENAI_TEXT_MODEL),
     instructions: systemPrompt || undefined,
     input: [{ role: 'user', content }],
+    max_output_tokens: maxOutputTokens,
     text: {
       format: {
         type: 'json_schema',

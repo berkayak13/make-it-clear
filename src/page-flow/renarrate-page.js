@@ -1,7 +1,8 @@
 import { callOpenAIText, OPENAI_CONFIG } from '../utils/openai-client.js';
 import { buildRenarrationPrompt, truncateForContext } from '../utils/renarration.js';
 
-const MAX_PAGE_TEXT_CHARS = 30000;
+const MAX_EXTRACTED_NOTES_CHARS = 30000;
+const MAX_RAW_TEXT_CHARS = 30000;
 
 function formatReadingGoal(goal) {
   if (!goal) return 'No saved reading goal.';
@@ -42,11 +43,11 @@ export async function renarratePage({ extraction, taskName } = {}) {
     'Saved reading goal:',
     formatReadingGoal(promptInfo.readingGoal),
     '',
-    'OpenAI page knowledge extracted from text and screenshots:',
-    formatKnowledge(extraction.knowledge),
+    'Compact page source extracted from visible text and screenshots:',
+    truncateForContext(extraction.compactText || formatKnowledge(extraction.knowledge), MAX_EXTRACTED_NOTES_CHARS),
     '',
-    'Visible page text:',
-    truncateForContext(extraction.rawText || '', MAX_PAGE_TEXT_CHARS),
+    'Captured visible page text fallback:',
+    truncateForContext(extraction.rawText || '', MAX_RAW_TEXT_CHARS),
   ].join('\n');
 
   const result = await callOpenAIText({
@@ -61,7 +62,7 @@ export async function renarratePage({ extraction, taskName } = {}) {
     model: OPENAI_CONFIG.textModel,
     promptInfo: {
       systemPrompt,
-      userText: truncateForContext(userText, 12000),
+      userText: truncateForContext(userText, MAX_EXTRACTED_NOTES_CHARS + MAX_RAW_TEXT_CHARS),
     },
   };
 }

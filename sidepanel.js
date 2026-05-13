@@ -3,6 +3,7 @@
 let currentSessionId = null;
 let userMessageCount = 0;
 let generatedGoal = null;
+let sending = false;
 
 document.addEventListener('DOMContentLoaded', async () => {
   const chatMessages = document.getElementById('chatMessages');
@@ -30,18 +31,23 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   // Try restoring existing session
-  const { currentChatSessionId } = await chrome.storage.local.get(['currentChatSessionId']);
-  if (currentChatSessionId) {
-    const res = await chrome.runtime.sendMessage({ action: 'chatbot-get-session', sessionId: currentChatSessionId });
-    if (res?.success && res.session) {
-      currentSessionId = currentChatSessionId;
-      renderMessages(res.session.messages);
-      userMessageCount = res.session.messages.filter(m => m.role === 'user').length;
-      updateActionButtons();
+  try {
+    const { currentChatSessionId } = await chrome.storage.local.get(['currentChatSessionId']);
+    if (currentChatSessionId) {
+      const res = await chrome.runtime.sendMessage({ action: 'chatbot-get-session', sessionId: currentChatSessionId });
+      if (res?.success && res.session) {
+        currentSessionId = currentChatSessionId;
+        renderMessages(res.session.messages);
+        userMessageCount = res.session.messages.filter(m => m.role === 'user').length;
+        updateActionButtons();
+      } else {
+        await startNewSession();
+      }
     } else {
       await startNewSession();
     }
-  } else {
+  } catch (e) {
+    addSystemMessage('Failed to restore chat session: ' + (e.message || 'Unknown error'));
     await startNewSession();
   }
 
@@ -70,7 +76,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Set Reading Goal button
   setGoalBtn.addEventListener('click', async () => {
-    if (!currentSessionId) return;
+    if (!currentSessionId) {
+      addSystemMessage('No active chat session. Start a new session and send at least two messages before setting a reading goal.');
+      return;
+    }
     setGoalBtn.disabled = true;
     setGoalBtn.textContent = 'Extracting goal...';
     try {
@@ -124,23 +133,34 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   async function startNewSession() {
-    const res = await chrome.runtime.sendMessage({ action: 'chatbot-new-session' });
-    if (res?.success) {
-      currentSessionId = res.sessionId;
-      userMessageCount = 0;
-      chatMessages.innerHTML = `
-        <div class="chat-welcome">
-          <p>Tell me what you want to get from web content today.</p>
-          <p class="chat-welcome-hint">I'll help you set a reading goal so content can be adapted to your needs.</p>
-        </div>
-      `;
-      updateActionButtons();
-      goalPreview.style.display = 'none';
-      quickRepliesContainer.style.display = 'none';
-      quickRepliesContainer.innerHTML = '';
-      generatedGoal = null;
-
+    try {
+      const res = await chrome.runtime.sendMessage({ action: 'chatbot-new-session' });
+      if (res?.success && res.sessionId) {
+        currentSessionId = res.sessionId;
+        userMessageCount = 0;
+        chatMessages.innerHTML = `
+          <div class="chat-welcome">
+            <p>Tell me what you want to get from web content today.</p>
+            <p class="chat-welcome-hint">I'll help you set a reading goal so content can be adapted to your needs.</p>
+          </div>
+        `;
+        updateActionButtons();
+        goalPreview.style.display = 'none';
+        quickRepliesContainer.style.display = 'none';
+        quickRepliesContainer.innerHTML = '';
+        generatedGoal = null;
+        return true;
+      }
+      addSystemMessage('Failed to start session: ' + (res?.error || 'Unknown error'));
+    } catch (e) {
+      addSystemMessage('Failed to start session: ' + (e.message || 'Please reload the extension.'));
     }
+    return false;
+  }
+
+  async function ensureChatSession() {
+    if (currentSessionId) return true;
+    return await startNewSession();
   }
 
   function escapeHtml(text) {
@@ -151,45 +171,52 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   async function sendMessage() {
     const text = chatInput.value.trim();
-    if (!text || !currentSessionId) return;
+    if (!text || sending) return;
 
-    chatInput.value = '';
-    chatInput.style.height = 'auto';
+    sending = true;
     sendBtn.disabled = true;
-
-    // Hide quick replies when user sends a message
-    quickRepliesContainer.style.display = 'none';
-
-    // Clear welcome message if first message
-    const welcome = chatMessages.querySelector('.chat-welcome');
-    if (welcome) welcome.remove();
-
-    appendBubble('user', text);
-    userMessageCount++;
-    updateActionButtons();
-
-    // Show typing indicator
-    const typingEl = appendBubble('model', 'Thinking...', true);
+    let typingEl = null;
 
     try {
+      const hasSession = await ensureChatSession();
+      if (!hasSession) return;
+
+      chatInput.value = '';
+      chatInput.style.height = 'auto';
+
+      // Hide quick replies when user sends a message
+      quickRepliesContainer.style.display = 'none';
+
+      // Clear welcome message if first message
+      const welcome = chatMessages.querySelector('.chat-welcome');
+      if (welcome) welcome.remove();
+
+      appendBubble('user', text);
+      userMessageCount++;
+      updateActionButtons();
+
+      // Show typing indicator
+      typingEl = appendBubble('model', 'Thinking...', true);
+
       const res = await chrome.runtime.sendMessage({
         action: 'chatbot-send',
         sessionId: currentSessionId,
         message: text
       });
-      typingEl.remove();
+      if (typingEl.parentElement) typingEl.remove();
       if (res?.success && res.reply) {
         renderModelReply(res.reply);
       } else {
         appendBubble('model', 'Sorry, I encountered an error: ' + (res?.error || 'Unknown'));
       }
     } catch (e) {
-      typingEl.remove();
+      if (typingEl?.parentElement) typingEl.remove();
       appendBubble('model', 'Connection error: ' + e.message);
+    } finally {
+      sending = false;
+      sendBtn.disabled = false;
+      chatInput.focus();
     }
-
-    sendBtn.disabled = false;
-    chatInput.focus();
   }
 
   function renderModelReply(text) {
@@ -370,6 +397,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (k.title) sections.push(section('Title', textNode(k.title)));
       if (k.topic) sections.push(section('Topic', textNode(k.topic)));
       if (k.summary) sections.push(section('Summary', textNode(k.summary)));
+      if (result.compactText) {
+        const notes = document.createElement('pre');
+        notes.className = 'extraction-notes';
+        notes.textContent = result.compactText;
+        sections.push(section('Extracted Notes', notes));
+      }
       if (Array.isArray(k.facts) && k.facts.length) {
         const ul = document.createElement('ul');
         ul.className = 'extraction-facts';

@@ -290,6 +290,10 @@ function hideRenarrationPanel() {
 }
 
 chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
+  if (request.action === 'renarration-content-ready') {
+    sendResponse({ success: true });
+    return false;
+  }
   if (request.action === 'extract-visible-page-text') {
     sendResponse(extractVisiblePageText());
     return false;

@@ -511,6 +511,19 @@ body {
   word-wrap: break-word;
 }
 
+.extraction-notes {
+  max-height: 260px;
+  margin: 0;
+  padding: var(--space-2);
+  overflow: auto;
+  white-space: pre-wrap;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-primary);
+  font: 11px/1.5 var(--font-mono);
+}
+
 .extraction-facts {
   list-style: none;
   margin: 0;

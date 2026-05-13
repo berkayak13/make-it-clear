@@ -1,0 +1,975 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agentic Structure and Runtime Flow</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f5f6f8;
+      --surface: #ffffff;
+      --surface-soft: #f9fafc;
+      --ink: #1b2432;
+      --muted: #5f6878;
+      --line: #d9dee8;
+      --accent: #2457a6;
+      --accent-soft: #e9f1ff;
+      --green: #14794c;
+      --orange: #9a5c00;
+      --red: #ad2d2d;
+      --code-bg: #edf1f7;
+      --shadow: 0 12px 30px rgba(27, 36, 50, 0.08);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--bg);
+      font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+      line-height: 1.55;
+    }
+
+    a {
+      color: var(--accent);
+      text-decoration-thickness: 1px;
+      text-underline-offset: 3px;
+    }
+
+    main {
+      width: min(1180px, calc(100% - 40px));
+      margin: 0 auto;
+      padding: 36px 0 60px;
+    }
+
+    header {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 280px;
+      gap: 24px;
+      align-items: start;
+      margin-bottom: 22px;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin-top: 0;
+    }
+
+    h1 {
+      margin-bottom: 10px;
+      font-size: 36px;
+      line-height: 1.12;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      margin-bottom: 12px;
+      font-size: 22px;
+      line-height: 1.25;
+      letter-spacing: 0;
+    }
+
+    h3 {
+      margin-bottom: 6px;
+      font-size: 16px;
+      line-height: 1.25;
+      letter-spacing: 0;
+    }
+
+    p {
+      margin-bottom: 12px;
+      color: var(--muted);
+    }
+
+    code {
+      display: inline-block;
+      max-width: 100%;
+      padding: 1px 5px;
+      border: 1px solid #dce3ee;
+      border-radius: 4px;
+      background: var(--code-bg);
+      color: #132640;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: 0.92em;
+      line-height: 1.45;
+      overflow-wrap: anywhere;
+    }
+
+    .hero {
+      padding: 24px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+
+    .summary {
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface);
+    }
+
+    .summary strong {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 13px;
+      color: var(--ink);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .toc {
+      display: grid;
+      gap: 8px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .toc a {
+      display: block;
+      padding: 8px 10px;
+      border-radius: 6px;
+      background: var(--surface-soft);
+      color: var(--ink);
+      text-decoration: none;
+      font-size: 14px;
+    }
+
+    .section {
+      margin-top: 16px;
+      padding: 22px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface);
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .card {
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface-soft);
+    }
+
+    .span-3 {
+      grid-column: span 3;
+    }
+
+    .span-4 {
+      grid-column: span 4;
+    }
+
+    .span-6 {
+      grid-column: span 6;
+    }
+
+    .span-8 {
+      grid-column: span 8;
+    }
+
+    .span-12 {
+      grid-column: span 12;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      min-height: 24px;
+      margin-bottom: 10px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .list {
+      margin: 0;
+      padding-left: 18px;
+      color: var(--muted);
+    }
+
+    .list li {
+      margin: 7px 0;
+    }
+
+    .flow-strip {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 16px;
+    }
+
+    .flow-step {
+      position: relative;
+      min-height: 170px;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface-soft);
+    }
+
+    .flow-step::after {
+      content: ">";
+      position: absolute;
+      right: -10px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--accent);
+      font-weight: 800;
+    }
+
+    .flow-step:last-child::after {
+      content: "";
+    }
+
+    .sequence {
+      display: grid;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .sequence-row {
+      display: grid;
+      grid-template-columns: 220px 1fr;
+      gap: 12px;
+      align-items: stretch;
+    }
+
+    .actor {
+      display: flex;
+      align-items: center;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-weight: 700;
+    }
+
+    .event {
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface-soft);
+    }
+
+    .table {
+      display: grid;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .table-row {
+      display: grid;
+      grid-template-columns: 260px 1fr;
+      border-top: 1px solid var(--line);
+    }
+
+    .table-row:first-child {
+      border-top: 0;
+    }
+
+    .table-cell {
+      padding: 12px;
+      background: var(--surface);
+    }
+
+    .table-cell:first-child {
+      border-right: 1px solid var(--line);
+      background: var(--surface-soft);
+      font-weight: 700;
+    }
+
+    .callout {
+      margin-top: 14px;
+      padding: 14px 16px;
+      border-left: 4px solid var(--accent);
+      border-radius: 6px;
+      background: var(--accent-soft);
+    }
+
+    .callout p:last-child {
+      margin-bottom: 0;
+    }
+
+    .state {
+      display: inline-flex;
+      align-items: center;
+      min-height: 22px;
+      padding: 1px 7px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .state.good {
+      color: var(--green);
+      background: #e8f5ee;
+    }
+
+    .state.warn {
+      color: var(--orange);
+      background: #fff4df;
+    }
+
+    .state.stop {
+      color: var(--red);
+      background: #ffecec;
+    }
+
+    .mono-block {
+      margin: 0;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #111827;
+      color: #edf2ff;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: 13px;
+      line-height: 1.55;
+      overflow-x: auto;
+      white-space: pre;
+    }
+
+    @media (max-width: 920px) {
+      main {
+        width: min(100% - 24px, 1180px);
+        padding-top: 18px;
+      }
+
+      header {
+        grid-template-columns: 1fr;
+      }
+
+      .span-3,
+      .span-4,
+      .span-6,
+      .span-8 {
+        grid-column: span 12;
+      }
+
+      .flow-strip {
+        grid-template-columns: 1fr;
+      }
+
+      .flow-step {
+        min-height: auto;
+      }
+
+      .flow-step::after {
+        content: "v";
+        right: 16px;
+        top: auto;
+        bottom: -18px;
+      }
+
+      .flow-step:last-child::after {
+        content: "";
+      }
+
+      .sequence-row,
+      .table-row {
+        grid-template-columns: 1fr;
+      }
+
+      .table-cell:first-child {
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <section class="hero">
+        <h1>Agentic Structure and Runtime Flow</h1>
+        <p>
+          This document explains how the repo currently works as an OpenAI-only Chrome MV3 renarration extension.
+          The important architectural point is that the code is no longer a multi-agent system with separate local workers
+          or competing providers. It is a coordinated pipeline: UI actions send messages to the background service worker,
+          the worker calls OpenAI for extraction and renarration, and content scripts render plain text back into the page.
+        </p>
+        <p>
+          In this repo, "agentic" means the extension keeps user intent in state, extracts page knowledge, chooses prompts
+          from task, persona, and reading goal context, then runs the next step automatically. The orchestration is in code,
+          not in autonomous agent files.
+        </p>
+      </section>
+
+      <aside class="summary">
+        <strong>Contents</strong>
+        <ol class="toc">
+          <li><a href="#mental-model">Mental Model</a></li>
+          <li><a href="#entry-points">Entry Points</a></li>
+          <li><a href="#full-page-flow">Full Page Flow</a></li>
+          <li><a href="#chat-goal-flow">Chat and Reading Goal Flow</a></li>
+          <li><a href="#selected-text-flow">Selected Text Flow</a></li>
+          <li><a href="#storage">Storage and Research Data</a></li>
+          <li><a href="#contracts">Message Contracts</a></li>
+          <li><a href="#boundaries">Current Boundaries</a></li>
+        </ol>
+      </aside>
+    </header>
+
+    <section class="section" id="mental-model">
+      <h2>Mental Model</h2>
+      <p>
+        The current architecture is best understood as a browser-extension pipeline with several agent-like roles.
+        Each role is just a JavaScript module with a clear responsibility.
+      </p>
+
+      <div class="grid">
+        <article class="card span-4">
+          <span class="badge">Coordinator</span>
+          <h3>Background service worker</h3>
+          <p>
+            <code>src/background/main.js</code> initializes defaults and calls
+            <code>setupMessageHandler()</code>. <code>src/background/message-handler.js</code>
+            routes every runtime message to the correct handler.
+          </p>
+        </article>
+
+        <article class="card span-4">
+          <span class="badge">Extractor</span>
+          <h3>Page knowledge extraction</h3>
+          <p>
+            <code>src/page-flow/extract-page.js</code> combines visible text from the content script with
+            screenshot slices from <code>src/utils/screenshot-capture.js</code>, then asks OpenAI for compact
+            structured JSON.
+          </p>
+        </article>
+
+        <article class="card span-4">
+          <span class="badge">Writer</span>
+          <h3>Renarration generation</h3>
+          <p>
+            <code>src/page-flow/renarrate-page.js</code> builds the final prompt from extracted knowledge,
+            raw page text, active task, active persona, and saved reading goal. It returns plain text only.
+          </p>
+        </article>
+
+        <article class="card span-4">
+          <span class="badge">Goal assistant</span>
+          <h3>Chatbot handlers</h3>
+          <p>
+            <code>src/handlers/chatbot.js</code> manages chat sessions, asks OpenAI for replies, extracts
+            a structured reading goal from the transcript, and stores it for later page renarration.
+          </p>
+        </article>
+
+        <article class="card span-4">
+          <span class="badge">Renderer</span>
+          <h3>Content script UI</h3>
+          <p>
+            <code>content.js</code> owns the selected-text overlay and split panel. Final page renarration is
+            rendered with <code>textContent</code>, which prevents generated HTML from being injected into pages.
+          </p>
+        </article>
+
+        <article class="card span-4">
+          <span class="badge">OpenAI gateway</span>
+          <h3>Responses API wrapper</h3>
+          <p>
+            <code>src/utils/openai-client.js</code> is the only OpenAI HTTP wrapper. It supports text,
+            image-plus-text, and strict JSON schema calls. Every request includes <code>store: false</code>.
+          </p>
+        </article>
+      </div>
+
+      <div class="callout">
+        <p>
+          The repo does not currently contain the old local model worker, alternate hosted vision providers,
+          old multi-agent page modules, DOM clone replacement, or old visualizer. Those paths should stay removed.
+        </p>
+      </div>
+    </section>
+
+    <section class="section" id="entry-points">
+      <h2>Runtime Entry Points</h2>
+      <div class="table">
+        <div class="table-row">
+          <div class="table-cell"><code>manifest.json</code></div>
+          <div class="table-cell">
+            Declares the MV3 extension, permissions, popup, side panel, content script, options page, and background
+            service worker path. The background worker points to <code>build/background-entry.js</code>.
+          </div>
+        </div>
+        <div class="table-row">
+          <div class="table-cell"><code>vite.config.js</code></div>
+          <div class="table-cell">
+            Bundles only <code>src/background/main.js</code> into the build output. Vite also injects
+            <code>VITE_OPENAI_*</code> values from <code>.env</code>.
+          </div>
+        </div>
+        <div class="table-row">
+          <div class="table-cell"><code>popup.js</code></div>
+          <div class="table-cell">
+            Provides the popup chat UI and the <code>Renarrate Page</code> button. It starts chat sessions,
+            applies reading goals, and triggers the full page renarration message.
+          </div>
+        </div>
+        <div class="table-row">
+          <div class="table-cell"><code>sidepanel.js</code></div>
+          <div class="table-cell">
+            Provides a larger chat UI and an extraction panel. It can run extraction only, without rendering
+            the final page rewrite.
+          </div>
+        </div>
+        <div class="table-row">
+          <div class="table-cell"><code>content.js</code></div>
+          <div class="table-cell">
+            Runs on matched web pages. It extracts visible page text, creates the selected-text overlay,
+            opens the split panel, updates progress, and renders the final text.
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="full-page-flow">
+      <h2>Full Page Renarration Flow</h2>
+      <p>
+        This is the main "agentic" path: the user asks for a whole page rewrite, and the background worker drives
+        extraction, OpenAI reasoning, storage, and UI rendering.
+      </p>
+
+      <div class="flow-strip">
+        <article class="flow-step">
+          <span class="badge">1. User action</span>
+          <h3>Popup sends a request</h3>
+          <p>
+            The popup button sends <code>run-page-renarration</code> with <code>tabId</code>,
+            page URL, and page title.
+          </p>
+        </article>
+
+        <article class="flow-step">
+          <span class="badge">2. Orchestration</span>
+          <h3>Background starts one run</h3>
+          <p>
+            <code>orchestrator.js</code> blocks overlapping runs with <code>pageRunInProgress</code>,
+            opens the split panel, and sends progress text to the content script.
+          </p>
+        </article>
+
+        <article class="flow-step">
+          <span class="badge">3. Extraction</span>
+          <h3>Text and screenshots</h3>
+          <p>
+            <code>extractPageKnowledge()</code> reads visible text from <code>content.js</code>,
+            captures full-page slices, selects up to eight representative images, and calls OpenAI for JSON.
+          </p>
+        </article>
+
+        <article class="flow-step">
+          <span class="badge">4. Renarration</span>
+          <h3>Prompt with intent</h3>
+          <p>
+            <code>renarratePage()</code> builds a system prompt from task, persona, boilerplate, and reading goal,
+            then sends page knowledge and raw text as the user input.
+          </p>
+        </article>
+
+        <article class="flow-step">
+          <span class="badge">5. Render</span>
+          <h3>Plain text output</h3>
+          <p>
+            The result is stored in <code>lastPageRenarration</code> and sent to <code>content.js</code>,
+            which writes it into the split panel with <code>textContent</code>.
+          </p>
+        </article>
+      </div>
+
+      <div class="sequence">
+        <div class="sequence-row">
+          <div class="actor">Popup</div>
+          <div class="event">
+            <code>popup.js</code> queries the active tab and sends <code>run-page-renarration</code>.
+            The message includes <code>pageMetadata</code> so extraction and storage can preserve URL and title.
+          </div>
+        </div>
+        <div class="sequence-row">
+          <div class="actor">Message router</div>
+          <div class="event">
+            <code>message-handler.js</code> finds the action in a merged handler map:
+            <code>simpleHandlers</code>, <code>chatbotHandlers</code>, and <code>pageFlowHandlers</code>.
+          </div>
+        </div>
+        <div class="sequence-row">
+          <div class="actor">Orchestrator</div>
+          <div class="event">
+            <code>pageFlowHandlers['run-page-renarration']</code> resolves the active tab, generates a run id,
+            tells the content script to show the panel, and starts extraction.
+          </div>
+        </div>
+        <div class="sequence-row">
+          <div class="actor">Content script</div>
+          <div class="event">
+            <code>extract-visible-page-text</code> walks visible text nodes, skips script/style/form/media tags,
+            ignores the extension UI, filters hidden elements, deduplicates text chunks, and returns title and URL.
+          </div>
+        </div>
+        <div class="sequence-row">
+          <div class="actor">Screenshot utility</div>
+          <div class="event">
+            <code>captureFullPageSlices()</code> scrolls the page, waits for layout to settle, captures visible
+            tab PNG data URLs, retries Chrome capture rate-limit errors, and restores the original scroll position.
+          </div>
+        </div>
+        <div class="sequence-row">
+          <div class="actor">OpenAI JSON call</div>
+          <div class="event">
+            <code>callOpenAIJson()</code> sends the extraction prompt plus selected screenshots to the Responses API.
+            The output must match the strict schema with <code>title</code>, <code>topic</code>,
+            <code>summary</code>, <code>facts</code>, <code>entities</code>, and <code>keyTerms</code>.
+          </div>
+        </div>
+        <div class="sequence-row">
+          <div class="actor">Prompt builder</div>
+          <div class="event">
+            <code>buildRenarrationPrompt()</code> loads current tasks, personas, prompt template, system boilerplate,
+            and <code>chrome.storage.sync.readingGoal</code>. The final system prompt combines all of them.
+          </div>
+        </div>
+        <div class="sequence-row">
+          <div class="actor">OpenAI text call</div>
+          <div class="event">
+            <code>callOpenAIText()</code> asks for final plain text. The prompt explicitly says to preserve facts,
+            avoid invented content, and return readable plain text without HTML or Markdown tables.
+          </div>
+        </div>
+        <div class="sequence-row">
+          <div class="actor">Split panel</div>
+          <div class="event">
+            <code>render-renarration-text</code> reaches <code>content.js</code>. It clears the loading state,
+            creates a <code>div.renarration-final-text</code>, and assigns the model output through
+            <code>pre.textContent</code>.
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="chat-goal-flow">
+      <h2>Chat and Reading Goal Flow</h2>
+      <p>
+        The chat is not the final page writer. Its job is to capture what the user wants from reading, convert
+        that conversation into structured preferences, and save those preferences for later renarration.
+      </p>
+
+      <div class="grid">
+        <article class="card span-6">
+          <h3>Conversation loop</h3>
+          <ul class="list">
+            <li><code>chatbot-new-session</code> creates a session with a stable user id and empty messages.</li>
+            <li><code>chatbot-send</code> appends the user's message, loads recent preference history, and calls OpenAI.</li>
+            <li>The chatbot system prompt asks one question at a time and formats quick replies with <code>&gt;&gt;</code>.</li>
+            <li>The popup and side panel parse <code>&gt;&gt;</code> lines into clickable quick-reply buttons.</li>
+          </ul>
+        </article>
+
+        <article class="card span-6">
+          <h3>Goal extraction</h3>
+          <ul class="list">
+            <li><code>chatbot-set-reading-goal</code> builds a transcript from session messages.</li>
+            <li>It loads <code>src/prompts/goal-extraction.md</code>.</li>
+            <li>OpenAI returns JSON with reading goal, depth, focus areas, output style, notes, and language.</li>
+            <li>The UI previews the goal. Only after the user applies it does it become <code>chrome.storage.sync.readingGoal</code>.</li>
+          </ul>
+        </article>
+
+        <article class="card span-12">
+          <h3>How the goal affects the page writer</h3>
+          <p>
+            During final page renarration, <code>renarrate-page.js</code> receives the extraction result and asks
+            <code>buildRenarrationPrompt()</code> for the active prompt. That prompt includes the saved reading goal.
+            Then the user message sent to OpenAI repeats the saved goal before page knowledge and visible page text.
+            This means the model sees the user's intent in both the system-level instruction and the page-specific input.
+          </p>
+        </article>
+      </div>
+    </section>
+
+    <section class="section" id="selected-text-flow">
+      <h2>Selected Text Flow</h2>
+      <p>
+        Selected text renarration is the smaller path. It does not capture screenshots and does not run page
+        knowledge extraction. It sends only the selected text plus the active task/persona prompt context.
+      </p>
+
+      <div class="sequence">
+        <div class="sequence-row">
+          <div class="actor">Content script</div>
+          <div class="event">
+            On mouseup, <code>content.js</code> checks the current selection. If the selected text is longer
+            than ten characters, it shows a small <code>R</code> trigger beside the selection.
+          </div>
+        </div>
+        <div class="sequence-row">
+          <div class="actor">Background handler</div>
+          <div class="event">
+            Clicking the trigger sends <code>renarrate-text</code>. <code>src/handlers/simple.js</code>
+            calls <code>renarrateText()</code>, which builds the current prompt and calls <code>callLLM()</code>.
+          </div>
+        </div>
+        <div class="sequence-row">
+          <div class="actor">Overlay</div>
+          <div class="event">
+            The response returns to the content script and appears in the floating overlay. Feedback buttons can
+            send <code>submit-feedback</code> events to research storage.
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="storage">
+      <h2>Storage and Research Data</h2>
+      <div class="grid">
+        <article class="card span-4">
+          <span class="state good">sync</span>
+          <h3><code>chrome.storage.sync</code></h3>
+          <ul class="list">
+            <li><code>enabled</code></li>
+            <li><code>currentTask</code> and <code>tasks</code></li>
+            <li><code>currentPersona</code> and <code>personas</code></li>
+            <li><code>systemPromptTemplate</code></li>
+            <li><code>readingGoal</code></li>
+          </ul>
+        </article>
+
+        <article class="card span-4">
+          <span class="state warn">local</span>
+          <h3><code>chrome.storage.local</code></h3>
+          <ul class="list">
+            <li><code>lastExtraction</code></li>
+            <li><code>lastPageRenarration</code></li>
+            <li><code>lastTextRenarration</code></li>
+            <li><code>currentChatSessionId</code></li>
+            <li>research and Firebase settings</li>
+          </ul>
+        </article>
+
+        <article class="card span-4">
+          <span class="state stop">external</span>
+          <h3>Firestore helper</h3>
+          <ul class="list">
+            <li><code>chatSessions</code></li>
+            <li><code>researchLogs</code></li>
+            <li><code>feedbackEvents</code></li>
+            <li><code>experimentRuns</code></li>
+            <li><code>userPreferences</code></li>
+          </ul>
+        </article>
+      </div>
+
+      <div class="callout">
+        <p>
+          Research logging is best-effort and can be disabled with <code>enableResearchLogging</code>.
+          Normal page renarration does not depend on research logging succeeding.
+        </p>
+      </div>
+    </section>
+
+    <section class="section" id="contracts">
+      <h2>Message Contracts</h2>
+      <p>
+        Runtime behavior is organized around Chrome extension messages. These are the important actions to know.
+      </p>
+
+      <div class="table">
+        <div class="table-row">
+          <div class="table-cell"><code>run-page-renarration</code></div>
+          <div class="table-cell">
+            Full page flow. Opens the split panel, extracts knowledge, generates final text, stores the result,
+            and renders it on the active page.
+          </div>
+        </div>
+        <div class="table-row">
+          <div class="table-cell"><code>extract-page-knowledge</code></div>
+          <div class="table-cell">
+            Extraction-only flow used by the side panel. Produces structured page knowledge and stores
+            <code>lastExtraction</code>.
+          </div>
+        </div>
+        <div class="table-row">
+          <div class="table-cell"><code>get-last-extraction</code></div>
+          <div class="table-cell">
+            Reads the most recent extraction from local storage so the side panel can restore state.
+          </div>
+        </div>
+        <div class="table-row">
+          <div class="table-cell"><code>extract-visible-page-text</code></div>
+          <div class="table-cell">
+            Content script action that returns visible, deduplicated page text, title, and URL.
+          </div>
+        </div>
+        <div class="table-row">
+          <div class="table-cell"><code>show-renarration-panel</code></div>
+          <div class="table-cell">
+            Content script action that creates the split panel and loading state.
+          </div>
+        </div>
+        <div class="table-row">
+          <div class="table-cell"><code>update-renarration-progress</code></div>
+          <div class="table-cell">
+            Content script action for status text and error text while a page run is in progress.
+          </div>
+        </div>
+        <div class="table-row">
+          <div class="table-cell"><code>render-renarration-text</code></div>
+          <div class="table-cell">
+            Content script action that renders the final page output using <code>textContent</code>.
+          </div>
+        </div>
+        <div class="table-row">
+          <div class="table-cell"><code>renarrate-text</code></div>
+          <div class="table-cell">
+            Selected-text flow. Sends selected text through the active prompt and shows the result in the overlay.
+          </div>
+        </div>
+        <div class="table-row">
+          <div class="table-cell"><code>chatbot-*</code></div>
+          <div class="table-cell">
+            Chat session, chat response, persona extraction, persona apply, and reading-goal extraction actions.
+          </div>
+        </div>
+        <div class="table-row">
+          <div class="table-cell"><code>submit-feedback</code></div>
+          <div class="table-cell">
+            Stores thumbs-up, thumbs-down, or correction feedback for a renarration run.
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="openai">
+      <h2>OpenAI Request Layer</h2>
+      <p>
+        <code>src/utils/openai-client.js</code> centralizes OpenAI calls. It reads build-time config from
+        <code>import.meta.env</code> and sends requests to <code>https://api.openai.com/v1/responses</code>.
+      </p>
+
+      <div class="grid">
+        <article class="card span-4">
+          <h3><code>callOpenAIText()</code></h3>
+          <p>
+            Sends a system prompt as <code>instructions</code>, text input as <code>input</code>,
+            and requests plain text output. Used for chat, selected text renarration, and full page renarration.
+          </p>
+        </article>
+        <article class="card span-4">
+          <h3><code>callOpenAIJson()</code></h3>
+          <p>
+            Builds a multimodal content array with <code>input_text</code> and optional
+            <code>input_image</code> parts. It requests strict JSON schema output for extraction.
+          </p>
+        </article>
+        <article class="card span-4">
+          <h3><code>createResponse()</code></h3>
+          <p>
+            Adds <code>store: false</code>, handles the API key requirement, enforces timeout behavior,
+            parses API errors, and returns the raw Responses API JSON.
+          </p>
+        </article>
+      </div>
+
+      <pre class="mono-block">VITE_OPENAI_API_KEY       required
+VITE_OPENAI_TEXT_MODEL    defaults to gpt-5.5
+VITE_OPENAI_VISION_MODEL  defaults to text model
+VITE_OPENAI_IMAGE_DETAIL  defaults to high
+VITE_OPENAI_TIMEOUT_MS    defaults to 120000</pre>
+    </section>
+
+    <section class="section" id="failure-handling">
+      <h2>Failure Handling</h2>
+      <div class="grid">
+        <article class="card span-6">
+          <h3>Run-level guard</h3>
+          <p>
+            <code>pageRunInProgress</code> prevents two full page renarrations from running at the same time.
+            The flag is reset in a <code>finally</code> block, so failed runs do not permanently lock the pipeline.
+          </p>
+        </article>
+        <article class="card span-6">
+          <h3>Tab and extraction errors</h3>
+          <p>
+            If there is no active tab, no extractable text/screenshots, or a Chrome API failure, the handler returns
+            <code>{ success: false, error }</code>. Full page errors are also shown in the split panel.
+          </p>
+        </article>
+        <article class="card span-6">
+          <h3>OpenAI errors</h3>
+          <p>
+            Missing API keys, timeout, non-OK API responses, empty output, and JSON parse failures become thrown
+            errors in <code>openai-client.js</code> and are returned through the message handler.
+          </p>
+        </article>
+        <article class="card span-6">
+          <h3>Best-effort UI updates</h3>
+          <p>
+            Messages to tabs and status broadcasts are wrapped so panel update failures do not crash unrelated
+            work. Research logging is also best-effort.
+          </p>
+        </article>
+      </div>
+    </section>
+
+    <section class="section" id="boundaries">
+      <h2>Current Boundaries</h2>
+      <div class="grid">
+        <article class="card span-6">
+          <span class="state good">active</span>
+          <h3>What exists now</h3>
+          <ul class="list">
+            <li>OpenAI Responses API wrapper for text, vision, and strict JSON output.</li>
+            <li>Page extraction from visible text plus screenshot slices.</li>
+            <li>Final plain-text page renarration in a split panel.</li>
+            <li>Selected-text overlay renarration.</li>
+            <li>Chat-based reading goal extraction.</li>
+            <li>Options-managed tasks, personas, and prompt template.</li>
+          </ul>
+        </article>
+
+        <article class="card span-6">
+          <span class="state stop">do not reintroduce</span>
+          <h3>Removed architecture</h3>
+          <ul class="list">
+            <li>Local model worker code.</li>
+            <li>Alternate hosted vision providers.</li>
+            <li>Old multi-agent page modules.</li>
+            <li>DOM clone replacement.</li>
+            <li>Old visualizer path.</li>
+          </ul>
+        </article>
+      </div>
+
+      <div class="callout">
+        <p>
+          The most important security and UX rule in the current flow is that generated page renarration remains
+          plain text. <code>content.js</code> should keep final page output on <code>textContent</code>, not
+          generated HTML.
+        </p>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

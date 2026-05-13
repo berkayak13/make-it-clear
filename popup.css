@@ -370,6 +370,37 @@ body {
   margin-top: var(--space-1);
 }
 
+.action-status.is-error {
+  color: var(--color-error-text);
+}
+
+.status-action {
+  display: block;
+  margin: var(--space-1) auto 0;
+  background: none;
+  border: none;
+  color: var(--color-brand-mid);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: var(--text-xs);
+  padding: 2px var(--space-2);
+  text-decoration: underline;
+}
+
+.status-action:hover {
+  color: var(--color-brand-end);
+}
+
+.status-action:disabled {
+  color: var(--color-text-muted);
+  cursor: not-allowed;
+}
+
+.status-action:focus-visible {
+  outline: 2px solid var(--color-brand-mid);
+  outline-offset: 2px;
+}
+
 /* ── Chat area ── */
 .chat-area {
   display: flex;

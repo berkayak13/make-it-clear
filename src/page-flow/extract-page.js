@@ -1,14 +1,17 @@
 import { captureFullPageSlices } from '../utils/screenshot-capture.js';
 import { callOpenAIJson, OPENAI_CONFIG } from '../utils/openai-client.js';
 
-const MAX_TEXT_CHARS = 20000;
-const MAX_SCREENSHOT_SLICES = 8;
+const MAX_TEXT_CHARS = 120000;
+const MAX_EXTRACTED_NOTES_CHARS = 30000;
+const MAX_EXTRACTION_OUTPUT_TOKENS = 16000;
+const MAX_SCREENSHOT_SLICES = 20;
 
 const extractionSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['title', 'topic', 'summary', 'facts', 'entities', 'keyTerms'],
+  required: ['compactText', 'title', 'topic', 'summary', 'facts', 'entities', 'keyTerms'],
   properties: {
+    compactText: { type: 'string' },
     title: { type: 'string' },
     topic: { type: 'string' },
     summary: { type: 'string' },
@@ -41,13 +44,7 @@ async function getVisibleText(tabId) {
 }
 
 function chooseSlices(images) {
-  if (!images.length || images.length <= MAX_SCREENSHOT_SLICES) return images;
-  const chosen = [];
-  for (let i = 0; i < MAX_SCREENSHOT_SLICES; i++) {
-    const index = Math.round((i * (images.length - 1)) / (MAX_SCREENSHOT_SLICES - 1));
-    chosen.push(images[index]);
-  }
-  return chosen;
+  return images.slice(0, MAX_SCREENSHOT_SLICES);
 }
 
 export async function extractPageKnowledge({ tabId, pageMetadata = {}, onProgress } = {}) {
@@ -67,9 +64,18 @@ export async function extractPageKnowledge({ tabId, pageMetadata = {}, onProgres
 
   onProgress?.('Extracting page knowledge with OpenAI...');
   const prompt = [
-    'Extract compact page knowledge for a renarration system.',
+    'Extract comprehensive article knowledge for a renarration system.',
     'Use the visible text first. Use screenshots to recover headings, charts, layout clues, labels, and content missing from text extraction.',
-    'Write short, concrete facts. Avoid speculation.',
+    'Focus on the article or main page content. Omit navigation, ads, cookie banners, repeated boilerplate, decorative UI text, and unrelated sidebar items.',
+    'Capture every distinct article fact or claim that affects meaning: main claims, supporting details, quotes, attributions, dates, names, numbers, examples, causes, effects, caveats, chronology, and conclusions.',
+    'Do not collapse the article into a short summary. Coverage is more important than polished prose.',
+    `The compactText field is the main source artifact. Make it dense, comprehensive fact-by-fact notes up to about ${MAX_EXTRACTED_NOTES_CHARS} characters.`,
+    'Format compactText as plain text grouped by source section when section order is clear.',
+    'Use one atomic fact, claim, quote, or relationship per line.',
+    'Cover the beginning, middle, and end of the page text. Continue until all meaningful page content has been represented.',
+    'Use short fragments or simple sentences. Avoid speculation.',
+    'Do not use Markdown bullets, numbering, HTML, or JSON inside compactText.',
+    'Make the facts array a shorter scan-friendly subset of the most important facts. compactText must remain the complete extracted knowledge artifact.',
     '',
     `URL: ${pageMetadata.url || visible.url || ''}`,
     `Title: ${pageMetadata.title || visible.title || ''}`,
@@ -84,15 +90,19 @@ export async function extractPageKnowledge({ tabId, pageMetadata = {}, onProgres
     prompt,
     images: selectedImages,
     model: OPENAI_CONFIG.visionModel,
+    maxOutputTokens: MAX_EXTRACTION_OUTPUT_TOKENS,
   });
 
+  const { compactText = '', ...knowledge } = result.json || {};
+  const capExceeded = (images?.length || 0) > selectedImages.length;
   const extraction = {
-    knowledge: result.json,
+    compactText: String(compactText || '').trim(),
+    knowledge,
     rawText: pageText,
     rawCharCount: pageText.length,
     sliceCount: selectedImages.length,
     totalSliceCount: images?.length || 0,
-    partial: !!partial,
+    partial: !!partial || capExceeded,
     model: OPENAI_CONFIG.visionModel,
     at: new Date().toISOString(),
     durationMs: Date.now() - started,

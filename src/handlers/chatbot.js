@@ -4,8 +4,80 @@ import { generateId } from '../utils/id.js';
 import { callLLM } from '../utils/llm-dispatch.js';
 import { getChatbotSystemPrompt, getPersonaExtractionPrompt, getGoalExtractionPrompt } from '../utils/cached-prompts.js';
 
+const LOCAL_CHAT_SESSIONS_KEY = 'chatSessions';
+const LOCAL_USER_PREFERENCES_KEY = 'userPreferences';
+
+function cloneRecord(record) {
+  return JSON.parse(JSON.stringify(record));
+}
+
+async function getLocalChatSessions() {
+  const data = await chrome.storage.local.get([LOCAL_CHAT_SESSIONS_KEY]);
+  const sessions = data[LOCAL_CHAT_SESSIONS_KEY];
+  return sessions && typeof sessions === 'object' && !Array.isArray(sessions) ? sessions : {};
+}
+
+async function getLocalSession(sessionId) {
+  if (!sessionId) return null;
+  const sessions = await getLocalChatSessions();
+  return sessions[sessionId] || null;
+}
+
+async function saveLocalSession(session, { makeCurrent = false } = {}) {
+  const sessions = await getLocalChatSessions();
+  sessions[session.sessionId] = session;
+  const update = { [LOCAL_CHAT_SESSIONS_KEY]: sessions };
+  if (makeCurrent) update.currentChatSessionId = session.sessionId;
+  await chrome.storage.local.set(update);
+  return session;
+}
+
+async function getResearchSession(sessionId) {
+  try {
+    return await researchGet('chatSessions', sessionId);
+  } catch (e) {
+    console.warn('[Chatbot] Firestore session lookup skipped:', e?.message || e);
+    return null;
+  }
+}
+
+async function saveSession(session, options) {
+  await saveLocalSession(session, options);
+  void bestEffortResearchPut('chatSessions', session);
+}
+
+async function bestEffortResearchPut(storeName, record) {
+  try {
+    await researchPut(storeName, cloneRecord(record));
+  } catch (e) {
+    console.warn(`[Chatbot] Firestore ${storeName} write skipped:`, e?.message || e);
+  }
+}
+
+async function getLocalUserPreferences(userId) {
+  const data = await chrome.storage.local.get([LOCAL_USER_PREFERENCES_KEY]);
+  const prefs = Array.isArray(data[LOCAL_USER_PREFERENCES_KEY]) ? data[LOCAL_USER_PREFERENCES_KEY] : [];
+  return prefs.filter(pref => pref.userId === userId);
+}
+
+async function saveLocalUserPreference(record) {
+  const data = await chrome.storage.local.get([LOCAL_USER_PREFERENCES_KEY]);
+  const prefs = Array.isArray(data[LOCAL_USER_PREFERENCES_KEY]) ? data[LOCAL_USER_PREFERENCES_KEY] : [];
+  const preference = { ...record, preferenceId: record.preferenceId || generateId() };
+  await chrome.storage.local.set({ [LOCAL_USER_PREFERENCES_KEY]: [...prefs, preference] });
+  return preference;
+}
+
 async function getRecentPrefSummary(userId) {
-  const prefHistory = await researchGetByIndex('userPreferences', 'userId', userId);
+  let prefHistory = await getLocalUserPreferences(userId);
+  if (!prefHistory.length) {
+    try {
+      prefHistory = await researchGetByIndex('userPreferences', 'userId', userId);
+    } catch (e) {
+      console.warn('[Chatbot] Firestore preference lookup skipped:', e?.message || e);
+      prefHistory = [];
+    }
+  }
   const recentPrefs = prefHistory.sort((a, b) => b.timestamp - a.timestamp).slice(0, 5);
   return recentPrefs.length
     ? recentPrefs.map(p => JSON.stringify(p.preferences)).join('\n')
@@ -26,13 +98,21 @@ function parseJsonResponse(raw, errorLabel) {
 }
 
 async function logResearch(data) {
-  const { enableResearchLogging } = await chrome.storage.local.get(['enableResearchLogging']);
-  if (enableResearchLogging === false) return;
-  await researchPut('researchLogs', { logId: generateId(), timestamp: Date.now(), ...data });
+  try {
+    const { enableResearchLogging } = await chrome.storage.local.get(['enableResearchLogging']);
+    if (enableResearchLogging === false) return;
+    await bestEffortResearchPut('researchLogs', { logId: generateId(), timestamp: Date.now(), ...data });
+  } catch (e) {
+    console.warn('[Chatbot] Research logging skipped:', e?.message || e);
+  }
 }
 
 async function getSessionOrThrow(sessionId) {
-  const session = await researchGet('chatSessions', sessionId);
+  let session = await getLocalSession(sessionId);
+  if (!session) {
+    session = await getResearchSession(sessionId);
+    if (session) await saveLocalSession(session);
+  }
   if (!session) throw new Error('Session not found');
   return session;
 }
@@ -49,8 +129,7 @@ export const chatbotHandlers = {
         extractedProfile: null,
         appliedPersonaKey: null
       };
-      await researchPut('chatSessions', session);
-      await chrome.storage.local.set({ currentChatSessionId: session.sessionId });
+      await saveSession(session, { makeCurrent: true });
       return { success: true, sessionId: session.sessionId };
     } catch (e) {
       return { success: false, error: e.message };
@@ -59,7 +138,11 @@ export const chatbotHandlers = {
 
   'chatbot-get-session': async (request, sender) => {
     try {
-      const session = await researchGet('chatSessions', request.sessionId);
+      let session = await getLocalSession(request.sessionId);
+      if (!session) {
+        session = await getResearchSession(request.sessionId);
+        if (session) await saveLocalSession(session);
+      }
       return { success: !!session, session };
     } catch (e) {
       return { success: false, error: e.message };
@@ -69,8 +152,9 @@ export const chatbotHandlers = {
   'chatbot-send': async (request, sender) => {
     try {
       const session = await getSessionOrThrow(request.sessionId);
+      session.messages = Array.isArray(session.messages) ? session.messages : [];
       session.messages.push({ role: 'user', content: request.message, timestamp: Date.now() });
-      await researchPut('chatSessions', session);
+      await saveSession(session);
 
       const userId = await getOrCreateUserId();
       const prefSummary = await getRecentPrefSummary(userId);
@@ -84,8 +168,8 @@ export const chatbotHandlers = {
       if (!result.success) { return { success: false, error: result.error }; }
 
       session.messages.push({ role: 'model', content: result.result, timestamp: Date.now() });
-      await researchPut('chatSessions', session);
-      await logResearch({
+      await saveSession(session);
+      void logResearch({
         userId,
         category: 'chatbot',
         sessionId: request.sessionId,
@@ -109,7 +193,7 @@ export const chatbotHandlers = {
 
       const persona = parseJsonResponse(result.result, 'persona');
       session.extractedProfile = persona;
-      await researchPut('chatSessions', session);
+      await saveSession(session);
       return { success: true, persona };
     } catch (e) {
       return { success: false, error: e.message };
@@ -136,14 +220,14 @@ export const chatbotHandlers = {
       await chrome.storage.sync.set({ personas, currentPersona: key });
 
       if (request.sessionId) {
-        const session = await researchGet('chatSessions', request.sessionId);
+        const session = await getLocalSession(request.sessionId) || await getResearchSession(request.sessionId);
         if (session) {
           session.appliedPersonaKey = key;
-          await researchPut('chatSessions', session);
+          await saveSession(session);
         }
       }
       const userId = await getOrCreateUserId();
-      await logResearch({
+      void logResearch({
         userId,
         category: 'persona-change',
         personaKey: key,
@@ -170,15 +254,16 @@ export const chatbotHandlers = {
       if (!result.success) { return { success: false, error: result.error }; }
 
       const goal = parseJsonResponse(result.result, 'reading goal');
-      await researchPut('userPreferences', {
+      const preference = await saveLocalUserPreference({
         userId,
         timestamp: Date.now(),
         sessionId: request.sessionId,
         preferences: goal
       });
+      void bestEffortResearchPut('userPreferences', preference);
       session.extractedGoal = goal;
-      await researchPut('chatSessions', session);
-      await logResearch({
+      await saveSession(session);
+      void logResearch({
         userId,
         category: 'reading-goal',
         sessionId: request.sessionId,

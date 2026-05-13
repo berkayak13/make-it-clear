@@ -7,6 +7,8 @@ let sending = false;
 document.addEventListener('DOMContentLoaded', async () => {
   // --- DOM references ---
   const renarrateStatus = document.getElementById('renarrateStatus');
+  const renarratePageBtn = document.getElementById('renarratePageBtn');
+  const reextractBtn = document.getElementById('reextractBtn');
   const optionsLink = document.getElementById('optionsLink');
 
   // Chat DOM
@@ -51,7 +53,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     shouldWrite = true;
   }
   if (shouldWrite) {
-    await chrome.storage.sync.set({ tasks, currentTask });
+    try {
+      await chrome.storage.sync.set({ tasks, currentTask });
+    } catch (e) {
+      console.warn('[Popup] Failed to migrate settings:', e?.message);
+    }
   }
 
   // Load user ID
@@ -63,9 +69,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   // --- Chat session restore ---
-  const { currentChatSessionId } = await chrome.storage.local.get(['currentChatSessionId']);
-  if (currentChatSessionId) {
-    try {
+  try {
+    const { currentChatSessionId } = await chrome.storage.local.get(['currentChatSessionId']);
+    if (currentChatSessionId) {
       const res = await chrome.runtime.sendMessage({ action: 'chatbot-get-session', sessionId: currentChatSessionId });
       if (res?.success && res.session) {
         currentSessionId = currentChatSessionId;
@@ -75,40 +81,51 @@ document.addEventListener('DOMContentLoaded', async () => {
       } else {
         await startNewSession();
       }
-    } catch {
+    } else {
       await startNewSession();
     }
-  } else {
+  } catch (e) {
+    addSystemMessage('Failed to restore chat session: ' + (e.message || 'Unknown error'));
     await startNewSession();
   }
 
   checkFeedbackRefinement();
 
-  // --- Renarrate Page ---
-  const renarratePageBtn = document.getElementById('renarratePageBtn');
+  // --- Page extraction ---
+  let pageActionMode = 'extract';
+  let extractionInProgress = false;
+
   if (renarratePageBtn) {
     renarratePageBtn.addEventListener('click', async () => {
-      if (renarrateStatus) renarrateStatus.textContent = 'Processing\u2026';
-      try {
-        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        const tabId = tab?.id;
-        const res = await chrome.runtime.sendMessage({
-          action: 'run-page-renarration',
-          tabId,
-          text: 'Renarrate this page',
-          pageMetadata: { url: tab?.url, title: tab?.title }
-        });
-        if (res && res.success) {
-          if (renarrateStatus) renarrateStatus.textContent = 'Done - see split panel';
-        } else {
-          if (renarrateStatus) renarrateStatus.textContent = 'Error: ' + (res?.error || 'Renarration failed');
-        }
-      } catch (e) {
-        if (renarrateStatus) renarrateStatus.textContent = 'Error: ' + (e.message || 'unknown');
-        addSystemMessage('Page renarration error: ' + (e.message || 'unknown'));
+      if (pageActionMode === 'view') {
+        openExtractionViewer();
+        return;
       }
+      await runExtraction();
     });
   }
+
+  if (reextractBtn) {
+    reextractBtn.addEventListener('click', runExtraction);
+  }
+
+  chrome.runtime.onMessage.addListener((msg) => {
+    if (!extractionInProgress) return false;
+    if (msg?.action === 'extraction-progress' && msg.text) {
+      setExtractionStatus(msg.text, false);
+    } else if (msg?.action === 'extraction-update') {
+      if (msg.status === 'done' && msg.extraction) {
+        showExtractedState(msg.extraction);
+      } else if (msg.status === 'failed') {
+        showExtractionFailure(msg.error || 'Extraction failed');
+      } else if (msg.status === 'running') {
+        setExtractionStatus('Extracting...', false);
+      }
+    }
+    return false;
+  });
+
+  await refreshExtractionState();
 
   // --- Chat event listeners ---
   sendBtn.addEventListener('click', sendMessage);
@@ -128,7 +145,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Set Reading Goal
   setGoalBtn.addEventListener('click', async () => {
-    if (!currentSessionId) return;
+    if (!currentSessionId) {
+      addSystemMessage('No active chat session. Start a new session and send at least two messages before setting a reading goal.');
+      return;
+    }
     setGoalBtn.disabled = true;
     setGoalBtn.textContent = 'Extracting goal...';
     try {
@@ -150,15 +170,43 @@ document.addEventListener('DOMContentLoaded', async () => {
   applyGoalBtn.addEventListener('click', async () => {
     if (!generatedGoal) return;
     applyGoalBtn.disabled = true;
+    applyGoalBtn.textContent = 'Renarrating...';
     try {
       await chrome.storage.sync.set({ readingGoal: generatedGoal });
-      addSystemMessage('Reading goal applied: "' + (generatedGoal.readingGoal || '') + '"');
-      goalPreview.style.display = 'none';
-      generatedGoal = null;
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      const { lastExtraction } = await chrome.storage.local.get(['lastExtraction']);
+
+      if (!isSameExtractionForTab(lastExtraction, tab)) {
+        setExtractionStatus('First extract the page', true);
+        addSystemMessage('First extract the page');
+        return;
+      }
+
+      setExtractionStatus('Renarrating with saved goal...', false);
+      const res = await chrome.runtime.sendMessage({
+        action: 'run-page-renarration-from-extraction',
+        tabId: tab.id,
+        pageMetadata: { url: tab.url, title: tab.title || '' },
+      });
+
+      if (res?.success) {
+        addSystemMessage('Reading goal applied. The right-side page panel opened.');
+        setExtractionStatus('Done - page panel opened', false);
+        showExtractedState(lastExtraction, { keepStatus: true });
+        goalPreview.style.display = 'none';
+        generatedGoal = null;
+      } else {
+        const error = res?.error || 'Renarration failed';
+        setExtractionStatus('Error: ' + error, true);
+        addSystemMessage('Page renarration error: ' + error);
+      }
     } catch (e) {
-      addSystemMessage('Error applying goal: ' + e.message);
+      setExtractionStatus('Error: ' + (e.message || 'unknown'), true);
+      addSystemMessage('Error renarrating page: ' + e.message);
+    } finally {
+      applyGoalBtn.disabled = false;
+      applyGoalBtn.textContent = 'Renarrate Page With This';
     }
-    applyGoalBtn.disabled = false;
   });
 
   discardGoalBtn.addEventListener('click', () => {
@@ -195,7 +243,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   async function startNewSession() {
     try {
       const res = await chrome.runtime.sendMessage({ action: 'chatbot-new-session' });
-      if (res?.success) {
+      if (res?.success && res.sessionId) {
         currentSessionId = res.sessionId;
         userMessageCount = 0;
         chatMessages.innerHTML = `
@@ -209,33 +257,46 @@ document.addEventListener('DOMContentLoaded', async () => {
         quickRepliesContainer.style.display = 'none';
         quickRepliesContainer.innerHTML = '';
         generatedGoal = null;
+        return true;
       }
+      addSystemMessage('Failed to start session: ' + (res?.error || 'Unknown error'));
     } catch (e) {
-      chatMessages.innerHTML = '<div class="chat-msg model chat-msg--system">Failed to start session. Please reload the extension.</div>';
+      addSystemMessage('Failed to start session: ' + (e.message || 'Please reload the extension.'));
     }
+    return false;
+  }
+
+  async function ensureChatSession() {
+    if (currentSessionId) return true;
+    return await startNewSession();
   }
 
   async function sendMessage() {
     const text = chatInput.value.trim();
-    if (!text || !currentSessionId || sending) return;
+    if (!text || sending) return;
 
     sending = true;
-    chatInput.value = '';
-    chatInput.style.height = 'auto';
     sendBtn.disabled = true;
-
-    quickRepliesContainer.style.display = 'none';
-
-    const welcome = chatMessages.querySelector('.chat-welcome');
-    if (welcome) welcome.remove();
-
-    appendBubble('user', text);
-    userMessageCount++;
-    updateActionButtons();
-
-    const typingEl = appendBubble('model', 'Thinking...', true);
+    let typingEl = null;
 
     try {
+      const hasSession = await ensureChatSession();
+      if (!hasSession) return;
+
+      chatInput.value = '';
+      chatInput.style.height = 'auto';
+
+      quickRepliesContainer.style.display = 'none';
+
+      const welcome = chatMessages.querySelector('.chat-welcome');
+      if (welcome) welcome.remove();
+
+      appendBubble('user', text);
+      userMessageCount++;
+      updateActionButtons();
+
+      typingEl = appendBubble('model', 'Thinking...', true);
+
       const res = await chrome.runtime.sendMessage({
         action: 'chatbot-send',
         sessionId: currentSessionId,
@@ -248,7 +309,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         appendBubble('model', 'Sorry, I encountered an error: ' + (res?.error || 'Unknown'));
       }
     } catch (e) {
-      if (typingEl.parentElement) typingEl.remove();
+      if (typingEl?.parentElement) typingEl.remove();
       appendBubble('model', 'Connection error: ' + e.message);
     } finally {
       sending = false;
@@ -347,6 +408,114 @@ document.addEventListener('DOMContentLoaded', async () => {
     setText('goalPreviewStyle', goal.outputStyle || '');
     setText('goalPreviewNotes', goal.additionalInstructions || 'None');
     goalPreview.style.display = 'block';
+  }
+
+  async function refreshExtractionState() {
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      const { lastExtraction } = await chrome.storage.local.get(['lastExtraction']);
+      if (isSameExtractionForTab(lastExtraction, tab)) {
+        showExtractedState(lastExtraction);
+      } else {
+        showDefaultExtractionState();
+      }
+    } catch {
+      showDefaultExtractionState();
+    }
+  }
+
+  async function runExtraction() {
+    if (extractionInProgress) return;
+
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.id) {
+      showExtractionFailure('No active tab');
+      return;
+    }
+    if (!/^https?:/i.test(tab.url || '')) {
+      showExtractionFailure('Cannot extract from this page');
+      return;
+    }
+
+    extractionInProgress = true;
+    if (renarratePageBtn) {
+      renarratePageBtn.disabled = true;
+      renarratePageBtn.textContent = 'Extracting...';
+    }
+    if (reextractBtn) {
+      reextractBtn.disabled = true;
+      reextractBtn.style.display = 'none';
+    }
+    setExtractionStatus('Capturing screenshots and extracting...', false);
+
+    try {
+      const res = await chrome.runtime.sendMessage({
+        action: 'extract-page-knowledge',
+        tabId: tab.id,
+        pageMetadata: { url: tab.url, title: tab.title || '' },
+      });
+      if (res?.success && res.extraction) {
+        showExtractedState(res.extraction);
+      } else {
+        showExtractionFailure(res?.error || 'Extraction failed');
+      }
+    } catch (e) {
+      showExtractionFailure(e.message || 'Extraction failed');
+    } finally {
+      extractionInProgress = false;
+      if (renarratePageBtn) renarratePageBtn.disabled = false;
+      if (reextractBtn) reextractBtn.disabled = false;
+    }
+  }
+
+  function openExtractionViewer() {
+    chrome.tabs.create({ url: chrome.runtime.getURL('viewers/extracted-content.html') });
+  }
+
+  function showDefaultExtractionState() {
+    setPageAction('extract', 'Extract Page');
+    setExtractionStatus('Ready', false);
+    if (reextractBtn) reextractBtn.style.display = 'none';
+  }
+
+  function showExtractedState(extraction, options = {}) {
+    setPageAction('view', 'See Extracted Content');
+    if (!options.keepStatus) {
+      setExtractionStatus(formatExtractionStatus(extraction), false);
+    }
+    if (reextractBtn) reextractBtn.style.display = 'block';
+  }
+
+  function showExtractionFailure(error) {
+    setPageAction('extract', 'Retry');
+    setExtractionStatus('Error: ' + (error || 'Extraction failed'), true);
+    if (reextractBtn) reextractBtn.style.display = 'none';
+  }
+
+  function setPageAction(mode, label) {
+    pageActionMode = mode;
+    if (renarratePageBtn) renarratePageBtn.textContent = label;
+  }
+
+  function setExtractionStatus(text, isError) {
+    if (!renarrateStatus) return;
+    renarrateStatus.textContent = text || '';
+    renarrateStatus.classList.toggle('is-error', !!isError);
+  }
+
+  function formatExtractionStatus(extraction) {
+    const count = extraction?.sliceCount || 0;
+    const partial = extraction?.partial ? ' · partial' : '';
+    return `Extracted ${count} slice${count === 1 ? '' : 's'}${partial}`;
+  }
+
+  function isSameExtractionForTab(extraction, tab) {
+    return (
+      !!String(extraction?.compactText || '').trim() &&
+      !!extraction?.url &&
+      !!tab?.url &&
+      extraction.url === tab.url
+    );
   }
 
   async function checkFeedbackRefinement() {
