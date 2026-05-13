@@ -11,7 +11,7 @@
   <div class="popup-container">
     <div class="header">
       <div class="header-left">
-        <h1>On-Device Web Assistant</h1>
+        <h1>OpenAI Renarration Assistant</h1>
       </div>
       <div class="header-right">
         <span class="user-badge" id="userBadge">--</span>
@@ -19,32 +19,9 @@
       </div>
     </div>
 
-    <!-- Setup Card (collapsible) -->
-    <div class="card card--collapsed" id="setupCard">
-      <div class="card-header card-header--toggle" id="setupToggle" aria-expanded="false">
-        <h3>Setup</h3>
-        <span class="card-chevron">&#9662;</span>
-      </div>
-      <div class="card-body card-body--collapsible">
-        <div class="field-row">
-          <label class="field-label" for="llmProviderSelect">LLM Provider</label>
-          <select id="llmProviderSelect" class="field-select">
-            <option value="remote">Remote (Gemini)</option>
-            <option value="on-device">On-Device (WebLLM)</option>
-          </select>
-        </div>
-        <div id="webllmControls" style="display: none;">
-          <div class="field-row" style="align-items: center;">
-            <button id="initModelBtn" class="btn btn--secondary btn--sm">Initialize Model</button>
-            <span id="webllmStatus" class="helper-text">Status: idle</span>
-          </div>
-        </div>
-      </div>
-    </div>
-
     <!-- Renarrate Button -->
     <div class="renarrate-section">
-      <button id="agenticPipelineBtn" class="btn btn--primary btn--full btn--glow">Renarrate Page</button>
+      <button id="renarratePageBtn" class="btn btn--primary btn--full btn--glow">Renarrate Page</button>
       <div id="renarrateStatus" class="action-status">Ready</div>
     </div>
 
@@ -98,8 +75,6 @@
     <!-- Footer -->
     <div class="footer-bar">
       <a href="#" id="optionsLink" class="footer-link">Settings</a>
-      <span class="footer-separator">|</span>
-      <a href="#" id="pipelineVisualizerLink" class="footer-link">Pipeline Visualizer</a>
     </div>
   </div>
 

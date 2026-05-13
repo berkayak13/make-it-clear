@@ -1,34 +1,55 @@
-# On-Device Renarration Assistant
+# OpenAI Renarration Assistant
 
-A Chrome extension that reformulates text and images on web pages. It supports on-device WebLLM for text, remote VLM for screenshots/images, and user tasks/personas to control tone and detail.
+A Chrome MV3 extension that uses OpenAI to extract visible page knowledge from text and screenshots, then rewrites the page into a plain-text split panel using the saved reading goal, active task, and active persona.
 
-## Installation
-- Clone: `git clone https://github.com/boun-tabi-LMG/on-device-renarration.git`
-- Install deps: `npm install`
-- Build offscreen bundle: `npm run build` (emits `build/offscreen-entry.js`)
-- Load unpacked extension in Chrome: `chrome://extensions` -> Enable Developer Mode -> Load unpacked -> select repo root.
-- Configure remote VLM (optional): In options, set endpoint/model/API key (stored locally).
+## Setup
+
+1. Install dependencies:
+   ```sh
+   npm install
+   ```
+2. Create `.env` from `.env.example` and set `VITE_OPENAI_API_KEY`.
+3. Build the background service worker:
+   ```sh
+   npm run build
+   ```
+4. Load the repo root as an unpacked extension in `chrome://extensions`.
 
 ## Configuration
-- Tasks and personas: manage in options; active task/persona is selected in the popup.
-- Remote VLM: enable in options and set endpoint/model/API key.\
-**IMPORTANT NOTE**: You need to provide an API key in options menu to use Full Page Renarration mode.
-- On-device LLM: enable WebLLM in the popup and initialize the model (WebGPU).
 
-## Implementation Details
-- **Content script (`content.js`)**: Detects selections, injects overlay UI, handles text renarration trigger.
-- **Background (`background.js`)**:
-  - Text: routes to WebLLM offscreen worker when enabled; falls back to simulator.
-  - Images/screenshots: captures full-page slices, optionally stitches or batches slices; sends to remote VLM; caches outputs for viewers.
-  - Tasks/personas: stored in `chrome.storage.sync`; persona addendum is appended to prompts via the system prompt template.
-  - Full pipeline: `Renarrate` captures page -> VLM extracts content -> LLM renarrates with active task/persona -> result saved to viewer storage and pipeline logs.
-- **Offscreen worker (`src/offscreen-entry.js`)**: Hosts WebLLM engine for on-device text (placeholder for VLM on-device). Provides async message bridge.
-- **UI**:
-  - Popup: task/persona selection, WebLLM toggle/init, capture/describe/renarrate buttons, testing dashboard link.
-  - Options: manage tasks/personas, edit system prompt template, set remote VLM config.
-  - Viewers: `describe-viewer.html` (screenshot + VLM output), `renarration-viewer.html` (VLM extract + final renarration), `screenshot-viewer.html`, `testing-dashboard.html`.
+`.env.example` documents the supported build-time settings:
+
+- `VITE_OPENAI_API_KEY`
+- `VITE_OPENAI_TEXT_MODEL`
+- `VITE_OPENAI_VISION_MODEL`
+- `VITE_OPENAI_IMAGE_DETAIL`
+- `VITE_OPENAI_TIMEOUT_MS`
+
+Tasks, personas, the system prompt template, and research settings are managed in the options page. The chat UI can extract and save a reading goal; saved goals are used by final page renarration.
 
 ## Usage
-- Text: select text -> click 🔄.
-- Full page: use **Capture Full Page**, **Describe Page (VLM)**, or **Renarrate** in the popup; results open in viewers. The full screenshots -> VLM -> LLM pipeline is initiated by **Renarrate** button.
-- Debugging: open viewers to inspect last outputs; the testing dashboard lists capture/VLM/LLM pipeline logs.
+
+- Select text on a page, click the floating `R` button, and the extension renarrates the selected text.
+- Click `Renarrate Page` in the popup to open the split panel, extract page knowledge, and render the final plain-text renarration.
+- Open the side panel and click `Extract` to view the latest compact page knowledge.
+- Use chat to discuss reading needs, then click `Set Reading Goal` and apply the generated goal.
+
+## Structure
+
+- `src/utils/openai-client.js`: OpenAI Responses API wrapper with `store: false`, text calls, vision calls, and structured JSON helpers.
+- `src/page-flow/extract-page.js`: visible text plus screenshot extraction into compact page knowledge.
+- `src/page-flow/renarrate-page.js`: final page renarration using saved reading goal, task, persona, extracted knowledge, and raw page text.
+- `src/page-flow/orchestrator.js`: background message handlers, progress updates, storage, and panel rendering.
+- `content.js`: selected-text overlay plus the plain split panel. Final page output is rendered with `textContent`.
+- `src/handlers/chatbot.js`: chat sessions and reading-goal extraction.
+
+## Verification
+
+Run:
+
+```sh
+npm run build
+npm run knip
+git diff --check
+rg "[legacy provider/action terms]" .
+```

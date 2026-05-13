@@ -1,35 +1,23 @@
-// Main entry point for the bundled background service worker.
-// This replaces background.js when the agentic pipeline is built via Vite.
-// The original background.js remains as the legacy fallback.
-
 import { setupMessageHandler } from './message-handler.js';
 import { DEFAULT_TASKS, DEFAULT_PERSONAS } from '../utils/storage-helpers.js';
 
-// Initialize default settings on install
 chrome.runtime.onInstalled.addListener(() => {
   chrome.storage.sync.set({
     enabled: true,
     currentTask: 'simple',
     tasks: DEFAULT_TASKS,
-    llmProvider: 'remote',
-    useWebLLM: true,
-    webllmModel: 'gemma-2-2b-it-q4f16_1-MLC',
-    useRemoteVLM: true,
-    remoteVLMModel: 'gemini-2.5-flash',
-    remoteVLMEndpoint:
-      'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent',
     personas: DEFAULT_PERSONAS,
     currentPersona: 'general',
   });
 });
 
-// Set up message handler (must be registered synchronously)
 setupMessageHandler();
 
-// Preference tracking — mirror the logic from background.js
 const TRACKED_PREF_KEYS = [
-  'currentTask', 'currentPersona', 'useWebLLM', 'useRemoteVLM',
-  'webllmModel', 'remoteVLMModel', 'enabled',
+  'currentTask',
+  'currentPersona',
+  'enabled',
+  'readingGoal',
 ];
 
 chrome.storage.onChanged.addListener(async (changes, area) => {
@@ -43,8 +31,8 @@ chrome.storage.onChanged.addListener(async (changes, area) => {
       }
     }
   } catch (e) {
-    // Non-critical — preference tracking is best-effort
+    // Preference tracking is best-effort.
   }
 });
 
-console.log('[ReNarrator] Agentic pipeline v2.0 initialized');
+console.log('[ReNarrator] OpenAI page-flow initialized');

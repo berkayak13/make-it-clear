@@ -1,631 +1,84 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Agentic Pipeline Guide</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Renarration Architecture</title>
   <style>
-    :root {
-      color-scheme: light;
-      --bg: #f7fafc;
-      --surface: #ffffff;
-      --surface-muted: #eef6ff;
-      --text: #172033;
-      --muted: #5d6b82;
-      --border: #d8e1ec;
-      --accent: #1f7a8c;
-      --accent-2: #2a9d8f;
-      --warn: #9a5b13;
-      --danger: #a23b3b;
-      --code-bg: #f1f5f9;
-      --shadow: 0 12px 35px rgba(35, 55, 80, 0.08);
-    }
-
-    * {
-      box-sizing: border-box;
-    }
-
-    html {
-      scroll-behavior: smooth;
-    }
-
     body {
       margin: 0;
-      background: var(--bg);
-      color: var(--text);
-      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      line-height: 1.55;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: #172033;
+      background: #f7f8fb;
+      line-height: 1.5;
     }
-
-    a {
-      color: var(--accent);
-      text-decoration: none;
+    main {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 40px 20px;
     }
-
-    a:hover {
-      text-decoration: underline;
-    }
-
-    .shell {
-      min-height: 100vh;
-      display: grid;
-      grid-template-columns: 280px minmax(0, 1fr);
-    }
-
-    .sidebar {
-      position: sticky;
-      top: 0;
-      height: 100vh;
-      padding: 28px 22px;
-      background: #ffffff;
-      border-right: 1px solid var(--border);
-      overflow: auto;
-    }
-
-    .brand {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      margin-bottom: 24px;
-    }
-
-    .brand-mark {
-      width: 34px;
-      height: 34px;
-      border-radius: 8px;
-      background:
-        linear-gradient(135deg, rgba(31, 122, 140, 0.95), rgba(42, 157, 143, 0.9));
-      box-shadow: 0 8px 18px rgba(31, 122, 140, 0.22);
-    }
-
-    .brand-title {
-      margin: 0;
-      font-size: 15px;
-      font-weight: 750;
-      letter-spacing: 0;
-    }
-
-    .brand-subtitle {
-      margin: 0;
-      color: var(--muted);
-      font-size: 12px;
-    }
-
-    .nav {
-      display: grid;
-      gap: 4px;
-    }
-
-    .nav a {
-      display: block;
-      padding: 8px 10px;
-      border-radius: 6px;
-      color: #334155;
-      font-size: 13px;
-    }
-
-    .nav a:hover {
-      background: var(--surface-muted);
-      text-decoration: none;
-    }
-
-    .content {
-      padding: 42px 48px 72px;
-    }
-
-    .hero {
-      max-width: 1080px;
-      margin: 0 auto 26px;
-      padding-bottom: 28px;
-      border-bottom: 1px solid var(--border);
-    }
-
-    .eyebrow {
-      margin: 0 0 10px;
-      color: var(--accent);
-      font-size: 12px;
-      font-weight: 750;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-    }
-
     h1 {
-      margin: 0;
-      font-size: clamp(34px, 5vw, 58px);
-      line-height: 1.02;
-      letter-spacing: 0;
+      margin: 0 0 12px;
+      font-size: 32px;
     }
-
-    .hero p {
-      max-width: 760px;
-      margin: 18px 0 0;
-      color: var(--muted);
-      font-size: 18px;
+    h2 {
+      margin-top: 32px;
+      font-size: 20px;
     }
-
-    .summary-grid {
-      max-width: 1080px;
-      margin: 26px auto 32px;
-      display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 14px;
-    }
-
-    .summary-card {
-      background: var(--surface);
-      border: 1px solid var(--border);
+    .panel {
+      background: #fff;
+      border: 1px solid #d9deea;
       border-radius: 8px;
       padding: 18px;
-      box-shadow: var(--shadow);
+      margin: 16px 0;
     }
-
-    .summary-card b {
-      display: block;
-      margin-bottom: 6px;
-      font-size: 14px;
-    }
-
-    .summary-card span {
-      color: var(--muted);
-      font-size: 13px;
-    }
-
-    .section {
-      max-width: 1080px;
-      margin: 0 auto 24px;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      box-shadow: var(--shadow);
-      overflow: hidden;
-    }
-
-    .section-header {
-      padding: 22px 24px 16px;
-      border-bottom: 1px solid var(--border);
-      background: linear-gradient(180deg, #ffffff, #f8fbfd);
-    }
-
-    h2 {
-      margin: 0;
-      font-size: 24px;
-      letter-spacing: 0;
-    }
-
-    h3 {
-      margin: 28px 0 10px;
-      font-size: 17px;
-      letter-spacing: 0;
-    }
-
-    .section-body {
-      padding: 2px 24px 24px;
-    }
-
-    p {
-      margin: 14px 0;
-    }
-
-    ul,
-    ol {
-      padding-left: 22px;
-      margin: 12px 0 18px;
-    }
-
-    li {
-      margin: 6px 0;
-    }
-
     code {
+      background: #edf0f7;
       padding: 2px 5px;
-      border-radius: 5px;
-      background: var(--code-bg);
-      color: #0f3d4a;
-      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-      font-size: 0.92em;
+      border-radius: 4px;
     }
-
-    pre {
-      margin: 16px 0;
-      padding: 16px;
-      overflow: auto;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      background: var(--code-bg);
-    }
-
-    pre code {
-      padding: 0;
-      background: transparent;
-    }
-
-    .flow {
-      counter-reset: flow;
-      display: grid;
-      gap: 10px;
-      padding-left: 0;
-      list-style: none;
-    }
-
-    .flow li {
-      counter-increment: flow;
-      display: grid;
-      grid-template-columns: 34px 1fr;
-      gap: 10px;
-      align-items: start;
-      margin: 0;
-      padding: 10px;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      background: #fbfdff;
-    }
-
-    .flow li::before {
-      content: counter(flow);
-      display: grid;
-      place-items: center;
-      width: 26px;
-      height: 26px;
-      border-radius: 50%;
-      background: #dcf5f1;
-      color: #14555d;
-      font-size: 12px;
-      font-weight: 800;
-    }
-
-    .tag-row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      margin: 14px 0;
-    }
-
-    .tag {
-      padding: 5px 8px;
-      border-radius: 999px;
-      background: #e8f6f4;
-      color: #155e63;
-      border: 1px solid #c9e6e2;
-      font-size: 12px;
-      font-weight: 700;
-    }
-
-    .callout {
-      margin: 16px 0;
-      padding: 14px 16px;
-      border-left: 4px solid var(--warn);
-      border-radius: 8px;
-      background: #fff8ed;
-      color: #5b3a14;
-    }
-
-    .callout.danger {
-      border-left-color: var(--danger);
-      background: #fff1f1;
-      color: #6c2222;
-    }
-
-    .agent-list {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 12px;
-      margin-top: 16px;
-    }
-
-    .agent {
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 14px;
-      background: #fbfdff;
-    }
-
-    .agent h3 {
-      margin: 0 0 8px;
-      font-size: 15px;
-    }
-
-    .agent p {
-      margin: 0;
-      color: var(--muted);
-      font-size: 13px;
-    }
-
-    footer {
-      max-width: 1080px;
-      margin: 34px auto 0;
-      color: var(--muted);
-      font-size: 13px;
-    }
-
-    @media (max-width: 920px) {
-      .shell {
-        grid-template-columns: 1fr;
-      }
-
-      .sidebar {
-        position: static;
-        height: auto;
-        border-right: 0;
-        border-bottom: 1px solid var(--border);
-      }
-
-      .nav {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-      }
-
-      .content {
-        padding: 30px 18px 48px;
-      }
-
-      .summary-grid,
-      .agent-list {
-        grid-template-columns: 1fr;
-      }
+    li {
+      margin: 8px 0;
     }
   </style>
 </head>
 <body>
-  <div class="shell">
-    <aside class="sidebar">
-      <div class="brand">
-        <div class="brand-mark" aria-hidden="true"></div>
-        <div>
-          <p class="brand-title">ReNarrator Agents</p>
-          <p class="brand-subtitle">Current repo guide</p>
-        </div>
-      </div>
-      <nav class="nav" aria-label="Page sections">
-        <a href="#paths">Agentic Paths</a>
-        <a href="#flow">Modular Flow</a>
-        <a href="#plan">Live Agent Plan</a>
-        <a href="#inventory">Agent Inventory</a>
-        <a href="#gaps">Current Gaps</a>
-        <a href="#interfaces">LLM and VLM</a>
-        <a href="#storage">Storage</a>
-        <a href="#guidance">Future Guidance</a>
-      </nav>
-    </aside>
+  <main>
+    <h1>OpenAI Renarration Architecture</h1>
+    <p>The extension uses a small background bundle, a content split panel, and OpenAI Responses API calls for extraction and renarration.</p>
 
-    <main class="content">
-      <header class="hero">
-        <p class="eyebrow">AGENTS.md visual companion</p>
-        <h1>Agentic Pipeline Guide</h1>
-        <p>
-          A light-themed HTML reference for how the agentic parts of this Chrome
-          extension work today, based on the root <code>AGENTS.md</code>.
-        </p>
-      </header>
+    <section class="panel">
+      <h2>Page Flow</h2>
+      <ol>
+        <li>Popup sends <code>run-page-renarration</code> with the active tab metadata.</li>
+        <li><code>content.js</code> opens the split panel and returns visible page text.</li>
+        <li><code>src/page-flow/extract-page.js</code> captures screenshot slices and asks OpenAI for compact structured page knowledge.</li>
+        <li><code>src/page-flow/renarrate-page.js</code> combines saved reading goal, active task, active persona, raw page text, and extracted knowledge.</li>
+        <li><code>content.js</code> renders final output as plain text with <code>textContent</code>.</li>
+      </ol>
+    </section>
 
-      <section class="summary-grid" aria-label="Quick summary">
-        <div class="summary-card">
-          <b>Two agentic paths</b>
-          <span>Selected-text retry loop and full-page modular pipeline are separate systems.</span>
-        </div>
-        <div class="summary-card">
-          <b>Live route is smaller</b>
-          <span>The foreground route runs router, intent, optional vision, narrator, and guardrails.</span>
-        </div>
-        <div class="summary-card">
-          <b>Several agents are dormant</b>
-          <span>Strategist, meaning extractor, and diagram generator exist but are not scheduled.</span>
-        </div>
-      </section>
+    <section class="panel">
+      <h2>Message Contracts</h2>
+      <ul>
+        <li><code>run-page-renarration</code>: full page extraction and final split-panel rendering.</li>
+        <li><code>extract-page-knowledge</code>: side-panel extraction only.</li>
+        <li><code>extract-visible-page-text</code>: content-script visible text extraction.</li>
+        <li><code>show-renarration-panel</code>, <code>update-renarration-progress</code>, <code>render-renarration-text</code>, <code>hide-renarration-panel</code>: split-panel UI.</li>
+        <li><code>chatbot-new-session</code>, <code>chatbot-send</code>, <code>chatbot-set-reading-goal</code>: chat and goal workflow.</li>
+      </ul>
+    </section>
 
-      <section class="section" id="paths">
-        <div class="section-header">
-          <h2>Current Agentic Paths</h2>
-        </div>
-        <div class="section-body">
-          <h3>Selected Text and Legacy Page Retry Loop</h3>
-          <p>
-            <code>src/utils/renarration.js</code> exports
-            <code>agenticRenarrateText()</code>, a self-refinement wrapper around
-            <code>renarrateText()</code>.
-          </p>
-          <ul>
-            <li>Enabled by <code>chrome.storage.local.useAgenticPipeline</code>.</li>
-            <li>Used by selected text handling in <code>src/handlers/simple.js</code>.</li>
-            <li>Used by the older screenshot/VLM page renarration in <code>src/handlers/page-renarration.js</code>.</li>
-            <li>Runs up to 3 attempts and accepts the best result above a <code>3.5</code> threshold.</li>
-            <li>Evaluator suggestions are appended to later attempts as prompt augmentation.</li>
-          </ul>
-          <div class="callout">
-            This path does not run the modular agents in <code>src/agents/</code>.
-          </div>
-
-          <h3>Full-Page Modular Agent Pipeline</h3>
-          <p>
-            The popup's <code>Renarrate Page</code> button sends
-            <code>run-agentic-pipeline</code>. The background handler calls
-            <code>runPipeline()</code> in <code>src/background/orchestrator.js</code>.
-          </p>
-          <div class="tag-row" aria-label="Pipeline tags">
-            <span class="tag">Chrome MV3</span>
-            <span class="tag">DOM clone sidebar</span>
-            <span class="tag">Remote Gemini VLM</span>
-            <span class="tag">OpenAI or WebLLM text</span>
-          </div>
-        </div>
-      </section>
-
-      <section class="section" id="flow">
-        <div class="section-header">
-          <h2>Modular Pipeline Flow</h2>
-        </div>
-        <div class="section-body">
-          <ol class="flow">
-            <li>Create a run context with <code>runId</code>, request data, memory stubs, <code>sectionMap</code>, <code>renarrations</code>, guardrails, and validation.</li>
-            <li>Ask <code>content.js</code> for <code>extract-and-clone</code>; it extracts text segments, assigns DOM IDs, and opens the split-view clone.</li>
-            <li>If needed, inject <code>content.js</code> and <code>content.css</code>, then retry extraction.</li>
-            <li>Run <code>runExtraction()</code> to capture screenshot slices, call Gemini VLM, compress page knowledge, and store <code>lastExtraction</code>.</li>
-            <li>Load user memory with <code>loadMemory(userId)</code> and reading goal from <code>chrome.storage.sync</code>.</li>
-            <li>Run <code>pipeline-router</code> and execute its routed agent plan.</li>
-            <li>Apply <code>context.renarrations</code> back into the cloned iframe through <code>apply-dom-renarration</code>.</li>
-            <li>Store visualizer state, append pipeline logs, and launch guarded background learning agents.</li>
-          </ol>
-          <p>
-            The browser-visible output is replacement text inside the cloned
-            iframe, not a standalone generated article.
-          </p>
-        </div>
-      </section>
-
-      <section class="section" id="plan">
-        <div class="section-header">
-          <h2>Live Agent Plan</h2>
-        </div>
-        <div class="section-body">
-          <p><code>src/agents/agent-0-router.js</code> defines the active route table.</p>
-          <ul>
-            <li><code>full</code>: router, intent analyst, visual cartographer, narrator, guardrails.</li>
-            <li><code>lite</code>: router, intent analyst, narrator, guardrails.</li>
-            <li><code>translate</code>: router, intent analyst, narrator, guardrails.</li>
-            <li><code>annotate</code>: router, intent analyst, narrator.</li>
-          </ul>
-          <p>
-            The router uses request keywords and page metadata first. If rules
-            are inconclusive, it asks the LLM with
-            <code>src/prompts/router-classification.md</code>.
-          </p>
-        </div>
-      </section>
-
-      <section class="section" id="inventory">
-        <div class="section-header">
-          <h2>Agent Inventory</h2>
-        </div>
-        <div class="section-body">
-          <h3>Active in Routed Foreground Pipelines</h3>
-          <div class="agent-list">
-            <article class="agent">
-              <h3>pipeline-router</h3>
-              <p>Reads request and page metadata. Writes <code>pipelineType</code> and <code>agentPlan</code>.</p>
-            </article>
-            <article class="agent">
-              <h3>intent-analyst</h3>
-              <p>Creates structured intent with goal, depth, style, language, literacy level, and confidence.</p>
-            </article>
-            <article class="agent">
-              <h3>visual-cartographer</h3>
-              <p>Runs in the full route. Enriches DOM sections with VLM-derived roles and visual context.</p>
-            </article>
-            <article class="agent">
-              <h3>narrator</h3>
-              <p>Renarrates non-excluded sections in concurrent batches and streams section updates.</p>
-            </article>
-            <article class="agent">
-              <h3>guardrails</h3>
-              <p>Sanitizes generated text in place and flags stripped XSS-like content.</p>
-            </article>
-          </div>
-
-          <h3>Background, On-Demand, or Partially Wired</h3>
-          <div class="agent-list">
-            <article class="agent">
-              <h3>quality-validator</h3>
-              <p>Scores output after the main route. It can set retry flags, but the orchestrator does not loop yet.</p>
-            </article>
-            <article class="agent">
-              <h3>memory-manager</h3>
-              <p>Updates semantic, episodic, and procedural memory after pipeline completion.</p>
-            </article>
-            <article class="agent">
-              <h3>predictive-adapter</h3>
-              <p>Serves side panel suggestions through the <code>get-predictions</code> message.</p>
-            </article>
-            <article class="agent">
-              <h3>feedback-analyst</h3>
-              <p>Intended for feedback learning, but current feedback logging does not call it correctly.</p>
-            </article>
-          </div>
-
-          <h3>Present but Not Scheduled</h3>
-          <ul>
-            <li><code>content-strategist</code> builds <code>renarrationPlan</code> but is not imported into <code>ALL_AGENTS</code>.</li>
-            <li><code>meaning-extractor</code> writes <code>meaningMap</code> but is not scheduled.</li>
-            <li><code>diagram-generator</code> exports <code>disabled = true</code>.</li>
-          </ul>
-        </div>
-      </section>
-
-      <section class="section" id="gaps">
-        <div class="section-header">
-          <h2>Important Current Gaps</h2>
-        </div>
-        <div class="section-body">
-          <div class="callout danger">
-            The visualizer says "12-Agent Agentic Pipeline", but the live
-            foreground route usually runs 3 to 5 routed agents, plus extraction
-            and background agents.
-          </div>
-          <ul>
-            <li><code>quality-validator</code> can request retry/replan, but <code>runPipeline()</code> does not implement that loop.</li>
-            <li><code>narrator</code> does not consume strategist output and hardcodes strategy as <code>rewrite</code>.</li>
-            <li><code>content-strategist</code>, <code>meaning-extractor</code>, and <code>diagram-generator</code> are code assets, not live stages.</li>
-            <li>Bias and factual guardrail checks are not implemented in the current guardrails agent.</li>
-            <li>VLM is remote Gemini. On-device WebLLM handles text only.</li>
-          </ul>
-        </div>
-      </section>
-
-      <section class="section" id="interfaces">
-        <div class="section-header">
-          <h2>LLM and VLM Interfaces</h2>
-        </div>
-        <div class="section-body">
-          <p>Use <code>src/utils/llm-dispatch.js</code> for text LLM calls.</p>
-          <pre><code>await callLLM(
-  [{ role: 'user', content: promptText }],
-  systemPrompt,
-  { tier: 'quality', temperature: 0.3 }
-);</code></pre>
-          <ul>
-            <li>Do not pass a single <code>{ prompt }</code> object to <code>callLLM()</code>.</li>
-            <li>Use <code>src/utils/vlm-client.js</code> for Gemini VLM calls.</li>
-            <li>Use prompt Markdown from <code>src/prompts/</code> through <code>loadPrompt()</code> or cached helpers.</li>
-          </ul>
-        </div>
-      </section>
-
-      <section class="section" id="storage">
-        <div class="section-header">
-          <h2>Storage and Research Data</h2>
-        </div>
-        <div class="section-body">
-          <ul>
-            <li><code>chrome.storage.sync</code>: tasks, personas, active selections, reading goal, model settings, semantic memory.</li>
-            <li><code>chrome.storage.local</code>: API keys, research flags, participant ID, procedural memory, last outputs, visualizer state, pipeline logs.</li>
-            <li>Firestore REST: chat sessions, research logs, feedback events, experiment runs, preference history, user preferences, episodic memory.</li>
-          </ul>
-          <div class="callout">
-            Do not add hardcoded secrets. Treat research data and user identifiers
-            as sensitive implementation details.
-          </div>
-        </div>
-      </section>
-
-      <section class="section" id="guidance">
-        <div class="section-header">
-          <h2>Guidance for Future Agents</h2>
-        </div>
-        <div class="section-body">
-          <ul>
-            <li>Read <code>orchestrator.js</code>, <code>message-handler.js</code>, <code>renarration.js</code>, and the target agent file before editing behavior.</li>
-            <li>Check the router plan before assuming an agent module is live.</li>
-            <li>Keep Chrome MV3 service-worker constraints in mind.</li>
-            <li>Preserve <code>content.js</code> message action contracts.</li>
-            <li>If adding retry/replan, wire it explicitly in <code>runPipeline()</code>.</li>
-            <li>If wiring feedback learning, call <code>feedback-analyst</code> with <code>(feedbackEvent, context)</code>.</li>
-            <li>Run <code>npm run build</code> for source changes. For docs-only changes, <code>git diff --check</code> is enough.</li>
-          </ul>
-        </div>
-      </section>
-
-      <footer>
-        Generated as a static HTML companion to <code>AGENTS.md</code>. Open this
-        file directly in a browser; no build step is required.
-      </footer>
-    </main>
-  </div>
+    <section class="panel">
+      <h2>Key Files</h2>
+      <ul>
+        <li><code>src/utils/openai-client.js</code>: Responses API helper.</li>
+        <li><code>src/page-flow/</code>: page extraction, renarration, and orchestration.</li>
+        <li><code>src/background/message-handler.js</code>: central action dispatch.</li>
+        <li><code>content.js</code>: selected-text overlay and split panel.</li>
+        <li><code>sidepanel.js</code>: chat and page knowledge viewer.</li>
+      </ul>
+    </section>
+  </main>
 </body>
 </html>

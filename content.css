@@ -241,38 +241,6 @@ body.renarration-split-active {
   word-wrap: break-word;
 }
 
-/* DOM Clone iframe */
-#renarration-clone-frame {
-  width: 100%;
-  height: calc(100vh - 48px);
-  border: none;
-  display: block;
-}
-
-.clone-loading-overlay {
-  position: absolute;
-  top: 48px;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(255, 255, 255, 0.85);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 16px;
-  z-index: 2;
-  color: #718096;
-  font-size: 15px;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
-}
-
-.clone-progress-text {
-  font-size: 14px;
-  color: #667eea;
-  font-weight: 500;
-}
-
 /* Drag handle for resizing split */
 .split-drag-handle {
   position: absolute;
@@ -313,6 +281,21 @@ body.renarration-split-active {
   gap: 16px;
 }
 
+.renarration-progress-text {
+  font-size: 14px;
+  color: #667eea;
+  font-weight: 500;
+}
+
+.renarration-progress-text.is-error {
+  color: #c53030;
+}
+
+.renarration-final-text {
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
 .split-panel-spinner {
   width: 32px;
   height: 32px;
@@ -324,35 +307,4 @@ body.renarration-split-active {
 
 @keyframes split-spin {
   to { transform: rotate(360deg); }
-}
-
-.split-panel-vlm-details {
-  margin-top: 16px;
-  border-top: 1px solid #e2e8f0;
-  padding-top: 12px;
-}
-
-.split-panel-vlm-details summary {
-  cursor: pointer;
-  font-size: 13px;
-  color: #667eea;
-  font-weight: 500;
-  padding: 4px 0;
-}
-
-.split-panel-vlm-details summary:hover {
-  color: #764ba2;
-}
-
-.split-panel-vlm-content {
-  margin-top: 8px;
-  padding: 12px;
-  background: #fffbeb;
-  border-left: 3px solid #d97706;
-  border-radius: 4px;
-  font-size: 13px;
-  line-height: 1.6;
-  white-space: pre-wrap;
-  word-wrap: break-word;
-  color: #4a5568;
 }

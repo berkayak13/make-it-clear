@@ -1,17 +1,16 @@
 {
-  "name": "on-device-renarration",
+  "name": "openai-renarration",
   "private": true,
   "version": "1.0.0",
   "type": "module",
   "scripts": {
     "build": "vite build",
-    "clean": "rimraf build"
+    "clean": "rimraf build",
+    "knip": "knip"
   },
   "devDependencies": {
+    "knip": "^6.13.1",
     "rimraf": "^6.0.1",
     "vite": "^8.0.0"
-  },
-  "dependencies": {
-    "@mlc-ai/web-llm": "^0.2.35"
   }
 }

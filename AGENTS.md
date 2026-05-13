@@ -65,4 +65,19 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 ---
 
-**These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes. 
+**These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
+
+## Project Architecture
+
+This repo is now OpenAI-only. Vite bundles the MV3 background service worker and injects `VITE_OPENAI_*` settings from `.env`.
+
+Active modules:
+
+- `src/utils/openai-client.js`: Responses API wrapper for text, vision, and structured JSON calls. Requests use `store: false`.
+- `src/page-flow/extract-page.js`: combines content-script visible text with screenshot slices and extracts compact page knowledge.
+- `src/page-flow/renarrate-page.js`: creates final plain text from page text, extracted knowledge, active task/persona, and saved reading goal.
+- `src/page-flow/orchestrator.js`: owns page renarration progress, error handling, storage, and content panel messages.
+- `src/handlers/chatbot.js`: owns chat sessions and `chatbot-set-reading-goal`.
+- `content.js`: owns selected-text overlay and the split panel. Render final page renarration with `textContent`, never generated HTML.
+
+Removed paths should not be reintroduced: local model worker code, alternate hosted vision providers, old multi-agent page modules, DOM clone replacement, or the old visualizer.

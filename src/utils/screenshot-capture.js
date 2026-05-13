@@ -62,15 +62,6 @@ async function captureVisibleTabWithRetry(windowId, format = 'png', quality = 10
 }
 
 /**
- * Capture current viewport screenshot for a given tab.
- */
-export async function captureViewport(tabId) {
-  const tab = tabId ? await chrome.tabs.get(tabId) : await getActiveTab();
-  if (!tab) throw new Error('No active tab found');
-  return captureVisibleTabWithRetry(tab.windowId);
-}
-
-/**
  * Capture full-page screenshots as ordered slices by scrolling the page.
  * Returns { images: [{y, dataUrl}], meta: {overlapPx, clientHeight, dpr}, partial: boolean }
  */

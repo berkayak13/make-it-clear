@@ -82,13 +82,6 @@ const DEFAULT_PERSONAS = {
   }
 };
 
-const DEFAULT_REMOTE_VLM = {
-  useRemoteVLM: false,
-  remoteVLMModel: 'gemini-2.5-flash',
-  remoteVLMEndpoint: 'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent',
-  remoteVLMApiKey: ''
-};
-
 let currentTasks = {};
 let editingTaskKey = null;
 
@@ -96,7 +89,6 @@ let editingTaskKey = null;
 let currentPersonas = {};
 let editingPersonaKey = null;
 let currentPersonaActive = 'general';
-let remoteSettings = { ...DEFAULT_REMOTE_VLM };
 let currentTaskActive = 'simple';
 let systemPromptTemplate = '';
 let boilerplateText = '';
@@ -130,21 +122,14 @@ async function loadSettings() {
     'currentProfile',
     'personas',
     'currentPersona',
-    'systemPromptTemplate',
-    'llmProvider',
-    'useWebLLM',
-    'useRemoteVLM',
-    'remoteVLMModel',
-    'remoteVLMEndpoint'
+    'systemPromptTemplate'
   ]);
-  const local = await chrome.storage.local.get(['remoteVLMApiKey', 'studyUserId', 'useAgenticPipeline', 'enableResearchLogging', 'firebaseProjectId', 'firebaseApiKey']);
+  const local = await chrome.storage.local.get(['studyUserId', 'enableResearchLogging', 'firebaseProjectId', 'firebaseApiKey']);
 
   // Research settings
   const userIdInput = document.getElementById('studyUserId');
-  const agenticOpt = document.getElementById('useAgenticPipelineOpt');
   const loggingOpt = document.getElementById('enableResearchLoggingOpt');
   if (userIdInput) userIdInput.value = local.studyUserId || '';
-  if (agenticOpt) agenticOpt.checked = !!local.useAgenticPipeline;
   if (loggingOpt) loggingOpt.checked = local.enableResearchLogging !== false;
 
   // Firebase config
@@ -191,23 +176,6 @@ async function loadSettings() {
   const templateEl = document.getElementById('systemPromptTemplate');
   if (templateEl) templateEl.value = systemPromptTemplate;
   
-  remoteSettings = {
-    useRemoteVLM: settings.useRemoteVLM ?? DEFAULT_REMOTE_VLM.useRemoteVLM,
-    remoteVLMModel: settings.remoteVLMModel || DEFAULT_REMOTE_VLM.remoteVLMModel,
-    remoteVLMEndpoint: settings.remoteVLMEndpoint || DEFAULT_REMOTE_VLM.remoteVLMEndpoint,
-    remoteVLMApiKey: local.remoteVLMApiKey || ''
-  };
-  // LLM Provider selector (backward compat: fall back to useWebLLM)
-  const llmProviderSel = document.getElementById('llmProviderSelect');
-  if (llmProviderSel) {
-    const effectiveProvider = settings.llmProvider || (settings.useWebLLM ? 'on-device' : 'remote');
-    llmProviderSel.value = effectiveProvider;
-  }
-
-  document.getElementById('useRemoteVLM').checked = remoteSettings.useRemoteVLM;
-  document.getElementById('remoteVLMEndpoint').value = remoteSettings.remoteVLMEndpoint;
-  document.getElementById('remoteVLMModel').value = remoteSettings.remoteVLMModel;
-  document.getElementById('remoteVLMApiKey').value = remoteSettings.remoteVLMApiKey;
   // Active persona selection removed from options (selection handled in popup)
 
   renderTasks();
@@ -357,21 +325,6 @@ function escapeHtml(value='') {
 
 // Setup event listeners
 function setupEventListeners() {
-  // LLM Provider selector
-  const llmProviderSel = document.getElementById('llmProviderSelect');
-  if (llmProviderSel) {
-    llmProviderSel.addEventListener('change', async () => {
-      await chrome.storage.sync.set({ llmProvider: llmProviderSel.value });
-      showSaveStatus('LLM provider updated');
-    });
-  }
-
-  // General settings
-  document.getElementById('useRemoteVLM').addEventListener('change', saveSettings);
-  document.getElementById('remoteVLMEndpoint').addEventListener('input', saveSettings);
-  document.getElementById('remoteVLMModel').addEventListener('input', saveSettings);
-  document.getElementById('remoteVLMApiKey').addEventListener('input', saveSettings);
-  
   // Add task button
   document.getElementById('addTaskBtn').addEventListener('click', () => {
     openTaskModal(null);
@@ -430,17 +383,6 @@ function setupEventListeners() {
         await chrome.runtime.sendMessage({ action: 'set-user-id', userId: val });
         showSaveStatus('Participant ID saved');
       }
-    });
-  }
-
-  const agenticOpt = document.getElementById('useAgenticPipelineOpt');
-  if (agenticOpt) {
-    agenticOpt.addEventListener('change', () => {
-      chrome.storage.local.set({ useAgenticPipeline: agenticOpt.checked });
-      showSaveStatus('Agentic pipeline ' + (agenticOpt.checked ? 'enabled' : 'disabled'));
-    });
-    chrome.storage.local.get(['useAgenticPipeline'], r => {
-      agenticOpt.checked = !!r.useAgenticPipeline;
     });
   }
 
@@ -669,28 +611,6 @@ async function deletePersona(key) {
   showSaveStatus('Persona deleted');
 }
 
-// Save settings (debounced to prevent concurrent writes)
-let _saveSettingsTimer = null;
-async function saveSettings() {
-  if (_saveSettingsTimer) clearTimeout(_saveSettingsTimer);
-  _saveSettingsTimer = setTimeout(() => _doSaveSettings(), 200);
-}
-async function _doSaveSettings() {
-  const useRemoteVLM = document.getElementById('useRemoteVLM').checked;
-  const remoteVLMEndpoint = document.getElementById('remoteVLMEndpoint').value.trim() || DEFAULT_REMOTE_VLM.remoteVLMEndpoint;
-  const remoteVLMModel = document.getElementById('remoteVLMModel').value.trim() || DEFAULT_REMOTE_VLM.remoteVLMModel;
-  const remoteVLMApiKey = document.getElementById('remoteVLMApiKey').value.trim();
-  
-  await chrome.storage.sync.set({
-    useRemoteVLM,
-    remoteVLMEndpoint,
-    remoteVLMModel
-  });
-  await chrome.storage.local.set({ remoteVLMApiKey });
-  
-  showSaveStatus('Settings saved!');
-}
-
 // Extend reset to also restore personas
 async function resetToDefaults() {
   if (confirm('Reset all settings to defaults? This will remove custom tasks and personas.')) {
@@ -706,14 +626,9 @@ async function resetToDefaults() {
         currentTask: 'simple',
         currentPersona: 'general',
         enabled: true,
-        llmProvider: 'remote',
         systemPromptTemplate,
-        readingGoal: '',
-        useRemoteVLM: DEFAULT_REMOTE_VLM.useRemoteVLM,
-        remoteVLMEndpoint: DEFAULT_REMOTE_VLM.remoteVLMEndpoint,
-        remoteVLMModel: DEFAULT_REMOTE_VLM.remoteVLMModel
+        readingGoal: ''
       });
-      await chrome.storage.local.set({ remoteVLMApiKey: DEFAULT_REMOTE_VLM.remoteVLMApiKey });
       await loadSettings();
       hydrateActiveSelectors();
       updateEffectiveSystemPrompt();

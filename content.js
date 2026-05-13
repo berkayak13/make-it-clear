@@ -1,11 +1,9 @@
-// Content script - Injected into web pages
-// Handles text selection and UI overlay
-
 let isEnabled = false;
 let currentTask = 'simple';
 let renarrationOverlay = null;
+let lastRunId = null;
+let selectionHandler = null;
 
-// Initialize
 init();
 
 async function init() {
@@ -15,8 +13,7 @@ async function init() {
       isEnabled = settings.enabled;
       currentTask = settings.currentTask;
     }
-  } catch (e) {
-    // Service worker may not be ready yet; default to disabled
+  } catch {
     isEnabled = false;
   }
 
@@ -26,8 +23,7 @@ async function init() {
   }
 }
 
-// Listen for settings changes
-chrome.storage.onChanged.addListener((changes, namespace) => {
+chrome.storage.onChanged.addListener((changes) => {
   if (changes.enabled) {
     isEnabled = changes.enabled.newValue;
     if (isEnabled) {
@@ -38,15 +34,11 @@ chrome.storage.onChanged.addListener((changes, namespace) => {
       removeOverlay();
     }
   }
-  if (changes.currentTask) {
-    currentTask = changes.currentTask.newValue;
-  }
+  if (changes.currentTask) currentTask = changes.currentTask.newValue;
 });
 
-// Create floating overlay for renarration results
 function createOverlay() {
   if (renarrationOverlay) return;
-  
   renarrationOverlay = document.createElement('div');
   renarrationOverlay.id = 'renarration-overlay';
   renarrationOverlay.style.display = 'none';
@@ -54,20 +46,13 @@ function createOverlay() {
 }
 
 function removeOverlay() {
-  if (renarrationOverlay && renarrationOverlay.parentNode) {
-    renarrationOverlay.parentNode.removeChild(renarrationOverlay);
-    renarrationOverlay = null;
-  }
+  renarrationOverlay?.remove();
+  renarrationOverlay = null;
 }
-
-// Per-overlay run ID to avoid cross-contamination between concurrent selections
-let lastRunId = null;
-let _overlayCounter = 0;
 
 function showOverlay(content, x, y, runId) {
   if (!renarrationOverlay) return;
   lastRunId = runId || null;
-  _overlayCounter++;
 
   const feedbackHtml = runId ? `
       <div class="renarration-feedback">
@@ -97,248 +82,159 @@ function showOverlay(content, x, y, runId) {
   renarrationOverlay.style.left = `${x}px`;
   renarrationOverlay.style.top = `${y}px`;
 
-  // Add close button listener
-  const closeBtn = document.getElementById('renarration-close-btn');
-  if (closeBtn) {
-    closeBtn.addEventListener('click', hideOverlay);
-  }
-
-  // Add feedback listeners
-  renarrationOverlay.querySelectorAll('.feedback-btn').forEach(btn => {
+  document.getElementById('renarration-close-btn')?.addEventListener('click', hideOverlay);
+  renarrationOverlay.querySelectorAll('.feedback-btn').forEach((btn) => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
-      const type = btn.dataset.type;
-      if (type === 'correction') {
+      if (btn.dataset.type === 'correction') {
         const area = document.getElementById('correctionArea');
         if (area) area.style.display = area.style.display === 'none' ? 'block' : 'none';
       } else {
-        sendFeedback(type);
+        sendFeedback(btn.dataset.type);
       }
     });
   });
-
-  const submitBtn = document.getElementById('submitCorrection');
-  if (submitBtn) {
-    submitBtn.addEventListener('click', () => {
-      const text = document.getElementById('correctionText')?.value?.trim();
-      if (text) sendFeedback('correction', text);
-    });
-  }
+  document.getElementById('submitCorrection')?.addEventListener('click', () => {
+    const text = document.getElementById('correctionText')?.value?.trim();
+    if (text) sendFeedback('correction', text);
+  });
 }
 
 function sendFeedback(feedbackType, correctedText) {
   const statusEl = document.getElementById('feedbackStatus');
-  function flashStatus(msg) {
+  const flashStatus = (msg) => {
     if (!statusEl) return;
     statusEl.textContent = msg;
     setTimeout(() => { if (statusEl) statusEl.textContent = ''; }, 2000);
-  }
-  try {
-    chrome.runtime.sendMessage({
-      action: 'submit-feedback',
-      runId: lastRunId,
-      feedbackType,
-      correctedText: correctedText || null
-    }, (res) => {
-      if (chrome.runtime.lastError) {
-        flashStatus('Failed to send feedback');
-        return;
-      }
-      flashStatus(res?.success ? 'Feedback sent!' : 'Failed to send feedback');
-    });
-  } catch (e) {
-    flashStatus('Failed to send feedback');
-  }
+  };
+
+  chrome.runtime.sendMessage({
+    action: 'submit-feedback',
+    runId: lastRunId,
+    feedbackType,
+    correctedText: correctedText || null,
+  }, (res) => {
+    if (chrome.runtime.lastError) {
+      flashStatus('Failed to send feedback');
+      return;
+    }
+    flashStatus(res?.success ? 'Feedback sent!' : 'Failed to send feedback');
+  });
 }
 
 function hideOverlay() {
-  if (renarrationOverlay) {
-    renarrationOverlay.style.display = 'none';
-  }
+  if (renarrationOverlay) renarrationOverlay.style.display = 'none';
 }
 
-// Event listeners
-let selectionHandler = null;
-
 function setupEventListeners() {
-  // Remove old handler first to prevent duplicates on toggle
-  if (selectionHandler) {
-    document.removeEventListener('mouseup', selectionHandler);
-  }
+  if (selectionHandler) document.removeEventListener('mouseup', selectionHandler);
   selectionHandler = handleTextSelection;
   document.addEventListener('mouseup', selectionHandler);
 }
 
 function removeEventListeners() {
-  if (selectionHandler) {
-    document.removeEventListener('mouseup', selectionHandler);
-  }
+  if (selectionHandler) document.removeEventListener('mouseup', selectionHandler);
+  selectionHandler = null;
 }
 
 async function handleTextSelection(e) {
   if (!isEnabled) return;
-  
   const selection = window.getSelection();
   const text = selection.toString().trim();
-  
-  // Only process if text is selected and it's not within our overlay
   if (text && text.length > 10 && !e.target.closest('#renarration-overlay')) {
-    // Show a small indicator button near selection
     const range = selection.getRangeAt(0);
     const rect = range.getBoundingClientRect();
-    
     showRenarrationButton(rect.right + 5, rect.top, text);
   }
 }
 
 function showRenarrationButton(x, y, text) {
-  // Remove existing button if any
-  const existingBtn = document.getElementById('renarration-trigger-btn');
-  if (existingBtn) {
-    existingBtn.remove();
-  }
-  
+  document.getElementById('renarration-trigger-btn')?.remove();
+
   const button = document.createElement('button');
   button.id = 'renarration-trigger-btn';
   button.className = 'renarration-trigger';
-  button.innerHTML = '🔄';
+  button.textContent = 'R';
   button.title = 'Renarrate selected text';
   button.style.position = 'absolute';
   button.style.left = `${x + window.scrollX}px`;
   button.style.top = `${y + window.scrollY}px`;
   button.style.zIndex = '10000';
-  
   button.addEventListener('click', (e) => {
     e.stopPropagation();
     processTextRenarration(text, x, y);
     button.remove();
   });
-  
   document.body.appendChild(button);
-  
-  // Auto-remove after 3 seconds
-  setTimeout(() => {
-    if (button.parentNode) {
-      button.remove();
-    }
-  }, 3000);
+  setTimeout(() => button.remove(), 3000);
 }
 
-// ---- DOM Clone sidebar for page renarration ----
-
 const SKIP_TAGS = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'SVG', 'CANVAS', 'INPUT', 'TEXTAREA', 'SELECT', 'BUTTON', 'IFRAME', 'OBJECT', 'EMBED']);
-const BLOCK_PARENTS = new Set(['P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'LI', 'TD', 'TH', 'BLOCKQUOTE', 'FIGCAPTION', 'DT', 'DD', 'CAPTION', 'LABEL', 'SUMMARY']);
 
-function extractTextSegments() {
-  const segments = [];
-  let nextId = 0;
+function extractVisiblePageText() {
+  const chunks = [];
   const seen = new Set();
-
   const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
     acceptNode(node) {
       const text = node.textContent.trim();
       if (!text || text.length < 3) return NodeFilter.FILTER_REJECT;
       const el = node.parentElement;
-      if (!el) return NodeFilter.FILTER_REJECT;
-      if (SKIP_TAGS.has(el.tagName)) return NodeFilter.FILTER_REJECT;
+      if (!el || SKIP_TAGS.has(el.tagName)) return NodeFilter.FILTER_REJECT;
       if (el.closest('#renarration-overlay, #renarration-split-panel, #renarration-trigger-btn')) return NodeFilter.FILTER_REJECT;
-      // Skip hidden elements
       const style = getComputedStyle(el);
       if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return NodeFilter.FILTER_REJECT;
+      const rect = el.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) return NodeFilter.FILTER_REJECT;
       return NodeFilter.FILTER_ACCEPT;
-    }
+    },
   });
 
   while (walker.nextNode()) {
-    const textNode = walker.currentNode;
-    // Find the nearest block-level parent to group text
-    let blockParent = textNode.parentElement;
-    while (blockParent && !BLOCK_PARENTS.has(blockParent.tagName) && blockParent !== document.body) {
-      blockParent = blockParent.parentElement;
-    }
-    if (!blockParent || blockParent === document.body) {
-      blockParent = textNode.parentElement;
-    }
-
-    // Avoid duplicating segments for the same block parent
-    if (seen.has(blockParent)) continue;
-    seen.add(blockParent);
-
-    const fullText = blockParent.textContent.trim();
-    if (fullText.length < 3) continue;
-
-    const id = nextId++;
-    blockParent.setAttribute('data-renarration-id', String(id));
-    segments.push({ id, text: fullText, tagName: blockParent.tagName });
+    const text = walker.currentNode.textContent.replace(/\s+/g, ' ').trim();
+    if (!text || seen.has(text)) continue;
+    seen.add(text);
+    chunks.push(text);
   }
 
-  return segments;
+  return {
+    success: true,
+    text: chunks.join('\n'),
+    title: document.title || '',
+    url: location.href,
+  };
 }
 
-function buildCloneSidebar() {
-  // Clone the entire document
-  const clone = document.documentElement.cloneNode(true);
-
-  // Remove scripts to prevent execution
-  clone.querySelectorAll('script').forEach(s => s.remove());
-  // Remove our own UI elements
-  clone.querySelectorAll('#renarration-overlay, #renarration-split-panel, #renarration-trigger-btn, #renarration-clone-frame').forEach(el => el.remove());
-  // Strip inline event handlers from cloned HTML to prevent execution in sandbox
-  clone.querySelectorAll('*').forEach(el => {
-    for (const attr of [...el.attributes]) {
-      if (attr.name.startsWith('on')) el.removeAttribute(attr.name);
-    }
-  });
-
-  // Add base tag for resolving relative URLs
-  let head = clone.querySelector('head');
-  if (!head) {
-    head = document.createElement('head');
-    clone.prepend(head);
+function showRenarrationPanel() {
+  let panel = document.getElementById('renarration-split-panel');
+  if (!panel) {
+    document.body.classList.add('renarration-split-active');
+    panel = document.createElement('div');
+    panel.id = 'renarration-split-panel';
+    panel.innerHTML = `
+      <div class="split-drag-handle"></div>
+      <div class="split-panel-header">
+        <span class="split-panel-title">Renarrated Page</span>
+        <button class="split-panel-close" title="Close split view">&times;</button>
+      </div>
+      <div class="split-panel-body" id="renarration-panel-body">
+        <div class="split-panel-loading">
+          <div class="split-panel-spinner"></div>
+          <span class="renarration-progress-text">Preparing...</span>
+        </div>
+      </div>
+    `;
+    document.documentElement.appendChild(panel);
+    panel.querySelector('.split-panel-close')?.addEventListener('click', hideRenarrationPanel);
+    setupPanelResize(panel);
   }
-  const base = document.createElement('base');
-  base.href = document.baseURI;
-  head.prepend(base);
+  updateRenarrationProgress('Preparing...');
+}
 
-  // Serialize the clone
-  const html = '<!DOCTYPE html>' + clone.outerHTML;
-
-  // Remove any existing panel
-  hideCloneSidebar();
-
-  // Shrink original page
-  document.body.classList.add('renarration-split-active');
-
-  // Create the sidebar panel
-  const panel = document.createElement('div');
-  panel.id = 'renarration-split-panel';
-  panel.innerHTML = `
-    <div class="split-drag-handle"></div>
-    <div class="split-panel-header">
-      <span class="split-panel-title">Renarrated</span>
-      <button class="split-panel-close" title="Close split view">&times;</button>
-    </div>
-    <div class="clone-loading-overlay" id="clone-loading-overlay">
-      <div class="split-panel-spinner"></div>
-      <span class="clone-progress-text">Renarrating content...</span>
-    </div>
-  `;
-
-  const iframe = document.createElement('iframe');
-  iframe.id = 'renarration-clone-frame';
-  iframe.sandbox = 'allow-same-origin';
-  iframe.srcdoc = html;
-  panel.appendChild(iframe);
-
-  document.documentElement.appendChild(panel);
-  panel.querySelector('.split-panel-close').addEventListener('click', hideCloneSidebar);
-
-  // Drag handle for resizing
+function setupPanelResize(panel) {
   const handle = panel.querySelector('.split-drag-handle');
-  handle.addEventListener('mousedown', (e) => {
+  handle?.addEventListener('mousedown', (e) => {
     e.preventDefault();
     handle.classList.add('dragging');
-    // Transparent overlay to prevent iframe from stealing mouse events
     const overlay = document.createElement('div');
     overlay.className = 'split-drag-overlay';
     document.documentElement.appendChild(overlay);
@@ -359,68 +255,66 @@ function buildCloneSidebar() {
   });
 }
 
-function updateCloneProgress(text) {
-  const el = document.querySelector('.clone-progress-text');
-  if (el) el.textContent = text;
-}
-
-function applyRenarrationToClone(replacements) {
-  const iframe = document.getElementById('renarration-clone-frame');
-  if (!iframe || !iframe.contentDocument) return;
-
-  const doc = iframe.contentDocument;
-  for (const rep of replacements) {
-    const el = doc.querySelector(`[data-renarration-id="${rep.id}"]`);
-    if (el && rep.text) {
-      el.textContent = rep.text;
-    }
+function updateRenarrationProgress(text, isError = false) {
+  const body = document.getElementById('renarration-panel-body');
+  if (!body) return;
+  body.innerHTML = '';
+  const wrap = document.createElement('div');
+  wrap.className = 'split-panel-loading';
+  if (!isError) {
+    const spinner = document.createElement('div');
+    spinner.className = 'split-panel-spinner';
+    wrap.appendChild(spinner);
   }
-
-  // Remove loading overlay
-  const overlay = document.getElementById('clone-loading-overlay');
-  if (overlay) overlay.remove();
+  const status = document.createElement('span');
+  status.className = isError ? 'renarration-progress-text is-error' : 'renarration-progress-text';
+  status.textContent = text || '';
+  wrap.appendChild(status);
+  body.appendChild(wrap);
 }
 
-function hideCloneSidebar() {
-  const panel = document.getElementById('renarration-split-panel');
-  if (panel) panel.remove();
+function renderRenarrationText(text) {
+  const body = document.getElementById('renarration-panel-body');
+  if (!body) return;
+  body.innerHTML = '';
+  const pre = document.createElement('div');
+  pre.className = 'renarration-final-text';
+  pre.textContent = text || '';
+  body.appendChild(pre);
+}
+
+function hideRenarrationPanel() {
+  document.getElementById('renarration-split-panel')?.remove();
   document.body.classList.remove('renarration-split-active');
   document.body.style.width = '';
-  // Clean up data attributes from original page
-  document.querySelectorAll('[data-renarration-id]').forEach(el => el.removeAttribute('data-renarration-id'));
 }
 
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  if (request.action === 'extract-and-clone') {
-    const segments = extractTextSegments();
-    buildCloneSidebar();
-    sendResponse({ success: true, segments });
-  } else if (request.action === 'apply-dom-renarration') {
-    // Wait for iframe to load before applying replacements
-    const iframe = document.getElementById('renarration-clone-frame');
-    if (iframe) {
-      const apply = () => applyRenarrationToClone(request.replacements || []);
-      if (iframe.contentDocument && iframe.contentDocument.readyState === 'complete') {
-        apply();
-      } else {
-        iframe.addEventListener('load', apply, { once: true });
-      }
-    }
-    sendResponse({ success: true });
-  } else if (request.action === 'hide-dom-renarration') {
-    hideCloneSidebar();
-    sendResponse({ success: true });
-  } else if (request.action === 'section-renarrated') {
-    const iframe = document.getElementById('renarration-clone-frame');
-    if (iframe?.contentDocument) {
-      const el = iframe.contentDocument.querySelector(`[data-renarration-id="${request.sectionId}"]`);
-      if (el && request.text) el.textContent = request.text;
-    }
-    sendResponse({ success: true });
-  } else if (request.action === 'update-clone-progress') {
-    updateCloneProgress(request.text || '');
-    sendResponse({ success: true });
+chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
+  if (request.action === 'extract-visible-page-text') {
+    sendResponse(extractVisiblePageText());
+    return false;
   }
+  if (request.action === 'show-renarration-panel') {
+    showRenarrationPanel();
+    sendResponse({ success: true });
+    return false;
+  }
+  if (request.action === 'update-renarration-progress') {
+    updateRenarrationProgress(request.text || '', !!request.isError);
+    sendResponse({ success: true });
+    return false;
+  }
+  if (request.action === 'render-renarration-text') {
+    renderRenarrationText(request.text || '');
+    sendResponse({ success: true });
+    return false;
+  }
+  if (request.action === 'hide-renarration-panel') {
+    hideRenarrationPanel();
+    sendResponse({ success: true });
+    return false;
+  }
+  return false;
 });
 
 function escapeHtml(text) {
@@ -429,21 +323,18 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
-// ---- Text selection renarration ----
-
 async function processTextRenarration(text, x, y) {
-  showOverlay('<div class="renarration-loading">Processing text...</div>', x, y + 30);
+  showOverlay('Processing text...', x, y + 30);
 
   try {
     const response = await chrome.runtime.sendMessage({
       action: 'renarrate-text',
-      text: text,
-      task: currentTask
+      text,
+      task: currentTask,
     });
 
     if (response.success) {
-      const runId = response.agenticMeta?.experimentId || response.runId || null;
-      showOverlay(response.result, x, y + 30, runId);
+      showOverlay(response.result, x, y + 30, response.runId || null);
     } else {
       showOverlay('Error: ' + (response.error || 'Unknown error'), x, y + 30);
     }

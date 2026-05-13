@@ -140,48 +140,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       quickRepliesContainer.innerHTML = '';
       generatedGoal = null;
 
-      // Fetch buddy suggestions for the active tab
-      loadBuddySuggestions();
-    }
-  }
-
-  async function loadBuddySuggestions() {
-    try {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (!tab?.url?.startsWith('http')) return;
-
-      const pageMetadata = {
-        url: tab.url,
-        title: tab.title || '',
-        contentPreview: ''  // content script can provide this later
-      };
-
-      const res = await chrome.runtime.sendMessage({
-        action: 'get-predictions',
-        tabId: tab.id,
-        pageMetadata
-      });
-
-      if (!res?.success) return;
-      const { suggestions, greeting } = res;
-
-      // Show greeting in welcome area
-      if (greeting) {
-        const welcome = chatMessages.querySelector('.chat-welcome');
-        if (welcome) {
-          welcome.innerHTML = `
-            <p>${escapeHtml(greeting)}</p>
-            <p class="chat-welcome-hint">Pick a suggestion or type your own request.</p>
-          `;
-        }
-      }
-
-      // Show suggestions as quick-reply buttons
-      if (suggestions?.length > 0) {
-        showQuickReplies(suggestions.map(s => s.label));
-      }
-    } catch {
-      // Suggestions are optional — don't block the session
     }
   }
 
@@ -357,7 +315,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       try {
         const res = await chrome.runtime.sendMessage({
-          action: 'run-extraction',
+          action: 'extract-page-knowledge',
           tabId: tab.id,
           pageMetadata: { url: tab.url, title: tab.title || '' },
         });
@@ -374,7 +332,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     });
 
-    // Listen for live progress + completion (e.g. when full pipeline runs extraction)
+    // Listen for live progress and completion from page extraction.
     chrome.runtime.onMessage.addListener((msg) => {
       if (msg?.action === 'extraction-progress' && msg.text) {
         setExtractionStatus(msg.text, false);

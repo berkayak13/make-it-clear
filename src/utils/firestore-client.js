@@ -15,7 +15,7 @@ export const RESEARCH_STORES = {
 
 let _firestoreConfig = null;
 
-export async function getFirestoreConfig() {
+async function getFirestoreConfig() {
   if (_firestoreConfig) return _firestoreConfig;
   const stored = await chrome.storage.local.get(['firebaseProjectId', 'firebaseApiKey']);
   _firestoreConfig = {
@@ -39,7 +39,7 @@ function firestoreBasePath(projectId) {
 }
 
 // Value encoding: JS -> Firestore
-export function toFirestoreValue(val) {
+function toFirestoreValue(val) {
   if (val === null || val === undefined) return { nullValue: null };
   if (typeof val === 'boolean') return { booleanValue: val };
   if (typeof val === 'number') {
@@ -60,7 +60,7 @@ export function toFirestoreValue(val) {
 }
 
 // Value decoding: Firestore -> JS
-export function fromFirestoreValue(val) {
+function fromFirestoreValue(val) {
   if ('nullValue' in val) return null;
   if ('booleanValue' in val) return val.booleanValue;
   if ('integerValue' in val) return Number(val.integerValue);
@@ -75,7 +75,7 @@ export function fromFirestoreValue(val) {
   return null;
 }
 
-export function toFirestoreFields(obj) {
+function toFirestoreFields(obj) {
   const fields = {};
   for (const [k, v] of Object.entries(obj)) {
     fields[k] = toFirestoreValue(v);
@@ -83,7 +83,7 @@ export function toFirestoreFields(obj) {
   return fields;
 }
 
-export function fromFirestoreFields(fields) {
+function fromFirestoreFields(fields) {
   const obj = {};
   for (const [k, v] of Object.entries(fields)) {
     obj[k] = fromFirestoreValue(v);
@@ -227,8 +227,7 @@ export async function researchClearStore(storeName) {
   return true;
 }
 
-export function researchExportCSV(storeName, options = {}) {
-  const records = options.records || [];
+export function researchExportCSV(records = []) {
   if (!records || !records.length) return '';
 
   const allKeys = new Set();

@@ -1,14 +1,13 @@
 import { defineConfig } from 'vite';
 
-// We build only the offscreen entry; everything else stays as static extension files.
+// Vite is only used for the MV3 service worker bundle and .env injection.
 export default defineConfig({
   build: {
     outDir: 'build',
-    emptyOutDir: false,
+    emptyOutDir: true,
     modulePreload: false,
     rollupOptions: {
       input: {
-        offscreen: 'src/offscreen-entry.js',
         background: 'src/background/main.js'
       },
       output: {

@@ -180,7 +180,7 @@ function renderExperiments() {
   const el = document.getElementById('experimentsList');
   const experiments = applyFilters(allData.experimentRuns || []).sort((a, b) => b.timestamp - a.timestamp);
   if (!experiments.length) {
-    el.innerHTML = '<div class="empty-state">No experiment runs found. Enable the agentic pipeline to see data here.</div>';
+    el.innerHTML = '<div class="empty-state">No experiment runs found. Run page renarration to see data here.</div>';
     return;
   }
   let html = '<table><tr><th>ID</th><th>User</th><th>Time</th><th>Task</th><th>Persona</th><th>Attempts</th><th>Best Score</th><th>Details</th></tr>';

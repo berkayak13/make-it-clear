@@ -7,7 +7,7 @@ const TESTS = [
       const result = await chrome.runtime.sendMessage({ action: 'get-settings' });
       if (!result) throw new Error('No response from get-settings');
       if (typeof result !== 'object') throw new Error('Response is not an object');
-      const required = ['llmProvider', 'personas'];
+      const required = ['personas', 'currentTask'];
       for (const key of required) {
         if (!(key in result)) throw new Error(`Missing field: ${key}`);
       }
@@ -18,8 +18,8 @@ const TESTS = [
     name: 'get-user-id returns a string',
     run: async () => {
       const result = await chrome.runtime.sendMessage({ action: 'get-user-id' });
-      if (!result || typeof result !== 'string') throw new Error(`Expected string, got: ${typeof result}`);
-      return `OK — userId: ${result.slice(0, 8)}...`;
+      if (!result?.userId) throw new Error('Expected userId in response');
+      return `OK — userId: ${result.userId.slice(0, 8)}...`;
     }
   },
   {
@@ -33,9 +33,10 @@ const TESTS = [
   {
     name: 'chatbot-get-session returns session data',
     run: async () => {
-      const result = await chrome.runtime.sendMessage({ action: 'chatbot-get-session' });
-      if (!result) throw new Error('No response');
-      return `OK — session has ${result.messages?.length || 0} messages`;
+      const session = await chrome.runtime.sendMessage({ action: 'chatbot-new-session' });
+      const result = await chrome.runtime.sendMessage({ action: 'chatbot-get-session', sessionId: session.sessionId });
+      if (!result?.session) throw new Error('No session response');
+      return `OK — session has ${result.session.messages?.length || 0} messages`;
     }
   },
   {
@@ -43,11 +44,12 @@ const TESTS = [
     run: async () => {
       const result = await chrome.runtime.sendMessage({ action: 'export-research-data' });
       if (!result || typeof result !== 'object') throw new Error('No response or not an object');
-      const expectedKeys = ['chatSessions', 'experimentRuns', 'feedbackEvents'];
+      const data = result.data || {};
+      const expectedKeys = ['chatSessions', 'researchLogs', 'feedbackEvents'];
       for (const key of expectedKeys) {
-        if (!(key in result)) throw new Error(`Missing key: ${key}`);
+        if (!(key in data)) throw new Error(`Missing key: ${key}`);
       }
-      return `OK — ${Object.keys(result).length} data collections`;
+      return `OK — ${Object.keys(data).length} data collections`;
     }
   },
   {
@@ -65,23 +67,6 @@ const TESTS = [
     }
   },
   {
-    name: 'webllm-init message handler responds',
-    run: async () => {
-      try {
-        // Just verify the handler exists and responds (may fail if offscreen can't be created)
-        const result = await Promise.race([
-          chrome.runtime.sendMessage({ action: 'webllm-init' }),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout after 5s')), 5000))
-        ]);
-        return `OK — handler responded`;
-      } catch (e) {
-        // Handler exists but may fail due to offscreen constraints — that's OK
-        if (e.message.includes('Timeout')) throw e;
-        return `OK — handler exists (init failed as expected in test context: ${e.message.slice(0, 50)})`;
-      }
-    }
-  },
-  {
     name: 'check-feedback-trends handler responds',
     run: async () => {
       const result = await chrome.runtime.sendMessage({ action: 'check-feedback-trends' });
@@ -90,11 +75,11 @@ const TESTS = [
     }
   },
   {
-    name: 'pipeline logs are accessible',
+    name: 'last extraction storage is accessible',
     run: async () => {
-      const data = await chrome.storage.local.get(['pipelineLogs']);
-      const logs = data.pipelineLogs || [];
-      return `OK — ${logs.length} pipeline log entries`;
+      const result = await chrome.runtime.sendMessage({ action: 'get-last-extraction' });
+      if (!result || result.success !== true) throw new Error('No extraction response');
+      return `OK — ${result.extraction ? 'has extraction' : 'empty'}`;
     }
   }
 ];

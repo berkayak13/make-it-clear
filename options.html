@@ -9,7 +9,7 @@
 <body>
   <div class="options-container">
     <header>
-      <h1>🔄 On-Device Web Assistant Settings</h1>
+      <h1>OpenAI Renarration Settings</h1>
       <p>Configure user tasks and advanced options</p>
     </header>
     
@@ -66,41 +66,6 @@
       </section>
       
       <section class="card">
-        <h2>General Settings</h2>
-        
-        <div class="setting-item">
-          <label for="llmProviderSelect"><strong>LLM Provider</strong></label>
-          <select id="llmProviderSelect" style="max-width:260px; padding:6px 10px; font-size:13px; margin-top:4px;">
-            <option value="remote">Remote (Gemini API)</option>
-            <option value="on-device">On-Device (WebLLM / WebGPU)</option>
-          </select>
-          <p class="setting-description">Controls text renarration, chatbot, evaluation, and extraction.</p>
-        </div>
-
-        <hr style="margin:12px 0;">
-        <div class="setting-item">
-          <label>
-            <input type="checkbox" id="useRemoteVLM">
-            <span>Enable Remote VLM (hosted)</span>
-          </label>
-          <p class="setting-description" style="color:#b45309;">Sends images to a hosted VLM (e.g., Gemini 2.5 Flash). Requires endpoint, model, and API key.</p>
-        </div>
-        <div class="setting-item">
-          <label for="remoteVLMEndpoint">Remote VLM Endpoint</label>
-          <input type="text" id="remoteVLMEndpoint" placeholder="https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent">
-        </div>
-        <div class="setting-item">
-          <label for="remoteVLMModel">Remote VLM Model</label>
-          <input type="text" id="remoteVLMModel" placeholder="gemini-2.5-flash">
-        </div>
-        <div class="setting-item">
-          <label for="remoteVLMApiKey">Remote VLM API Key</label>
-          <input type="password" id="remoteVLMApiKey" placeholder="Enter API key (stored locally)">
-          <p class="setting-description">API key is stored in local extension storage (not synced). Required when remote VLM is enabled.</p>
-        </div>
-      </section>
-      
-      <section class="card">
         <h2>Research Settings</h2>
         <p class="section-description">Configure settings for user study data collection and analysis.</p>
 
@@ -115,18 +80,10 @@
 
         <div class="setting-item">
           <label>
-            <input type="checkbox" id="useAgenticPipelineOpt">
-            <span>Enable Agentic Pipeline (self-refining renarration)</span>
-          </label>
-          <p class="setting-description">When enabled, renarrations are evaluated and iteratively improved (up to 3 attempts). Uses additional API calls.</p>
-        </div>
-
-        <div class="setting-item">
-          <label>
             <input type="checkbox" id="enableResearchLoggingOpt" checked>
             <span>Enable Research Logging</span>
           </label>
-          <p class="setting-description">Log preference changes, chatbot interactions, feedback events, and pipeline runs to Cloud Firestore for research analysis.</p>
+          <p class="setting-description">Log preference changes, chatbot interactions, feedback events, and renarration runs to Cloud Firestore for research analysis.</p>
         </div>
 
         <hr style="margin:12px 0;">
@@ -151,7 +108,7 @@
         <h2>About</h2>
         <div class="about-content">
           <p><strong>Version:</strong> 1.0.0</p>
-          <p><strong>Description:</strong> Real-time text reformulation and visual description assistant using local LLM/VLM models</p>
+          <p><strong>Description:</strong> OpenAI-powered text reformulation and page renarration assistant</p>
         </div>
       </section>
       

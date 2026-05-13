@@ -1,13 +1,12 @@
 {
   "manifest_version": 3,
-  "name": "On-Device Renarration Assistant",
+  "name": "OpenAI Renarration Assistant",
   "version": "1.0.0",
-  "description": "Real-time text reformulation and visual description assistant using local LLM/VLM models",
+  "description": "OpenAI-powered webpage renarration assistant with reading goals",
   "permissions": [
     "storage",
     "activeTab",
     "scripting",
-    "offscreen",
     "downloads",
     "tabs",
     "sidePanel"
@@ -16,7 +15,7 @@
     "<all_urls>"
   ],
   "content_security_policy": {
-    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+    "extension_pages": "script-src 'self'; object-src 'self'"
   },
   "action": {
     "default_popup": "popup.html",

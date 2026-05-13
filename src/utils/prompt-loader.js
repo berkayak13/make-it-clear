@@ -4,7 +4,7 @@ const promptCache = new Map();
  * Generic cached loader for prompt markdown files.
  * Fetches src/prompts/{name}.md via chrome.runtime.getURL.
  */
-export async function loadPrompt(name) {
+async function loadPrompt(name) {
   if (promptCache.has(name)) return promptCache.get(name);
   try {
     const url = chrome.runtime.getURL(`src/prompts/${name}.md`);
@@ -29,7 +29,7 @@ export async function getSystemBoilerplate() {
 /**
  * Build the default prompt template combining boilerplate with placeholders.
  */
-export function buildDefaultPromptTemplate(boilerplate) {
+function buildDefaultPromptTemplate(boilerplate) {
   const parts = [];
   const base = (boilerplate || '').trim();
   if (base) parts.push(base);

@@ -6,12 +6,6 @@ let sending = false;
 
 document.addEventListener('DOMContentLoaded', async () => {
   // --- DOM references ---
-  const llmProviderSelect = document.getElementById('llmProviderSelect');
-  const webllmControls = document.getElementById('webllmControls');
-  const initModelBtn = document.getElementById('initModelBtn');
-  const webllmStatus = document.getElementById('webllmStatus');
-  const setupCard = document.getElementById('setupCard');
-  const setupToggle = document.getElementById('setupToggle');
   const renarrateStatus = document.getElementById('renarrateStatus');
   const optionsLink = document.getElementById('optionsLink');
 
@@ -33,17 +27,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   const refineBannerDismiss = document.getElementById('refineBannerDismiss');
 
   // --- Load settings ---
-  let settings, localSettings;
+  let settings;
   try {
     settings = await chrome.storage.sync.get([
-      'currentTask', 'currentProfile', 'llmProvider', 'useWebLLM',
+      'currentTask', 'currentProfile',
       'tasks', 'profiles'
     ]);
-    localSettings = await chrome.storage.local.get(['useAgenticPipeline']);
   } catch (e) {
     console.warn('[Popup] Failed to load settings, using defaults:', e?.message);
     settings = {};
-    localSettings = {};
   }
 
   // Backward compat: profiles -> tasks
@@ -61,11 +53,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (shouldWrite) {
     await chrome.storage.sync.set({ tasks, currentTask });
   }
-
-  // LLM Provider (backward compat: fall back to useWebLLM)
-  const effectiveProvider = settings.llmProvider || (settings.useWebLLM ? 'on-device' : 'remote');
-  llmProviderSelect.value = effectiveProvider;
-  if (webllmControls) webllmControls.style.display = effectiveProvider === 'on-device' ? 'block' : 'none';
 
   // Load user ID
   try {
@@ -97,73 +84,28 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   checkFeedbackRefinement();
 
-  // --- Storage change listeners ---
-  chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === 'sync' && changes.llmProvider) {
-      const newProvider = changes.llmProvider.newValue || 'remote';
-      llmProviderSelect.value = newProvider;
-      if (webllmControls) webllmControls.style.display = newProvider === 'on-device' ? 'block' : 'none';
-    }
-  });
-
-  // --- Setup card accordion ---
-  setupToggle.addEventListener('click', () => {
-    setupCard.classList.toggle('card--collapsed');
-    setupToggle.setAttribute('aria-expanded', !setupCard.classList.contains('card--collapsed'));
-  });
-
-  // --- LLM Provider ---
-  llmProviderSelect.addEventListener('change', () => {
-    const provider = llmProviderSelect.value;
-    chrome.storage.sync.set({ llmProvider: provider });
-    if (webllmControls) webllmControls.style.display = provider === 'on-device' ? 'block' : 'none';
-  });
-
-  initModelBtn.addEventListener('click', async () => {
-    webllmStatus.textContent = 'Status: initializing...';
-    try {
-      const res = await chrome.runtime.sendMessage({ action: 'webllm-init' });
-      if (res && res.success !== false) {
-        webllmStatus.textContent = 'Status: ready';
-      } else {
-        webllmStatus.textContent = 'Status: failed (fallback active)';
-      }
-    } catch {
-      webllmStatus.textContent = 'Status: failed (see console)';
-    }
-  });
-
-  // --- Renarrate Page (Agentic Pipeline) ---
-  const agenticPipelineBtn = document.getElementById('agenticPipelineBtn');
-  if (agenticPipelineBtn) {
-    agenticPipelineBtn.addEventListener('click', async () => {
+  // --- Renarrate Page ---
+  const renarratePageBtn = document.getElementById('renarratePageBtn');
+  if (renarratePageBtn) {
+    renarratePageBtn.addEventListener('click', async () => {
       if (renarrateStatus) renarrateStatus.textContent = 'Processing\u2026';
       try {
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
         const tabId = tab?.id;
-        // Run the agentic pipeline — it captures screenshots, runs agents, and
-        // streams renarrated sections to the content script sidebar
         const res = await chrome.runtime.sendMessage({
-          action: 'run-agentic-pipeline',
+          action: 'run-page-renarration',
           tabId,
           text: 'Renarrate this page',
           pageMetadata: { url: tab?.url, title: tab?.title }
         });
         if (res && res.success) {
-          let msg = 'Done \u2014 see sidebar';
-          if (res.failedCount > 0) {
-            msg += ` (${res.failedCount} agent${res.failedCount > 1 ? 's' : ''} failed)`;
-          }
-          if (renarrateStatus) renarrateStatus.textContent = msg;
-          if (res.errors?.length) {
-            console.warn('[Pipeline errors]', res.errors);
-          }
+          if (renarrateStatus) renarrateStatus.textContent = 'Done - see split panel';
         } else {
-          if (renarrateStatus) renarrateStatus.textContent = 'Error: ' + (res?.error || 'Pipeline failed');
+          if (renarrateStatus) renarrateStatus.textContent = 'Error: ' + (res?.error || 'Renarration failed');
         }
       } catch (e) {
         if (renarrateStatus) renarrateStatus.textContent = 'Error: ' + (e.message || 'unknown');
-        addSystemMessage('Pipeline error: ' + (e.message || 'unknown'));
+        addSystemMessage('Page renarration error: ' + (e.message || 'unknown'));
       }
     });
   }
@@ -247,23 +189,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       chrome.runtime.openOptionsPage();
     });
   }
-
-
-  const pipelineVisualizerLink = document.getElementById('pipelineVisualizerLink');
-  if (pipelineVisualizerLink) {
-    pipelineVisualizerLink.addEventListener('click', async (e) => {
-      e.preventDefault();
-      await chrome.tabs.create({ url: chrome.runtime.getURL('viewers/pipeline-visualizer.html') });
-    });
-  }
-
-  // --- WebLLM progress events ---
-  chrome.runtime.onMessage.addListener((msg) => {
-    if (msg && msg.__offscreenProgress) {
-      const pct = Math.round((msg.progress || 0) * 100);
-      webllmStatus.textContent = `Status: ${msg.stage} ${isFinite(pct) ? `(${pct}%)` : ''}`;
-    }
-  });
 
   // --- Chat functions ---
 

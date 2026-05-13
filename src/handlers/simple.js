@@ -1,12 +1,7 @@
 import { getSettingsWithTaskMigration, getOrCreateUserId } from '../utils/storage-helpers.js';
 import { generateId } from '../utils/id.js';
-import { ensureOffscreen, postToOffscreen } from '../utils/offscreen-bridge.js';
-import { getPipelineLogs, clearPipelineLogs } from '../utils/pipeline-logger.js';
 import { researchPut, researchGetByIndex, researchGetAll, researchClearStore, researchExportCSV, RESEARCH_STORES } from '../utils/firestore-client.js';
-import { renarrateText, agenticRenarrateText, checkFeedbackTrends, setUserId } from '../utils/renarration.js';
-import { describeImage } from '../utils/vlm-client.js';
-
-const PIPELINE_LOG_KEY = 'pipelineLogs';
+import { renarrateText, checkFeedbackTrends, setUserId } from '../utils/renarration.js';
 
 const RESEARCH_STORES_KEYS = ['chatSessions', 'researchLogs', 'feedbackEvents', 'experimentRuns', 'preferenceHistory', 'userPreferences'];
 
@@ -19,9 +14,7 @@ function getResearchStoreNames() {
 
 export const simpleHandlers = {
   'renarrate-text': async (request, _sender) => {
-    const { useAgenticPipeline } = await chrome.storage.local.get(['useAgenticPipeline']);
-    const renarrateFunc = useAgenticPipeline ? agenticRenarrateText : renarrateText;
-    const result = await renarrateFunc(request.text, request.task);
+    const result = await renarrateText(request.text, request.task);
     if (result?.success) {
       try {
         await chrome.storage.local.set({
@@ -39,31 +32,15 @@ export const simpleHandlers = {
     return result;
   },
 
-  'describe-image': async (request, _sender) => {
-    return describeImage(request.imageUrl, request.task);
-  },
-
   'get-settings': async (_request, _sender) => {
     return getSettingsWithTaskMigration([
       'enabled',
-      'llmProvider',
-      'useWebLLM',
-      'webllmModel',
-      'useRemoteVLM',
-      'remoteVLMModel',
-      'remoteVLMEndpoint',
       'personas',
       'currentPersona',
       'currentTask',
       'tasks',
       'systemPromptTemplate'
     ]);
-  },
-
-  'webllm-init': async (_request, _sender) => {
-    await ensureOffscreen();
-    const { webllmModel } = await chrome.storage.sync.get(['webllmModel']);
-    return postToOffscreen({ type: 'webllm-init', payload: { modelId: webllmModel } });
   },
 
   'get-logs': async (_request, _sender) => {
@@ -73,33 +50,6 @@ export const simpleHandlers = {
 
   'clear-logs': async (_request, _sender) => {
     await chrome.storage.local.set({ testLogs: [], completedTestIds: [] });
-    return { success: true };
-  },
-
-  'get-pipeline-logs': async (_request, _sender) => {
-    return getPipelineLogs();
-  },
-
-  'clear-pipeline-logs': async (_request, _sender) => {
-    return clearPipelineLogs();
-  },
-
-  'delete-pipeline-entry': async (request, _sender) => {
-    const { pipelineLogs = [] } = await chrome.storage.local.get([PIPELINE_LOG_KEY]);
-    const filtered = pipelineLogs.filter(l => !(l.runId === request.runId && l.stage === request.stage));
-    await chrome.storage.local.set({ [PIPELINE_LOG_KEY]: filtered });
-    return { success: true };
-  },
-
-  'toggle-pipeline-star': async (request, _sender) => {
-    const { pipelineLogs = [] } = await chrome.storage.local.get([PIPELINE_LOG_KEY]);
-    const next = pipelineLogs.map(l => {
-      if (l.runId === request.runId && l.stage === request.stage) {
-        return { ...l, starred: !l.starred };
-      }
-      return l;
-    });
-    await chrome.storage.local.set({ [PIPELINE_LOG_KEY]: next });
     return { success: true };
   },
 
@@ -184,7 +134,7 @@ export const simpleHandlers = {
   },
 
   'get-research-settings': async (_request, _sender) => {
-    return chrome.storage.local.get(['useAgenticPipeline', 'enableResearchLogging', 'studyUserId']);
+    return chrome.storage.local.get(['enableResearchLogging', 'studyUserId']);
   },
 
 };
