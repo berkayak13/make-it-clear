@@ -338,7 +338,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       extractBtn.disabled = true;
       extractBtn.textContent = 'Extracting...';
-      setExtractionStatus('Capturing screenshots and extracting...', false);
+      setExtractionStatus('Reading page text and images...', false);
 
       try {
         const res = await chrome.runtime.sendMessage({
@@ -388,8 +388,13 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
       const k = result.knowledge || {};
       const ageMin = result.at ? Math.max(0, Math.round((Date.now() - new Date(result.at).getTime()) / 60000)) : null;
+      const imageCount = result.imageCount || result.images?.length || 0;
+      const sliceCount = result.sliceCount || 0;
+      const visualStatus = sliceCount
+        ? `${sliceCount} fallback screenshot slice${sliceCount === 1 ? '' : 's'}`
+        : (imageCount ? `${imageCount} image${imageCount === 1 ? '' : 's'}` : 'text only');
       setExtractionStatus(
-        `Extracted${ageMin != null ? ' ' + (ageMin === 0 ? 'just now' : ageMin + 'm ago') : ''} · ${result.sliceCount || 0} slice${result.sliceCount === 1 ? '' : 's'}`,
+        `Extracted${ageMin != null ? ' ' + (ageMin === 0 ? 'just now' : ageMin + 'm ago') : ''} · ${visualStatus}`,
         false
       );
 
@@ -422,7 +427,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       const meta = document.createElement('div');
       meta.className = 'extraction-meta';
-      meta.textContent = `${result.rawCharCount || 0} raw chars · ${result.durationMs || 0}ms${result.partial ? ' · partial' : ''}`;
+      meta.textContent = `${result.rawCharCount || 0} raw chars · ${imageCount} direct images · ${result.durationMs || 0}ms${result.partial ? ' · partial' : ''}`;
       sections.push(meta);
 
       bodyEl.innerHTML = '';

@@ -43,7 +43,7 @@ export async function renarratePage({ extraction, taskName } = {}) {
     'Saved reading goal:',
     formatReadingGoal(promptInfo.readingGoal),
     '',
-    'Compact page source extracted from visible text and screenshots:',
+    'Compact page source extracted from visible text and page images:',
     truncateForContext(extraction.compactText || formatKnowledge(extraction.knowledge), MAX_EXTRACTED_NOTES_CHARS),
     '',
     'Captured visible page text fallback:',

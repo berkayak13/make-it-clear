@@ -170,6 +170,15 @@ function showRenarrationButton(x, y, text) {
 }
 
 const SKIP_TAGS = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'SVG', 'CANVAS', 'INPUT', 'TEXTAREA', 'SELECT', 'BUTTON', 'IFRAME', 'OBJECT', 'EMBED']);
+const EXTENSION_UI_SELECTOR = '#renarration-overlay, #renarration-split-panel, #renarration-trigger-btn';
+const IMAGE_MAX_RESULTS = 40;
+const IMAGE_MIN_RENDERED_WIDTH = 120;
+const IMAGE_MIN_RENDERED_HEIGHT = 80;
+const IMAGE_MIN_RENDERED_AREA = 12000;
+const IMAGE_CONTEXT_CHARS = 300;
+const DECORATIVE_IMAGE_RE = /(^|[\s/_-])(adchoices|avatar|badge|blank|button|favicon|icon|logo|pixel|placeholder|share|social|spacer|spinner|sprite|tracking|transparent)([\s/_\-.]|$)/i;
+const CONTENT_CLASS_RE = /(^|[\s_-])(article|content|entry|main|post|story)([\s_-]|$)/i;
+const NON_CONTENT_CLASS_RE = /(^|[\s_-])(ad|ads|advert|banner|cookie|footer|header|nav|navbar|promo|share|sidebar|social|sponsor)([\s_-]|$)/i;
 
 function extractVisiblePageText() {
   const chunks = [];
@@ -180,7 +189,7 @@ function extractVisiblePageText() {
       if (!text || text.length < 3) return NodeFilter.FILTER_REJECT;
       const el = node.parentElement;
       if (!el || SKIP_TAGS.has(el.tagName)) return NodeFilter.FILTER_REJECT;
-      if (el.closest('#renarration-overlay, #renarration-split-panel, #renarration-trigger-btn')) return NodeFilter.FILTER_REJECT;
+      if (el.closest(EXTENSION_UI_SELECTOR)) return NodeFilter.FILTER_REJECT;
       const style = getComputedStyle(el);
       if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return NodeFilter.FILTER_REJECT;
       const rect = el.getBoundingClientRect();
@@ -196,12 +205,311 @@ function extractVisiblePageText() {
     chunks.push(text);
   }
 
+  let images = [];
+  try {
+    images = extractPageImages();
+  } catch {
+    images = [];
+  }
+
   return {
     success: true,
     text: chunks.join('\n'),
+    images,
     title: document.title || '',
     url: location.href,
   };
+}
+
+function normalizeText(text) {
+  return String(text || '').replace(/\s+/g, ' ').trim();
+}
+
+function truncateText(text, maxChars = IMAGE_CONTEXT_CHARS) {
+  const value = normalizeText(text);
+  return value.length > maxChars ? value.slice(0, maxChars - 3).trimEnd() + '...' : value;
+}
+
+function normalizeImageUrl(rawUrl) {
+  const raw = String(rawUrl || '').trim();
+  if (!raw || raw.startsWith('#')) return '';
+  if (/^(data|blob|chrome|chrome-extension|moz-extension|about):/i.test(raw)) return '';
+  try {
+    const url = new URL(raw, document.baseURI);
+    if (!/^https?:$/i.test(url.protocol)) return '';
+    return url.href;
+  } catch {
+    return '';
+  }
+}
+
+function parseSrcset(srcset) {
+  return String(srcset || '').split(',')
+    .map((part) => {
+      const value = part.trim();
+      if (!value) return null;
+      const pieces = value.split(/\s+/);
+      const rawUrl = pieces[0];
+      const descriptor = pieces[1] || '';
+      const width = descriptor.endsWith('w') ? Number.parseFloat(descriptor) : 0;
+      const density = descriptor.endsWith('x') ? Number.parseFloat(descriptor) : 0;
+      return {
+        url: rawUrl,
+        score: width || density * 10000 || 1,
+      };
+    })
+    .filter(Boolean);
+}
+
+function bestSrcsetUrl(srcset) {
+  return parseSrcset(srcset)
+    .sort((a, b) => b.score - a.score)[0]?.url || '';
+}
+
+function bestPictureSourceUrl(img) {
+  const picture = img.closest('picture');
+  if (!picture) return '';
+
+  const candidates = [];
+  for (const source of picture.querySelectorAll('source')) {
+    const media = source.getAttribute('media');
+    if (media && window.matchMedia && !window.matchMedia(media).matches) continue;
+    const raw = bestSrcsetUrl(source.getAttribute('srcset')) || source.getAttribute('src') || '';
+    if (!raw) continue;
+    const parsed = parseSrcset(source.getAttribute('srcset'));
+    const score = parsed.sort((a, b) => b.score - a.score)[0]?.score || 1;
+    candidates.push({ url: raw, score });
+  }
+
+  return candidates.sort((a, b) => b.score - a.score)[0]?.url || '';
+}
+
+function cssBackgroundUrls(backgroundImage) {
+  const urls = [];
+  const re = /url\((["']?)(.*?)\1\)/g;
+  let match;
+  while ((match = re.exec(String(backgroundImage || '')))) {
+    if (match[2]) urls.push(match[2]);
+  }
+  return urls;
+}
+
+function elementSignature(el) {
+  return normalizeText([
+    el?.id || '',
+    typeof el?.className === 'string' ? el.className : '',
+    el?.getAttribute?.('role') || '',
+    el?.getAttribute?.('aria-label') || '',
+  ].join(' '));
+}
+
+function ancestorMatches(el, re, maxDepth = 5) {
+  let node = el;
+  for (let depth = 0; node && depth < maxDepth; depth++) {
+    if (re.test(elementSignature(node))) return true;
+    node = node.parentElement;
+  }
+  return false;
+}
+
+function isContentImageElement(el) {
+  return !!(
+    el?.closest?.('article, main, figure, [role="main"]') ||
+    ancestorMatches(el, CONTENT_CLASS_RE)
+  );
+}
+
+function isNonContentImageElement(el) {
+  return !!(
+    el?.closest?.('nav, header, footer, aside, form, [role="navigation"], [role="banner"], [role="contentinfo"]') ||
+    ancestorMatches(el, NON_CONTENT_CLASS_RE)
+  );
+}
+
+function isVisibleElement(el) {
+  if (!el || el.closest(EXTENSION_UI_SELECTOR)) return false;
+  const style = getComputedStyle(el);
+  if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
+  const rect = el.getBoundingClientRect();
+  return rect.width > 0 && rect.height > 0;
+}
+
+function imageDimensions(el) {
+  const rect = el?.getBoundingClientRect?.() || { width: 0, height: 0 };
+  const attrWidth = Number.parseInt(el?.getAttribute?.('width') || '', 10) || 0;
+  const attrHeight = Number.parseInt(el?.getAttribute?.('height') || '', 10) || 0;
+  return {
+    width: Math.round(el?.naturalWidth || attrWidth || rect.width || 0),
+    height: Math.round(el?.naturalHeight || attrHeight || rect.height || 0),
+    renderedWidth: Math.round(rect.width || attrWidth || 0),
+    renderedHeight: Math.round(rect.height || attrHeight || 0),
+  };
+}
+
+function nearestHeading(el) {
+  const headingSelector = 'h1,h2,h3,h4,h5,h6';
+  const container = el.closest('section, article, main, [role="main"]');
+  if (container) {
+    const headings = Array.from(container.querySelectorAll(headingSelector))
+      .filter((heading) => heading.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING);
+    const heading = headings[headings.length - 1];
+    if (heading) return truncateText(heading.textContent, 160);
+  }
+
+  let node = el;
+  for (let depth = 0; node && depth < 4; depth++) {
+    let prev = node.previousElementSibling;
+    for (let step = 0; prev && step < 8; step++) {
+      if (prev.matches?.(headingSelector)) return truncateText(prev.textContent, 160);
+      const nested = Array.from(prev.querySelectorAll?.(headingSelector) || []).pop();
+      if (nested) return truncateText(nested.textContent, 160);
+      prev = prev.previousElementSibling;
+    }
+    node = node.parentElement;
+  }
+  return '';
+}
+
+function imageCaption(el) {
+  const figure = el.closest('figure');
+  const caption = figure?.querySelector('figcaption');
+  if (caption) return truncateText(caption.textContent, IMAGE_CONTEXT_CHARS);
+  return truncateText(el.getAttribute?.('title') || el.getAttribute?.('aria-label') || '', 180);
+}
+
+function nearbyImageText(el) {
+  const container = el.closest('figure') || el.parentElement;
+  if (!container) return '';
+  const text = truncateText(container.innerText || container.textContent || '', IMAGE_CONTEXT_CHARS);
+  return text === imageCaption(el) ? '' : text;
+}
+
+function imageLooksUsable(meta, el) {
+  const path = (() => {
+    try { return new URL(meta.url).pathname.toLowerCase(); } catch { return ''; }
+  })();
+  if (/\.(svg|ico)$/i.test(path)) return false;
+  if (meta.source !== 'og:image' && (!el || !isVisibleElement(el))) return false;
+
+  const renderedArea = meta.renderedWidth * meta.renderedHeight;
+  const intrinsicArea = meta.width * meta.height;
+  const largeRendered = (
+    meta.renderedWidth >= IMAGE_MIN_RENDERED_WIDTH &&
+    meta.renderedHeight >= IMAGE_MIN_RENDERED_HEIGHT &&
+    renderedArea >= IMAGE_MIN_RENDERED_AREA
+  );
+  const largeIntrinsicWithoutRenderedSize = (
+    !meta.renderedWidth &&
+    !meta.renderedHeight &&
+    meta.width >= IMAGE_MIN_RENDERED_WIDTH &&
+    meta.height >= IMAGE_MIN_RENDERED_HEIGHT &&
+    intrinsicArea >= IMAGE_MIN_RENDERED_AREA
+  );
+  const inContent = el ? isContentImageElement(el) : false;
+  const inNonContent = el ? isNonContentImageElement(el) : false;
+  const descriptor = normalizeText(`${meta.url} ${meta.alt} ${meta.caption} ${elementSignature(el)}`);
+
+  if (meta.source === 'css-background' && (!largeRendered || (!inContent && inNonContent))) return false;
+  if (meta.source !== 'og:image' && !largeRendered && !largeIntrinsicWithoutRenderedSize && !inContent) return false;
+  if (renderedArea > 0 && (meta.renderedWidth <= 2 || meta.renderedHeight <= 2)) return false;
+  if (DECORATIVE_IMAGE_RE.test(descriptor) && (!inContent || renderedArea < 90000)) return false;
+  if (inNonContent && !inContent && renderedArea < 160000) return false;
+
+  return true;
+}
+
+function scoreImage(meta, el) {
+  const area = Math.max(meta.renderedWidth * meta.renderedHeight, meta.width * meta.height, 0);
+  let score = Math.min(90, Math.round(area / 12000));
+  if (el?.closest?.('figure')) score += 50;
+  if (el?.closest?.('article')) score += 45;
+  if (el?.closest?.('main, [role="main"]')) score += 35;
+  if (ancestorMatches(el, CONTENT_CLASS_RE)) score += 25;
+  if (isNonContentImageElement(el)) score -= 45;
+  if (meta.caption) score += 25;
+  if (meta.alt) score += 10;
+  if (meta.heading) score += 10;
+  if (meta.source === 'og:image') score += 30;
+  if (meta.source === 'css-background') score += 10;
+  return score;
+}
+
+function makeImageMeta(rawUrl, el, source, index) {
+  const url = normalizeImageUrl(rawUrl);
+  if (!url) return null;
+  const dims = el ? imageDimensions(el) : { width: 0, height: 0, renderedWidth: 0, renderedHeight: 0 };
+  const meta = {
+    url,
+    source,
+    alt: truncateText(el?.getAttribute?.('alt') || '', 180),
+    caption: el ? imageCaption(el) : '',
+    heading: el ? nearestHeading(el) : '',
+    nearbyText: el ? nearbyImageText(el) : '',
+    width: dims.width,
+    height: dims.height,
+    renderedWidth: dims.renderedWidth,
+    renderedHeight: dims.renderedHeight,
+    index,
+  };
+  if (!imageLooksUsable(meta, el)) return null;
+  meta.score = scoreImage(meta, el);
+  return meta;
+}
+
+function backgroundImageElements() {
+  const prioritized = Array.from(document.querySelectorAll('article *, main *, figure *, [role="main"] *'));
+  const fallback = Array.from(document.body?.querySelectorAll('*') || []).slice(0, 800);
+  return Array.from(new Set([...prioritized, ...fallback])).slice(0, 1600);
+}
+
+function extractPageImages() {
+  const candidates = [];
+  let index = 0;
+
+  document.querySelectorAll('meta[property="og:image"], meta[property="og:image:url"], meta[name="twitter:image"], meta[name="twitter:image:src"]').forEach((meta) => {
+    const item = makeImageMeta(meta.getAttribute('content'), null, 'og:image', index++);
+    if (item) candidates.push(item);
+  });
+
+  for (const img of document.images || []) {
+    if (img.closest(EXTENSION_UI_SELECTOR)) continue;
+    const imageIndex = index++;
+    const sources = [
+      ['img-current-src', img.currentSrc],
+      ['img-src', img.getAttribute('src') || img.src],
+      ['img-srcset', bestSrcsetUrl(img.getAttribute('srcset'))],
+      ['picture-source', bestPictureSourceUrl(img)],
+    ];
+    for (const [source, rawUrl] of sources) {
+      const item = makeImageMeta(rawUrl, img, source, imageIndex);
+      if (item) candidates.push(item);
+    }
+  }
+
+  for (const el of backgroundImageElements()) {
+    if (!isVisibleElement(el)) continue;
+    const rect = el.getBoundingClientRect();
+    if (rect.width < 220 || rect.height < 120) continue;
+    const style = getComputedStyle(el);
+    const urls = cssBackgroundUrls(style.backgroundImage);
+    if (!urls.length) continue;
+    const imageIndex = index++;
+    for (const rawUrl of urls) {
+      const item = makeImageMeta(rawUrl, el, 'css-background', imageIndex);
+      if (item) candidates.push(item);
+    }
+  }
+
+  const byUrl = new Map();
+  for (const item of candidates) {
+    const existing = byUrl.get(item.url);
+    if (!existing || item.score > existing.score) byUrl.set(item.url, item);
+  }
+
+  return Array.from(byUrl.values())
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .slice(0, IMAGE_MAX_RESULTS)
+    .sort((a, b) => a.index - b.index);
 }
 
 function showRenarrationPanel() {

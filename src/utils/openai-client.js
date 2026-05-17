@@ -124,20 +124,21 @@ export async function callOpenAIText({ systemPrompt = '', userText = '', model, 
   return { text, response: data };
 }
 
-export async function callOpenAIJson({ systemPrompt = '', prompt = '', images = [], schema, schemaName = 'structured_output', model, maxOutputTokens, timeoutMs } = {}) {
+export async function callOpenAIJson({ systemPrompt = '', prompt = '', images = [], imageDetail, schema, schemaName = 'structured_output', model, maxOutputTokens, timeoutMs } = {}) {
   const content = [{ type: 'input_text', text: String(prompt || '') }];
   for (const image of images) {
-    const imageUrl = typeof image === 'string' ? image : image?.dataUrl;
+    const imageUrl = typeof image === 'string' ? image : (image?.dataUrl || image?.url || image?.imageUrl);
     if (!imageUrl) continue;
     content.push({
       type: 'input_image',
       image_url: imageUrl,
-      detail: OPENAI_IMAGE_DETAIL,
+      detail: image?.detail || image?.imageDetail || imageDetail || OPENAI_IMAGE_DETAIL,
     });
   }
+  const hasImageInputs = content.some((item) => item.type === 'input_image');
 
   const data = await createResponse({
-    model: model || (images.length ? OPENAI_VISION_MODEL : OPENAI_TEXT_MODEL),
+    model: model || (hasImageInputs ? OPENAI_VISION_MODEL : OPENAI_TEXT_MODEL),
     instructions: systemPrompt || undefined,
     input: [{ role: 'user', content }],
     max_output_tokens: maxOutputTokens,

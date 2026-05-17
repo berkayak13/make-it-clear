@@ -200,7 +200,7 @@ export const pageFlowHandlers = {
       await openRenarrationPanel(tab);
       await sendToTabRequired(tab.id, {
         action: 'update-renarration-progress',
-        text: 'Extracting page text and screenshots...',
+        text: 'Extracting page text and images...',
       });
 
       const extraction = await extractPageKnowledge({

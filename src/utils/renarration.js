@@ -3,6 +3,8 @@ import { getSettingsWithTaskMigration, DEFAULT_TASKS, getOrCreateUserId } from '
 import { researchGetByIndex } from './firestore-client.js';
 import { getSystemBoilerplate, applyPromptTemplate } from './prompt-loader.js';
 
+const ENGLISH_OUTPUT_RULE = 'Output language requirement: Write the final renarration in English, even if the source page, selected text, task, persona, saved reading goal, or user message uses another language.';
+
 export function truncateForContext(text, maxChars = 12000) {
   return text.length > maxChars ? text.slice(0, maxChars) + '...(truncated)' : text;
 }
@@ -43,13 +45,16 @@ export async function buildRenarrationPrompt(taskName, overrideTask, options = {
 
   const boilerplate = await getSystemBoilerplate();
   const { readingGoal } = await chrome.storage.sync.get(['readingGoal']);
-  const systemPrompt = applyPromptTemplate(
-    settings.systemPromptTemplate,
-    task?.textPrompt || '',
-    persona ? (persona.systemAddendum || persona.description || '') : '',
-    boilerplate,
-    formatReadingGoal(readingGoal)
-  );
+  const systemPrompt = [
+    applyPromptTemplate(
+      settings.systemPromptTemplate,
+      task?.textPrompt || '',
+      persona ? (persona.systemAddendum || persona.description || '') : '',
+      boilerplate,
+      formatReadingGoal(readingGoal)
+    ),
+    ENGLISH_OUTPUT_RULE,
+  ].filter(Boolean).join('\n\n');
 
   return { systemPrompt, task, persona, readingGoal: formatReadingGoal(readingGoal) };
 }

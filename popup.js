@@ -446,7 +446,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       reextractBtn.disabled = true;
       reextractBtn.style.display = 'none';
     }
-    setExtractionStatus('Capturing screenshots and extracting...', false);
+    setExtractionStatus('Reading page text and images...', false);
 
     try {
       const res = await chrome.runtime.sendMessage({
@@ -504,9 +504,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   function formatExtractionStatus(extraction) {
+    const imageCount = extraction?.imageCount || extraction?.images?.length || 0;
     const count = extraction?.sliceCount || 0;
     const partial = extraction?.partial ? ' · partial' : '';
-    return `Extracted ${count} slice${count === 1 ? '' : 's'}${partial}`;
+    if (count) return `Extracted ${count} fallback screenshot slice${count === 1 ? '' : 's'}${partial}`;
+    if (imageCount) return `Extracted ${imageCount} image${imageCount === 1 ? '' : 's'}${partial}`;
+    return `Extracted text only${partial}`;
   }
 
   function isSameExtractionForTab(extraction, tab) {
