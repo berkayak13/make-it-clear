@@ -325,6 +325,21 @@ function escapeHtml(value='') {
 
 // Setup event listeners
 function setupEventListeners() {
+  // Tab switching
+  const tabsNav = document.getElementById('settingsTabs');
+  if (tabsNav) {
+    tabsNav.addEventListener('click', (e) => {
+      const btn = e.target.closest('.settings-tab');
+      if (!btn) return;
+      const tab = btn.dataset.tab;
+      document.querySelectorAll('.settings-tab').forEach(t => t.classList.remove('active'));
+      btn.classList.add('active');
+      document.querySelectorAll('.settings-panel').forEach(p => {
+        p.classList.toggle('active', p.dataset.panel === tab);
+      });
+    });
+  }
+
   // Add task button
   document.getElementById('addTaskBtn').addEventListener('click', () => {
     openTaskModal(null);

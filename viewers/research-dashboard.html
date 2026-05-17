@@ -3,33 +3,85 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Research Dashboard</title>
+  <title>Clear · Research Dashboard</title>
+  <link rel="stylesheet" href="../tokens.css">
   <link rel="stylesheet" href="research-dashboard.css">
 </head>
 <body>
-  <div class="container">
-    <h1>Research Dashboard</h1>
-    <div class="meta">Research data viewer for the OpenAI renarration study</div>
+  <div class="rd-shell">
+    <!-- Header -->
+    <header class="rd-header">
+      <div class="rd-header-top">
+        <div class="rd-brand">
+          <div class="rd-brand-mark">C</div>
+          <span class="rd-brand-wordmark">Clear / Research</span>
+        </div>
+        <span class="rd-header-spacer"></span>
+        <input type="text" id="searchInput" class="rd-search" placeholder="Search logs, users, sessions...">
+        <select id="userFilter" class="rd-select">
+          <option value="">All Users</option>
+        </select>
+        <button id="refreshBtn" class="clear-btn clear-btn--sm clear-btn--ghost">Refresh</button>
+        <button id="exportAllBtn" class="clear-btn clear-btn--sm clear-btn--primary" onclick="exportAll()">Export</button>
+      </div>
+      <nav class="rd-tabs">
+        <button class="tab active" data-tab="overview">Overview</button>
+        <button class="tab" data-tab="conversations">Conversations</button>
+        <button class="tab" data-tab="experiments">Experiments</button>
+        <button class="tab" data-tab="feedback">Feedback</button>
+        <button class="tab" data-tab="preferences">Preferences</button>
+        <button class="tab" data-tab="logs">Logs</button>
+        <button class="tab" data-tab="export">Export</button>
+      </nav>
+    </header>
 
-    <div class="controls">
-      <select id="userFilter">
-        <option value="">All Users</option>
-      </select>
-      <input type="text" id="searchInput" class="search-input" placeholder="Search logs...">
-      <button id="refreshBtn">Refresh</button>
-    </div>
+    <!-- Overview Tab -->
+    <div class="tab-content active" id="tab-overview">
+      <div class="rd-kpi-strip" id="kpiStrip">
+        <div class="rd-kpi-card">
+          <span class="clear-eyebrow">Sessions</span>
+          <div class="rd-kpi-value" id="kpiSessions">—</div>
+          <div class="rd-kpi-delta" id="kpiSessionsDelta"></div>
+        </div>
+        <div class="rd-kpi-card">
+          <span class="clear-eyebrow">Experiment runs</span>
+          <div class="rd-kpi-value" id="kpiExperiments">—</div>
+          <div class="rd-kpi-delta" id="kpiExperimentsDelta"></div>
+        </div>
+        <div class="rd-kpi-card">
+          <span class="clear-eyebrow">Feedback events</span>
+          <div class="rd-kpi-value" id="kpiFeedback">—</div>
+          <div class="rd-kpi-delta" id="kpiFeedbackDelta"></div>
+        </div>
+        <div class="rd-kpi-card">
+          <span class="clear-eyebrow">Users</span>
+          <div class="rd-kpi-value" id="kpiUsers">—</div>
+          <div class="rd-kpi-delta" id="kpiUsersDelta"></div>
+        </div>
+      </div>
 
-    <div class="tabs">
-      <button class="tab active" data-tab="conversations">Conversations</button>
-      <button class="tab" data-tab="experiments">Experiments</button>
-      <button class="tab" data-tab="feedback">Feedback</button>
-      <button class="tab" data-tab="preferences">Preferences</button>
-      <button class="tab" data-tab="logs">Research Logs</button>
-      <button class="tab" data-tab="export">Export</button>
+      <div class="rd-overview-grid">
+        <!-- Feedback distribution -->
+        <div class="rd-card">
+          <span class="clear-eyebrow">Feedback distribution</span>
+          <div class="rd-feedback-bar" id="feedbackBar">
+            <div class="rd-fb-pos" style="flex:1"></div>
+            <div class="rd-fb-neu" style="flex:0"></div>
+            <div class="rd-fb-neg" style="flex:0"></div>
+          </div>
+          <div class="rd-feedback-legend" id="feedbackLegend"></div>
+        </div>
+
+        <!-- Recent runs -->
+        <div class="rd-card">
+          <span class="clear-eyebrow">Recent experiment runs</span>
+          <div id="recentRuns" class="rd-recent-runs"></div>
+        </div>
+      </div>
     </div>
 
     <!-- Conversations Tab -->
-    <div class="tab-content active" id="tab-conversations">
+    <div class="tab-content" id="tab-conversations">
       <div id="conversationsList"></div>
     </div>
 
@@ -50,8 +102,8 @@
 
     <!-- Research Logs Tab -->
     <div class="tab-content" id="tab-logs">
-      <div class="controls" style="margin-bottom:12px;">
-        <select id="logCategoryFilter">
+      <div class="rd-log-controls">
+        <select id="logCategoryFilter" class="rd-select">
           <option value="">All Categories</option>
           <option value="renarration">Renarration</option>
           <option value="feedback">Feedback</option>
@@ -64,7 +116,7 @@
 
     <!-- Export Tab -->
     <div class="tab-content" id="tab-export">
-      <p style="margin-bottom:16px;font-size:14px;color:#718096;">Export research data as JSON or CSV files. Use the user filter above to export per-participant data.</p>
+      <p class="rd-export-desc">Export research data as JSON or CSV files. Use the user filter above to export per-participant data.</p>
       <div class="export-section" id="exportSection"></div>
     </div>
   </div>

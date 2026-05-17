@@ -37,7 +37,7 @@ Tasks, personas, the system prompt template, and research settings are managed i
 ## Structure
 
 - `src/utils/openai-client.js`: OpenAI Responses API wrapper with `store: false`, text calls, vision calls, and structured JSON helpers.
-- `src/page-flow/extract-page.js`: visible text plus direct page-image extraction into compact page knowledge, with screenshot fallback.
+- `src/page-flow/extract-page.js`: visible DOM text plus direct page-image extraction into compact page knowledge.
 - `src/page-flow/renarrate-page.js`: final page renarration using saved reading goal, task, persona, extracted knowledge, and raw page text.
 - `src/page-flow/orchestrator.js`: background message handlers, progress updates, storage, and panel rendering.
 - `content.js`: selected-text overlay plus the plain split panel. Final page output is rendered with `textContent`.

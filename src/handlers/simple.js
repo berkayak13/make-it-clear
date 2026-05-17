@@ -58,6 +58,12 @@ export const simpleHandlers = {
     return { success: true, userId };
   },
 
+  'open-extracted-content-viewer': async (_request, sender) => {
+    const sourceTabId = sender?.tab?.id ? `?tabId=${encodeURIComponent(sender.tab.id)}` : '';
+    await chrome.tabs.create({ url: chrome.runtime.getURL(`viewers/extracted-content.html${sourceTabId}`) });
+    return { success: true };
+  },
+
   'set-user-id': async (request, _sender) => {
     const userId = await setUserId(request.userId);
     return { success: true, userId };

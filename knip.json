@@ -3,9 +3,10 @@
   "entry": [
     "src/background/main.js",
     "content.js",
-    "popup.js",
+    "popup-stub.js",
     "options.js",
-    "sidepanel.js",
+    "sidepanel-stub.js",
+    "clear-overlay.js",
     "viewers/*.js"
   ],
   "project": [

@@ -3,15 +3,80 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Extracted Content</title>
+  <title>Clear · Page Knowledge</title>
   <link rel="stylesheet" href="../tokens.css">
   <link rel="stylesheet" href="extracted-content.css">
 </head>
 <body>
-  <main class="viewer">
-    <h1>Extracted Content</h1>
-    <pre id="extractedContent" class="extracted-content">Loading...</pre>
-  </main>
+  <div class="ev-shell">
+    <!-- Header -->
+    <header class="ev-header">
+      <span class="clear-eyebrow">Page knowledge · extracted</span>
+      <h1 class="ev-title" id="pageTitle">Extracted Content</h1>
+      <div class="ev-meta-row">
+        <span class="ev-meta-item" id="pageSource">—</span>
+        <span class="ev-meta-sep">·</span>
+        <span class="ev-meta-item clear-mono" id="readTime">—</span>
+        <span class="ev-meta-sep">·</span>
+        <span class="ev-meta-item clear-mono" id="wordCount">—</span>
+        <span class="ev-header-spacer"></span>
+        <button class="clear-btn clear-btn--xs clear-btn--ghost" id="reextractBtn">Re-extract</button>
+        <button class="clear-btn clear-btn--xs clear-btn--ghost" id="copyJsonBtn">Copy JSON</button>
+        <button class="clear-btn clear-btn--xs clear-btn--primary" id="renarrateBtn">Renarrate</button>
+      </div>
+    </header>
+
+    <!-- Body -->
+    <div class="ev-body">
+      <div class="ev-grid">
+        <!-- Main column -->
+        <div class="ev-main">
+          <div class="ev-section">
+            <span class="clear-eyebrow">Summary</span>
+            <p class="ev-summary" id="summaryText">Loading...</p>
+          </div>
+
+          <div class="ev-section">
+            <span class="clear-eyebrow" id="factsLabel">Facts &amp; claims</span>
+            <div class="ev-facts-table" id="factsTable">
+              <div class="ev-empty-state" id="emptyState">No extracted content found.</div>
+            </div>
+          </div>
+
+          <!-- Fallback: raw text -->
+          <div class="ev-section" id="rawSection" style="display:none;">
+            <span class="clear-eyebrow">Raw extraction</span>
+            <pre class="ev-raw" id="extractedContent"></pre>
+          </div>
+        </div>
+
+        <!-- Sidebar -->
+        <div class="ev-sidebar">
+          <div class="ev-sidebar-card" id="entitiesCard" style="display:none;">
+            <span class="clear-eyebrow">Entities</span>
+            <div class="ev-entities" id="entitiesList"></div>
+          </div>
+
+          <div class="ev-sidebar-card" id="goalMatchCard" style="display:none;">
+            <span class="clear-eyebrow">Reading goal match</span>
+            <div class="ev-goal-score">
+              <span class="ev-goal-number" id="goalScore">—</span>
+              <span class="ev-goal-max">/ 100</span>
+            </div>
+            <div class="ev-goal-bar">
+              <div class="ev-goal-bar-fill" id="goalBarFill" style="width:0%"></div>
+            </div>
+            <p class="ev-goal-explanation" id="goalExplanation"></p>
+          </div>
+
+          <div class="ev-sidebar-card" id="extractionMetaCard" style="display:none;">
+            <span class="clear-eyebrow">Extraction</span>
+            <div class="ev-meta-list" id="extractionMeta"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <script src="extracted-content.js"></script>
 </body>

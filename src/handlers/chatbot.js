@@ -260,6 +260,7 @@ export const chatbotHandlers = {
         sessionId: request.sessionId,
         preferences: goal
       });
+      await chrome.storage.sync.set({ readingGoal: goal });
       void bestEffortResearchPut('userPreferences', preference);
       session.extractedGoal = goal;
       await saveSession(session);

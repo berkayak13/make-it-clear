@@ -3,75 +3,73 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Reading Assistant</title>
+  <title>Clear</title>
   <link rel="stylesheet" href="tokens.css">
-  <link rel="stylesheet" href="sidepanel.css">
+  <style>
+    body {
+      margin: 0;
+      padding: 24px;
+      font-family: var(--font-sans);
+      background: var(--paper);
+      color: var(--ink);
+      -webkit-font-smoothing: antialiased;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      box-sizing: border-box;
+    }
+    .sp-card {
+      text-align: center;
+      max-width: 240px;
+    }
+    .sp-wordmark {
+      font-weight: 600;
+      font-size: 18px;
+      letter-spacing: -0.02em;
+      margin-bottom: 6px;
+    }
+    .sp-tagline {
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 20px;
+      line-height: 1.4;
+    }
+    .sp-btn {
+      width: 100%;
+      padding: 10px 16px;
+      border: none;
+      border-radius: var(--r-2);
+      font-family: var(--font-sans);
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      background: var(--ink);
+      color: var(--paper);
+      transition: background 150ms var(--ease);
+    }
+    .sp-btn:hover {
+      background: var(--ink-2);
+    }
+    .sp-hint {
+      margin-top: 14px;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--muted);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+  </style>
 </head>
 <body>
-  <div class="chat-container">
-    <div class="chat-header">
-      <div class="chat-header-title">Reading Assistant</div>
-      <div class="chat-header-user">
-        <span class="user-badge" id="userBadge">--</span>
-        <button class="new-session-btn" id="newSessionBtn" title="New conversation" aria-label="Start new conversation">+</button>
-      </div>
-    </div>
-
-    <div class="extraction-panel" id="extractionPanel">
-      <div class="extraction-header">
-        <div class="extraction-title">Page Knowledge</div>
-        <button class="extraction-btn" id="extractBtn" title="Extract knowledge from this page">Extract</button>
-      </div>
-      <div class="extraction-status" id="extractionStatus">No extraction yet — click Extract to capture this page.</div>
-      <div class="extraction-body" id="extractionBody" style="display:none;"></div>
-    </div>
-
-    <div class="chat-messages" id="chatMessages">
-      <div class="chat-welcome">
-        <p>Tell me what you want to get from web content today.</p>
-        <p class="chat-welcome-hint">I'll help you set a reading goal so content can be adapted to your needs.</p>
-      </div>
-    </div>
-
-    <div class="goal-preview" id="goalPreview" style="display:none;">
-      <div class="persona-preview-header">
-        <span>Reading Goal</span>
-        <button class="persona-dismiss" id="goalDismiss" aria-label="Dismiss reading goal">&times;</button>
-      </div>
-      <div class="persona-preview-body">
-        <div class="persona-field"><strong>Goal:</strong> <span id="goalPreviewText"></span></div>
-        <div class="persona-field"><strong>Depth:</strong> <span id="goalPreviewDepth"></span></div>
-        <div class="persona-field"><strong>Focus:</strong> <span id="goalPreviewFocus"></span></div>
-        <div class="persona-field"><strong>Style:</strong> <span id="goalPreviewStyle"></span></div>
-        <div class="persona-field"><strong>Notes:</strong> <span id="goalPreviewNotes"></span></div>
-      </div>
-      <div class="persona-preview-actions">
-        <button class="primary-btn" id="applyGoalBtn">Apply Goal</button>
-        <button class="secondary-btn" id="discardGoalBtn">Discard</button>
-      </div>
-    </div>
-
-
-
-    <div class="persona-refinement-banner" id="refinementBanner" style="display:none;">
-      <span>Multiple negative feedbacks detected. Consider refining your persona through conversation.</span>
-      <button class="secondary-btn" id="refineBannerBtn">Refine</button>
-      <button class="banner-dismiss" id="refineBannerDismiss" aria-label="Dismiss refinement suggestion">&times;</button>
-    </div>
-
-    <div class="quick-replies" id="quickReplies" style="display:none;"></div>
-
-    <div class="chat-input-area">
-      <button class="generate-persona-btn" id="setGoalBtn" style="display:none;">Set Reading Goal</button>
-      <div class="chat-secondary-actions" id="secondaryActions" style="display:none;">
-      </div>
-      <div class="chat-input-row">
-        <textarea id="chatInput" placeholder="Type a message..." rows="1" aria-label="Chat message input"></textarea>
-        <button class="send-btn" id="sendBtn" title="Send" aria-label="Send message">&#9654;</button>
-      </div>
-    </div>
+  <div class="sp-card">
+    <div class="sp-wordmark">Clear</div>
+    <div class="sp-tagline">The overlay lives on the page.<br>Open it from any tab.</div>
+    <button class="sp-btn" id="openOverlayBtn">Open Overlay on This Tab</button>
+    <div class="sp-hint">Or click the extension icon</div>
   </div>
 
-  <script src="sidepanel.js"></script>
+  <script src="sidepanel-stub.js"></script>
 </body>
 </html>

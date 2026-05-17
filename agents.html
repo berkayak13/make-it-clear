@@ -220,8 +220,8 @@
 
         <article class="step">
           <span class="badge">3. Extraction</span>
-          <h3>Text plus screenshots</h3>
-          <p><code>extract-page.js</code> requests visible text from <code>content.js</code>, captures page slices, and asks OpenAI for compact JSON knowledge.</p>
+          <h3>DOM text plus page images</h3>
+          <p><code>extract-page.js</code> requests visible DOM text and direct page-image metadata from <code>content.js</code>, then asks OpenAI for compact JSON knowledge.</p>
         </article>
 
         <article class="step">
@@ -279,7 +279,7 @@
       <section class="panel third">
         <h2>Error Handling</h2>
         <p>
-          Missing API key, tab access failure, screenshot failure, or OpenAI request failure returns a message to the split panel
+          Missing API key, tab access failure, extraction failure, or OpenAI request failure returns a message to the split panel
           through <code>update-renarration-progress</code>.
         </p>
       </section>

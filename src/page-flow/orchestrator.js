@@ -127,6 +127,9 @@ export const pageFlowHandlers = {
     if (!lastExtraction) {
       return { success: false, error: 'First extract the page' };
     }
+    if (lastExtraction.model === 'local-fast-text') {
+      return { success: false, error: 'First extract the page' };
+    }
     if (!String(lastExtraction.compactText || '').trim()) {
       return { success: false, error: 'First extract the page' };
     }

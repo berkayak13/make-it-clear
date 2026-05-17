@@ -13,7 +13,7 @@
 
 - `.env.example` with `VITE_OPENAI_*` settings.
 - `src/utils/openai-client.js` for OpenAI Responses API calls with `store: false`.
-- `src/page-flow/extract-page.js` for visible text plus screenshot knowledge extraction.
+- `src/page-flow/extract-page.js` for visible DOM text plus direct page-image knowledge extraction.
 - `src/page-flow/renarrate-page.js` for final plain-text page renarration.
 - `src/page-flow/orchestrator.js` for progress, storage, and content panel rendering.
 - `knip.json` and `npm run knip`.

@@ -1,4 +1,3 @@
-import { captureFullPageSlices } from '../utils/screenshot-capture.js';
 import { callOpenAIJson, OPENAI_CONFIG } from '../utils/openai-client.js';
 
 const MAX_TEXT_CHARS = 60000;
@@ -7,10 +6,7 @@ const TEXT_CHUNK_CHARS = 12000;
 const RETRY_TEXT_CHUNK_CHARS = 8000;
 const MAX_TEXT_CHUNK_OUTPUT_TOKENS = 1400;
 const MAX_IMAGE_OUTPUT_TOKENS = 900;
-const MAX_SCREENSHOT_OUTPUT_TOKENS = 2400;
-const MAX_SCREENSHOT_SLICES = 20;
 const MAX_DIRECT_IMAGES = 6;
-const SHORT_TEXT_CHARS = 600;
 const TEXT_CHUNK_CONCURRENCY = 3;
 
 function boundedTimeout(maxMs) {
@@ -21,31 +17,6 @@ function boundedTimeout(maxMs) {
 const TEXT_STAGE_TIMEOUT_MS = boundedTimeout(30000);
 const TEXT_RETRY_TIMEOUT_MS = boundedTimeout(20000);
 const IMAGE_STAGE_TIMEOUT_MS = boundedTimeout(15000);
-const SCREENSHOT_STAGE_TIMEOUT_MS = boundedTimeout(35000);
-
-const extractionSchema = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['compactText', 'title', 'topic', 'summary', 'facts', 'entities', 'keyTerms'],
-  properties: {
-    compactText: { type: 'string' },
-    title: { type: 'string' },
-    topic: { type: 'string' },
-    summary: { type: 'string' },
-    facts: {
-      type: 'array',
-      items: { type: 'string' },
-    },
-    entities: {
-      type: 'array',
-      items: { type: 'string' },
-    },
-    keyTerms: {
-      type: 'array',
-      items: { type: 'string' },
-    },
-  },
-};
 
 const textChunkSchema = {
   type: 'object',
@@ -117,10 +88,6 @@ async function getVisibleText(tabId) {
   return { success: false, text: '', images: [], title: '', url: '' };
 }
 
-function chooseSlices(images) {
-  return images.slice(0, MAX_SCREENSHOT_SLICES);
-}
-
 function selectWebsiteImages(images = []) {
   const seen = new Set();
   const selected = [];
@@ -151,11 +118,9 @@ function selectWebsiteImages(images = []) {
     .sort((a, b) => a.index - b.index);
 }
 
-function formatImageMetadata(images, { supplied = true } = {}) {
+function formatImageMetadata(images) {
   if (!images.length) return 'Direct website images: none found.';
-  const header = supplied
-    ? 'Direct website images supplied to the model, in page order:'
-    : 'Direct website images found in the DOM. Their URLs were not supplied in this fallback call, but their page metadata may still be useful:';
+  const header = 'Direct website images supplied to the model, in page order:';
   const lines = [header];
   images.forEach((image, i) => {
     const dimensions = image.renderedWidth && image.renderedHeight
@@ -250,7 +215,7 @@ function buildImagePrompt({ pageMetadata, visible, websiteImages }) {
   return [
     'Extract page-relevant visual knowledge from the supplied direct website images for a renarration system.',
     'Use the image pixels and the associated page metadata. The images are supplied in the same order as the metadata.',
-    'Focus only on visual information that affects the article or main page meaning: figures, charts, product or event photos, captions, labels, people, places, objects, timelines, screenshots, and evidence not already obvious from boilerplate.',
+    'Focus only on visual information that affects the article or main page meaning: figures, charts, product or event photos, captions, labels, people, places, objects, timelines, and evidence not already obvious from boilerplate.',
     'Ignore decorative, branding, ad, social, and layout-only images.',
     'If an image is not meaningful or cannot be interpreted confidently, omit it from imageNotes.',
     'The imageNotes field must be plain text. Use one atomic visual fact or relationship per line.',
@@ -259,29 +224,7 @@ function buildImagePrompt({ pageMetadata, visible, websiteImages }) {
     `URL: ${pageMetadata.url || visible.url || ''}`,
     `Title: ${pageMetadata.title || visible.title || ''}`,
     '',
-    formatImageMetadata(websiteImages, { supplied: true }),
-  ].join('\n');
-}
-
-function buildScreenshotPrompt({ pageText, pageMetadata, visible, websiteImages }) {
-  return [
-    'Extract comprehensive article knowledge for a renarration system from fallback screenshot slices.',
-    'Use visible DOM text when available, but rely on screenshots to recover headings, charts, layout clues, image content, labels, and content missing from text extraction.',
-    'Focus on the article or main page content. Omit navigation, ads, cookie banners, repeated boilerplate, decorative UI text, and unrelated sidebar items.',
-    'Capture high-signal article facts and claims that affect meaning: main claims, supporting details, quotes, attributions, dates, names, numbers, examples, causes, effects, caveats, chronology, and conclusions.',
-    'The compactText field is the main source artifact. Make it dense high-signal fact-by-fact notes.',
-    'Format compactText as plain text grouped by source section when section order is clear.',
-    'Use one atomic fact, claim, quote, or relationship per line.',
-    'Do not use Markdown bullets, numbering, HTML, or JSON inside compactText.',
-    'Use short fragments or simple sentences. Avoid speculation.',
-    '',
-    `URL: ${pageMetadata.url || visible.url || ''}`,
-    `Title: ${pageMetadata.title || visible.title || ''}`,
-    '',
-    formatImageMetadata(websiteImages, { supplied: false }),
-    '',
-    'Visible page text:',
-    pageText || '[No visible text extracted]',
+    formatImageMetadata(websiteImages),
   ].join('\n');
 }
 
@@ -321,51 +264,39 @@ function formatImageResult(json) {
   return Array.isArray(json?.facts) ? json.facts.map((fact) => String(fact || '').trim()).filter(Boolean).join('\n') : '';
 }
 
-function formatExtractionResult(json) {
-  const notes = String(json?.compactText || '').trim();
-  if (notes) return notes;
-  return Array.isArray(json?.facts) ? json.facts.map((fact) => String(fact || '').trim()).filter(Boolean).join('\n') : '';
-}
-
-function assembleStageKnowledge({ textStage = {}, imageStage = {}, screenshotStage = {}, pageMetadata = {}, visible = {} }) {
+function assembleStageKnowledge({ textStage = {}, imageStage = {}, pageMetadata = {}, visible = {} }) {
   const textKnowledge = textStage.knowledge || {};
   const imageKnowledge = imageStage.knowledge || {};
-  const screenshotKnowledge = screenshotStage.knowledge || {};
   const summaries = [
     textKnowledge.summary,
-    screenshotKnowledge.summary,
   ].map((item) => String(item || '').trim()).filter(Boolean);
 
   return {
-    title: firstString(textKnowledge.title, screenshotKnowledge.title, pageMetadata.title, visible.title),
-    topic: firstString(textKnowledge.topic, screenshotKnowledge.topic),
+    title: firstString(textKnowledge.title, pageMetadata.title, visible.title),
+    topic: firstString(textKnowledge.topic),
     summary: summaries.join('\n'),
     facts: uniqueStrings([
       ...(textKnowledge.facts || []),
-      ...(screenshotKnowledge.facts || []),
       ...(imageKnowledge.facts || []),
     ], 50),
     entities: uniqueStrings([
       ...(textKnowledge.entities || []),
-      ...(screenshotKnowledge.entities || []),
       ...(imageKnowledge.entities || []),
     ], 50),
     keyTerms: uniqueStrings([
       ...(textKnowledge.keyTerms || []),
-      ...(screenshotKnowledge.keyTerms || []),
       ...(imageKnowledge.keyTerms || []),
     ], 50),
   };
 }
 
-function localExtractionFromStages({ textStage, imageStage, screenshotStage, pageMetadata, visible }) {
+function localExtractionFromStages({ textStage, imageStage, pageMetadata, visible }) {
   const sections = [
     textStage?.notes ? ['Page text', textStage.notes] : null,
     imageStage?.notes ? ['Page images', imageStage.notes] : null,
-    screenshotStage?.notes ? ['Fallback screenshots', screenshotStage.notes] : null,
   ].filter(Boolean);
   const compactText = trimText(sections.map(([label, value]) => `${label}\n${value}`).join('\n\n'), MAX_EXTRACTED_NOTES_CHARS);
-  const knowledge = assembleStageKnowledge({ textStage, imageStage, screenshotStage, pageMetadata, visible });
+  const knowledge = assembleStageKnowledge({ textStage, imageStage, pageMetadata, visible });
   return { compactText, knowledge };
 }
 
@@ -454,54 +385,6 @@ async function extractImageStage({ websiteImages, pageMetadata, visible, onProgr
   };
 }
 
-async function captureFallbackScreenshots(tabId, onProgress) {
-  onProgress?.('Capturing fallback screenshots...');
-  const { images, partial } = await captureFullPageSlices(tabId);
-  const selectedImages = chooseSlices(images || []);
-  return {
-    selectedImages,
-    totalSliceCount: images?.length || 0,
-    partial: !!partial || (images?.length || 0) > selectedImages.length,
-  };
-}
-
-async function extractScreenshotStage({ tabId, pageText, pageMetadata, visible, websiteImages, onProgress }) {
-  const fallback = await captureFallbackScreenshots(tabId, onProgress);
-  if (!fallback.selectedImages.length) {
-    return {
-      notes: '',
-      knowledge: {},
-      model: null,
-      screenshotImages: [],
-      totalSliceCount: fallback.totalSliceCount,
-      partial: fallback.partial,
-    };
-  }
-
-  onProgress?.('Extracting page knowledge with fallback screenshots...');
-  const result = await callOpenAIJson({
-    schema: extractionSchema,
-    schemaName: 'page_screenshot_knowledge',
-    prompt: buildScreenshotPrompt({ pageText, pageMetadata, visible, websiteImages }),
-    images: fallback.selectedImages,
-    imageDetail: OPENAI_CONFIG.imageDetail,
-    model: OPENAI_CONFIG.visionModel,
-    maxOutputTokens: MAX_SCREENSHOT_OUTPUT_TOKENS,
-    timeoutMs: SCREENSHOT_STAGE_TIMEOUT_MS,
-  });
-  const json = result.json || {};
-  const { compactText = '', ...knowledge } = json;
-
-  return {
-    notes: formatExtractionResult(json),
-    knowledge,
-    model: OPENAI_CONFIG.visionModel,
-    screenshotImages: fallback.selectedImages,
-    totalSliceCount: fallback.totalSliceCount,
-    partial: fallback.partial,
-  };
-}
-
 export async function extractPageKnowledge({ tabId, pageMetadata = {}, onProgress } = {}) {
   if (!tabId) throw new Error('No active tab available for extraction');
 
@@ -513,12 +396,7 @@ export async function extractPageKnowledge({ tabId, pageMetadata = {}, onProgres
 
   let textStage = { notes: '', knowledge: {}, chunkCount: 0, retried: false, model: OPENAI_CONFIG.textModel };
   let imageStage = { notes: '', knowledge: {}, model: null };
-  let screenshotStage = { notes: '', knowledge: {}, model: null };
-  let screenshotImages = [];
-  let totalSliceCount = 0;
-  let partial = false;
   let imageError = '';
-  let screenshotError = '';
 
   const textPromise = pageText
     ? extractTextStage({ pageText, pageMetadata, visible, onProgress })
@@ -541,31 +419,13 @@ export async function extractPageKnowledge({ tabId, pageMetadata = {}, onProgres
     if (textStage.notes) onProgress?.('Direct image extraction failed; continuing with text extraction...');
   }
 
-  const needsScreenshotFallback = (
-    pageText.length < SHORT_TEXT_CHARS &&
-    (!websiteImages.length || imageError) &&
-    !imageStage.notes
-  );
-  if (needsScreenshotFallback) {
-    try {
-      screenshotStage = await extractScreenshotStage({ tabId, pageText, pageMetadata, visible, websiteImages, onProgress });
-      screenshotImages = screenshotStage.screenshotImages || [];
-      totalSliceCount = screenshotStage.totalSliceCount || 0;
-      partial = !!screenshotStage.partial;
-    } catch (error) {
-      screenshotError = errorMessage(error);
-      if (!textStage.notes && !imageStage.notes) throw error;
-      onProgress?.('Fallback screenshot extraction failed; continuing with available extracted text...');
-    }
-  }
-
-  if (!textStage.notes && !imageStage.notes && !screenshotStage.notes) {
+  if (!textStage.notes && !imageStage.notes) {
     throw new Error('Could not extract text or images from this page');
   }
 
   const assembled = {
-    ...localExtractionFromStages({ textStage, imageStage, screenshotStage, pageMetadata, visible }),
-    model: textStage.model || imageStage.model || screenshotStage.model || OPENAI_CONFIG.textModel,
+    ...localExtractionFromStages({ textStage, imageStage, pageMetadata, visible }),
+    model: textStage.model || imageStage.model || OPENAI_CONFIG.textModel,
   };
 
   const extraction = {
@@ -575,10 +435,6 @@ export async function extractPageKnowledge({ tabId, pageMetadata = {}, onProgres
     rawCharCount: pageText.length,
     images: websiteImages,
     imageCount: websiteImages.length,
-    sliceCount: screenshotImages.length,
-    totalSliceCount,
-    partial,
-    usedScreenshotFallback: screenshotImages.length > 0,
     textChunkCount: textStage.chunkCount || 0,
     textRetried: !!textStage.retried,
     model: assembled.model,
@@ -588,7 +444,6 @@ export async function extractPageKnowledge({ tabId, pageMetadata = {}, onProgres
     title: pageMetadata.title || visible.title || '',
   };
   if (imageError) extraction.imageError = imageError;
-  if (screenshotError) extraction.screenshotError = screenshotError;
 
   await chrome.storage.local.set({ lastExtraction: extraction });
   return extraction;

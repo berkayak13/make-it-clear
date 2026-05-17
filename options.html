@@ -3,171 +3,210 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Renarration Settings</title>
+  <title>Clear · Settings</title>
+  <link rel="stylesheet" href="tokens.css">
   <link rel="stylesheet" href="options.css">
 </head>
 <body>
-  <div class="options-container">
-    <header>
-      <h1>OpenAI Renarration Settings</h1>
-      <p>Configure user tasks and advanced options</p>
+  <div class="settings-shell">
+    <!-- Header -->
+    <header class="settings-header">
+      <div class="settings-header-top">
+        <div class="settings-brand">
+          <div class="settings-brand-mark">C</div>
+          <span class="settings-brand-wordmark">Clear</span>
+          <span class="settings-brand-sub">· Settings</span>
+        </div>
+        <span class="settings-header-spacer"></span>
+        <span class="settings-save-indicator" id="saveStatus"></span>
+      </div>
+      <nav class="settings-tabs" id="settingsTabs">
+        <button class="settings-tab active" data-tab="tasks">Tasks</button>
+        <button class="settings-tab" data-tab="personas">Personas</button>
+        <button class="settings-tab" data-tab="prompt">System Prompt</button>
+        <button class="settings-tab" data-tab="research">Research</button>
+        <button class="settings-tab" data-tab="about">About</button>
+      </nav>
     </header>
-    
-    <main>
 
-      <!-- Tasks Section -->
-      <section class="card">
-        <h2>User Tasks</h2>
-        <p class="section-description">Customize how text is renarrated for different use cases.</p>
+    <!-- Tab: Tasks -->
+    <section class="settings-panel active" data-panel="tasks">
+      <div class="settings-section-header">
+        <div class="settings-section-title-row">
+          <span class="clear-eyebrow">Tasks</span>
+          <span class="settings-header-spacer"></span>
+          <span class="clear-eyebrow" style="margin-right:8px;">Active:</span>
+          <select id="currentTaskSelect" class="settings-select"></select>
+        </div>
+        <p class="settings-section-desc">Customize how text is renarrated for different use cases.</p>
+      </div>
+      <div class="task-list" id="taskList"></div>
+      <div class="settings-section-actions">
+        <button id="addTaskBtn" class="clear-btn clear-btn--primary">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          Add Task
+        </button>
+      </div>
+    </section>
 
-        <div style="margin-bottom:12px; font-size:14px; color:#4a5568; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-          <span><strong>Active task:</strong></span>
-          <select id="currentTaskSelect" class="task-select" style="max-width:260px; padding:6px 10px; font-size:13px;"></select>
+    <!-- Tab: Personas -->
+    <section class="settings-panel" data-panel="personas">
+      <div class="settings-section-header">
+        <div class="settings-section-title-row">
+          <span class="clear-eyebrow">Personas</span>
+          <span class="settings-header-spacer"></span>
+          <span class="clear-eyebrow" style="margin-right:8px;">Active:</span>
+          <select id="currentPersonaSelect" class="settings-select"></select>
         </div>
-        
-        <div class="task-list" id="taskList">
-          <!-- Tasks will be loaded here -->
-        </div>
+        <p class="settings-section-desc">Define audience personas that modify the system prompt.</p>
+      </div>
+      <div class="task-list" id="personaList"></div>
+      <div class="settings-section-actions">
+        <button id="addPersonaBtn" class="clear-btn clear-btn--primary">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          Add Persona
+        </button>
+      </div>
+    </section>
 
-        <button id="addTaskBtn" class="primary-btn">+ Add Custom Task</button>
-      </section>
+    <!-- Tab: System Prompt -->
+    <section class="settings-panel" data-panel="prompt">
+      <div class="settings-section-header">
+        <span class="clear-eyebrow">System Prompt Template</span>
+        <p class="settings-section-desc">Edit the template and insert <code>{task}</code>, <code>{persona}</code>, and <code>{readingGoal}</code> anywhere.</p>
+      </div>
+      <div class="prompt-editor-wrap">
+        <textarea id="systemPromptTemplate" rows="10" class="settings-textarea settings-textarea--mono" placeholder="System prompt template..."></textarea>
+      </div>
+      <div class="settings-section-actions" style="margin-bottom:20px;">
+        <button id="restoreSystemPromptBtn" class="clear-btn clear-btn--ghost">Restore Default Template</button>
+      </div>
+      <div class="settings-section-header">
+        <div class="settings-section-title-row">
+          <span class="clear-eyebrow">Effective prompt preview</span>
+          <span class="settings-header-spacer"></span>
+          <span class="clear-mono settings-readonly-badge">READ ONLY</span>
+        </div>
+      </div>
+      <div class="prompt-preview-wrap">
+        <textarea id="effectiveSystemPrompt" rows="10" readonly class="settings-textarea settings-textarea--dark"></textarea>
+      </div>
+    </section>
 
-      <!-- Personas Section -->
-      <section class="card">
-        <h2>Personas</h2>
-        <p class="section-description">Define audience personas that modify the system prompt.</p>
+    <!-- Tab: Research -->
+    <section class="settings-panel" data-panel="research">
+      <div class="settings-section-header">
+        <span class="clear-eyebrow">Research Settings</span>
+        <p class="settings-section-desc">Configure settings for user study data collection and analysis.</p>
+      </div>
 
-        <div style="margin:8px 0 4px; font-size:14px; color:#4a5568; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-          <span><strong>Active persona:</strong></span>
-          <select id="currentPersonaSelect" class="task-select" style="max-width:260px; padding:6px 10px; font-size:13px;"></select>
+      <div class="settings-field">
+        <label class="settings-label" for="studyUserId">Participant ID</label>
+        <div class="settings-field-row">
+          <input type="text" id="studyUserId" placeholder="e.g., P0001" class="settings-input" style="max-width:200px;">
+          <button id="saveUserIdBtn" class="clear-btn clear-btn--ghost clear-btn--sm">Save</button>
         </div>
+        <p class="settings-hint">Unique identifier for this participant. Auto-generated if empty.</p>
+      </div>
 
-        <div class="task-list" id="personaList">
-          <!-- Personas will be loaded here -->
-        </div>
+      <div class="settings-field">
+        <label class="settings-label settings-label--inline">
+          <input type="checkbox" id="enableResearchLoggingOpt" checked>
+          <span>Enable Research Logging</span>
+        </label>
+        <p class="settings-hint">Log preference changes, chatbot interactions, feedback events, and renarration runs to Cloud Firestore.</p>
+      </div>
 
-        <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-top:8px;">
-          <button id="addPersonaBtn" class="primary-btn">+ Add Persona</button>
-          <p style="font-size:12px;color:#4a5568;margin:0;">Select active persona in popup. Personas here are for creation & editing only.</p>
-        </div>
-      </section>
+      <hr class="clear-hr" style="margin:16px 0;">
 
-      <section class="card">
-        <h2>System Prompt Template</h2>
-        <p class="section-description">Edit the template and insert <code>{task}</code> and <code>{persona}</code> anywhere.</p>
-        <div class="form-group" style="margin-top:8px;">
-          <textarea id="systemPromptTemplate" rows="8" style="font-family:monospace;font-size:12px;white-space:pre-wrap;"></textarea>
-        </div>
-        <button id="restoreSystemPromptBtn" class="secondary-btn" style="margin-top:8px;">Restore Default Template</button>
-        <p class="section-description" style="margin-top:10px;">Effective prompt preview (read-only):</p>
-        <div class="form-group">
-          <textarea id="effectiveSystemPrompt" rows="8" readonly style="font-family:monospace;font-size:12px;white-space:pre-wrap;"></textarea>
-        </div>
-      </section>
-      
-      <section class="card">
-        <h2>Research Settings</h2>
-        <p class="section-description">Configure settings for user study data collection and analysis.</p>
+      <div class="settings-subsection-title">
+        Cloud Firestore <span id="fbSaveStatus" class="settings-saved-flash" style="display:none;">Saved!</span>
+      </div>
 
-        <div class="setting-item">
-          <label for="studyUserId">Participant ID</label>
-          <div style="display:flex;gap:8px;align-items:center;margin-top:4px;">
-            <input type="text" id="studyUserId" placeholder="e.g., P0001" style="max-width:200px;padding:8px;border:2px solid #e2e8f0;border-radius:6px;font-size:14px;">
-            <button id="saveUserIdBtn" class="secondary-btn" style="padding:8px 14px;">Save</button>
-          </div>
-          <p class="setting-description">Unique identifier for this participant. Auto-generated if empty.</p>
-        </div>
+      <div class="settings-field">
+        <label class="settings-label" for="firebaseProjectId">Firebase Project ID</label>
+        <input type="text" id="firebaseProjectId" placeholder="e.g., renarration-research" class="settings-input">
+      </div>
 
-        <div class="setting-item">
-          <label>
-            <input type="checkbox" id="enableResearchLoggingOpt" checked>
-            <span>Enable Research Logging</span>
-          </label>
-          <p class="setting-description">Log preference changes, chatbot interactions, feedback events, and renarration runs to Cloud Firestore for research analysis.</p>
-        </div>
+      <div class="settings-field">
+        <label class="settings-label" for="firebaseApiKey">Firebase API Key</label>
+        <input type="password" id="firebaseApiKey" placeholder="Enter Firebase API key" class="settings-input">
+        <p class="settings-hint">Stored locally (not synced). Defaults are pre-configured; override only if using a different Firebase project.</p>
+      </div>
 
-        <hr style="margin:12px 0;">
-        <h3 style="margin:0 0 8px;font-size:15px;">Cloud Firestore <span id="fbSaveStatus" style="color: green; margin-left: 8px; display: none;">Saved!</span></h3>
-        <div class="setting-item">
-          <label for="firebaseProjectId">Firebase Project ID</label>
-          <input type="text" id="firebaseProjectId" placeholder="e.g., renarration-research">
-        </div>
-        <div class="setting-item">
-          <label for="firebaseApiKey">Firebase API Key</label>
-          <input type="password" id="firebaseApiKey" placeholder="Enter Firebase API key">
-          <p class="setting-description">Stored locally (not synced). Defaults are pre-configured; override only if using a different Firebase project.</p>
-        </div>
+      <div class="settings-section-actions">
+        <button id="openResearchDashboardBtn" class="clear-btn clear-btn--ghost">Open Research Dashboard</button>
+        <button id="clearResearchDataBtn" class="clear-btn clear-btn--ghost" style="color:var(--neg);">Clear All Research Data</button>
+      </div>
+    </section>
 
-        <div class="setting-item" style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;">
-          <button id="openResearchDashboardBtn" class="secondary-btn">Open Research Dashboard</button>
-          <button id="clearResearchDataBtn" class="secondary-btn" style="color:#e53e3e;border-color:#e53e3e;">Clear All Research Data</button>
-        </div>
-      </section>
-
-      <section class="card">
-        <h2>About</h2>
-        <div class="about-content">
-          <p><strong>Version:</strong> 1.0.0</p>
-          <p><strong>Description:</strong> OpenAI-powered text reformulation and page renarration assistant</p>
-        </div>
-      </section>
-      
-    </main>
-    
-    <footer>
-      <div class="save-status" id="saveStatus"></div>
-      <button id="resetBtn" class="secondary-btn">Reset to Defaults</button>
-    </footer>
+    <!-- Tab: About -->
+    <section class="settings-panel" data-panel="about">
+      <div class="settings-section-header">
+        <span class="clear-eyebrow">About</span>
+      </div>
+      <div class="settings-about">
+        <p><strong>Clear</strong> v1.0.0</p>
+        <p>On-page reading overlay. Adapt any webpage to your reading goal.</p>
+      </div>
+      <div class="settings-section-actions" style="margin-top:24px;">
+        <button id="resetBtn" class="clear-btn clear-btn--ghost" style="color:var(--neg);">Reset All to Defaults</button>
+      </div>
+    </section>
   </div>
-  
+
   <!-- Task Editor Modal -->
-  <div id="taskModal" class="modal" style="display: none;">
-    <div class="modal-content">
-      <div class="modal-header">
+  <div id="taskModal" class="settings-modal" style="display:none;">
+    <div class="settings-modal-content">
+      <div class="settings-modal-header">
         <h2 id="modalTitle">Edit Task</h2>
-        <button class="modal-close" id="modalClose">×</button>
+        <button class="settings-modal-close" id="modalClose">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        </button>
       </div>
-      <div class="modal-body">
-        <div class="form-group">
-          <label>Task Name</label>
-          <input type="text" id="taskNameInput" placeholder="e.g., Custom Task">
+      <div class="settings-modal-body">
+        <div class="settings-field">
+          <label class="settings-label">Task Name</label>
+          <input type="text" id="taskNameInput" placeholder="e.g., Custom Task" class="settings-input">
         </div>
-        <div class="form-group">
-          <label>Text Prompt</label>
-          <textarea id="textPromptInput" rows="3" placeholder="Instructions for text renarration..."></textarea>
+        <div class="settings-field">
+          <label class="settings-label">Text Prompt</label>
+          <textarea id="textPromptInput" rows="4" placeholder="Instructions for text renarration..." class="settings-textarea"></textarea>
         </div>
       </div>
-      <div class="modal-footer">
-        <button id="saveTaskBtn" class="primary-btn">Save Task</button>
-        <button id="cancelTaskBtn" class="secondary-btn">Cancel</button>
+      <div class="settings-modal-footer">
+        <button id="cancelTaskBtn" class="clear-btn clear-btn--ghost">Cancel</button>
+        <button id="saveTaskBtn" class="clear-btn clear-btn--primary">Save Task</button>
       </div>
     </div>
   </div>
 
-  <!-- NEW Persona Editor Modal -->
-  <div id="personaModal" class="modal" style="display:none;">
-    <div class="modal-content">
-      <div class="modal-header">
+  <!-- Persona Editor Modal -->
+  <div id="personaModal" class="settings-modal" style="display:none;">
+    <div class="settings-modal-content">
+      <div class="settings-modal-header">
         <h2 id="personaModalTitle">Edit Persona</h2>
-        <button class="modal-close" id="personaModalClose">×</button>
+        <button class="settings-modal-close" id="personaModalClose">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        </button>
       </div>
-      <div class="modal-body">
-        <div class="form-group">
-          <label>Persona Name</label>
-          <input type="text" id="personaNameInput" placeholder="e.g., Senior Citizen">
+      <div class="settings-modal-body">
+        <div class="settings-field">
+          <label class="settings-label">Persona Name</label>
+          <input type="text" id="personaNameInput" placeholder="e.g., Senior Citizen" class="settings-input">
         </div>
-        <div class="form-group">
-          <label>Text Prompt</label>
-          <textarea id="personaAddendumInput" rows="4" placeholder="Persona guidance for the LLM..."></textarea>
+        <div class="settings-field">
+          <label class="settings-label">Text Prompt</label>
+          <textarea id="personaAddendumInput" rows="4" placeholder="Persona guidance for the LLM..." class="settings-textarea"></textarea>
         </div>
       </div>
-      <div class="modal-footer">
-        <button id="savePersonaBtn" class="primary-btn">Save Persona</button>
-        <button id="cancelPersonaBtn" class="secondary-btn">Cancel</button>
+      <div class="settings-modal-footer">
+        <button id="cancelPersonaBtn" class="clear-btn clear-btn--ghost">Cancel</button>
+        <button id="savePersonaBtn" class="clear-btn clear-btn--primary">Save Persona</button>
       </div>
     </div>
   </div>
-  
+
   <script src="options.js"></script>
 </body>
 </html>

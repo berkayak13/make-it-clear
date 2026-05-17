@@ -74,7 +74,7 @@ This repo is now OpenAI-only. Vite bundles the MV3 background service worker and
 Active modules:
 
 - `src/utils/openai-client.js`: Responses API wrapper for text, vision, and structured JSON calls. Requests use `store: false`.
-- `src/page-flow/extract-page.js`: combines content-script visible text with screenshot slices and extracts compact page knowledge.
+- `src/page-flow/extract-page.js`: combines content-script visible DOM text with direct page images and extracts compact page knowledge.
 - `src/page-flow/renarrate-page.js`: creates final plain text from page text, extracted knowledge, active task/persona, and saved reading goal.
 - `src/page-flow/orchestrator.js`: owns page renarration progress, error handling, storage, and content panel messages.
 - `src/handlers/chatbot.js`: owns chat sessions and `chatbot-set-reading-goal`.

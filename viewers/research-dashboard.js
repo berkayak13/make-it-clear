@@ -120,12 +120,77 @@ function applyFilters(records) {
 }
 
 function renderAll() {
+  renderOverview();
   renderConversations();
   renderExperiments();
   renderFeedback();
   renderPreferences();
   renderLogs();
   renderExport();
+}
+
+function renderOverview() {
+  const sessions = allData.chatSessions || [];
+  const experiments = allData.experimentRuns || [];
+  const feedback = allData.feedbackEvents || [];
+
+  const userIds = new Set();
+  for (const store of ['chatSessions', 'researchLogs', 'feedbackEvents', 'experimentRuns', 'preferenceHistory']) {
+    (allData[store] || []).forEach(r => { if (r.userId) userIds.add(r.userId); });
+  }
+
+  document.getElementById('kpiSessions').textContent = sessions.length;
+  document.getElementById('kpiExperiments').textContent = experiments.length;
+  document.getElementById('kpiFeedback').textContent = feedback.length;
+  document.getElementById('kpiUsers').textContent = userIds.size;
+
+  // Feedback distribution
+  const pos = feedback.filter(f => f.feedbackType === 'thumbs-up').length;
+  const neg = feedback.filter(f => f.feedbackType === 'thumbs-down').length;
+  const neu = feedback.length - pos - neg;
+  const total = feedback.length || 1;
+
+  const bar = document.getElementById('feedbackBar');
+  if (bar) {
+    bar.innerHTML = `
+      <div class="rd-fb-pos" style="flex:${pos}"></div>
+      <div class="rd-fb-neu" style="flex:${neu}"></div>
+      <div class="rd-fb-neg" style="flex:${neg}"></div>
+    `;
+  }
+
+  const legend = document.getElementById('feedbackLegend');
+  if (legend) {
+    legend.innerHTML = [
+      { k: 'Good', v: Math.round(pos / total * 100), c: 'var(--pos)' },
+      { k: 'Neutral', v: Math.round(neu / total * 100), c: 'var(--muted)' },
+      { k: 'Off', v: Math.round(neg / total * 100), c: 'var(--neg)' },
+    ].map(r => `
+      <div class="rd-legend-row">
+        <span class="rd-legend-dot" style="background:${r.c}"></span>
+        <span class="rd-legend-label">${r.k}</span>
+        <span class="rd-legend-value">${r.v}%</span>
+      </div>
+    `).join('');
+  }
+
+  // Recent runs
+  const recent = experiments.slice().sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)).slice(0, 5);
+  const runsEl = document.getElementById('recentRuns');
+  if (runsEl) {
+    if (!recent.length) {
+      runsEl.innerHTML = '<div class="empty-state">No runs yet.</div>';
+    } else {
+      runsEl.innerHTML = recent.map(r => `
+        <div class="rd-run-row">
+          <span class="user">${escapeHtml(r.userId?.slice(0, 6) || '--')}</span>
+          <span class="page" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(r.inputTextSample?.slice(0, 40) || '--')}</span>
+          <span class="task">${escapeHtml(r.taskName || '--')}</span>
+          <span class="score">${r.bestScore ? r.bestScore.toFixed(1) : '--'}</span>
+        </div>
+      `).join('');
+    }
+  }
 }
 
 function formatTime(ts) {
@@ -135,7 +200,7 @@ function formatTime(ts) {
 
 function escapeHtml(s) {
   if (!s) return '';
-  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 function scoreClass(score) {
@@ -147,7 +212,7 @@ function scoreClass(score) {
 // ---- Conversations ----
 function renderConversations() {
   const el = document.getElementById('conversationsList');
-  const sessions = applyFilters(allData.chatSessions || []).sort((a, b) => b.timestamp - a.timestamp);
+  const sessions = applyFilters(allData.chatSessions || []).slice().sort((a, b) => b.timestamp - a.timestamp);
   if (!sessions.length) {
     el.innerHTML = '<div class="empty-state">No chat sessions found.</div>';
     return;
@@ -178,7 +243,7 @@ function renderConversations() {
 // ---- Experiments ----
 function renderExperiments() {
   const el = document.getElementById('experimentsList');
-  const experiments = applyFilters(allData.experimentRuns || []).sort((a, b) => b.timestamp - a.timestamp);
+  const experiments = applyFilters(allData.experimentRuns || []).slice().sort((a, b) => b.timestamp - a.timestamp);
   if (!experiments.length) {
     el.innerHTML = '<div class="empty-state">No experiment runs found. Run page renarration to see data here.</div>';
     return;
@@ -211,7 +276,7 @@ function renderExperiments() {
 // ---- Feedback ----
 function renderFeedback() {
   const el = document.getElementById('feedbackList');
-  const feedback = applyFilters(allData.feedbackEvents || []).sort((a, b) => b.timestamp - a.timestamp);
+  const feedback = applyFilters(allData.feedbackEvents || []).slice().sort((a, b) => b.timestamp - a.timestamp);
   if (!feedback.length) {
     el.innerHTML = '<div class="empty-state">No feedback events found.</div>';
     return;
@@ -234,7 +299,7 @@ function renderFeedback() {
 // ---- Preferences ----
 function renderPreferences() {
   const el = document.getElementById('preferencesList');
-  const prefs = applyFilters(allData.preferenceHistory || []).sort((a, b) => b.timestamp - a.timestamp);
+  const prefs = applyFilters(allData.preferenceHistory || []).slice().sort((a, b) => b.timestamp - a.timestamp);
   if (!prefs.length) {
     el.innerHTML = '<div class="empty-state">No preference changes recorded.</div>';
     return;
@@ -259,7 +324,7 @@ function renderPreferences() {
 function renderLogs() {
   const el = document.getElementById('logsList');
   const catFilter = document.getElementById('logCategoryFilter')?.value || '';
-  let logs = applyFilters(allData.researchLogs || []);
+  let logs = applyFilters(allData.researchLogs || []).slice();
   if (catFilter) logs = logs.filter(l => l.category === catFilter);
   logs.sort((a, b) => b.timestamp - a.timestamp);
   if (!logs.length) {

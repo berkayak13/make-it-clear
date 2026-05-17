@@ -3,82 +3,107 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Renarration Assistant</title>
+  <title>Clear</title>
   <link rel="stylesheet" href="tokens.css">
-  <link rel="stylesheet" href="popup.css">
+  <style>
+    body {
+      width: 260px;
+      margin: 0;
+      padding: 20px 24px;
+      font-family: var(--font-sans);
+      background: var(--paper);
+      color: var(--ink);
+      -webkit-font-smoothing: antialiased;
+    }
+    .popup-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .popup-wordmark {
+      font-weight: 600;
+      font-size: 15px;
+      letter-spacing: -0.02em;
+    }
+    .popup-meta {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--muted);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .popup-btn {
+      width: 100%;
+      padding: 10px 16px;
+      border: none;
+      border-radius: var(--r-2);
+      font-family: var(--font-sans);
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: background 150ms var(--ease);
+    }
+    .popup-btn--primary {
+      background: var(--ink);
+      color: var(--paper);
+    }
+    .popup-btn--primary:hover {
+      background: var(--ink-2);
+    }
+    .popup-btn--ghost {
+      background: color-mix(in oklch, var(--ink) 4%, transparent);
+      color: var(--ink);
+      margin-top: 8px;
+    }
+    .popup-btn--ghost:hover {
+      background: color-mix(in oklch, var(--ink) 8%, transparent);
+    }
+    .popup-footer {
+      margin-top: 16px;
+      padding-top: 12px;
+      border-top: 1px solid var(--hairline-soft);
+      display: flex;
+      justify-content: center;
+    }
+    .popup-footer a {
+      font-size: 12px;
+      color: var(--muted);
+      text-decoration: none;
+      transition: color 150ms var(--ease);
+    }
+    .popup-footer a:hover {
+      color: var(--ink);
+    }
+  </style>
 </head>
 <body>
-  <div class="popup-container">
-    <div class="header">
-      <div class="header-left">
-        <h1>OpenAI Renarration Assistant</h1>
-      </div>
-      <div class="header-right">
-        <span class="user-badge" id="userBadge">--</span>
-        <button class="new-session-btn" id="newSessionBtn" title="New conversation" aria-label="Start new conversation">+</button>
-      </div>
-    </div>
-
-    <!-- Extraction Button -->
-    <div class="renarrate-section">
-      <button id="renarratePageBtn" class="btn btn--primary btn--full btn--glow">Extract Page</button>
-      <div id="renarrateStatus" class="action-status">Ready</div>
-      <button id="reextractBtn" class="status-action" style="display:none;">Re-extract</button>
-    </div>
-
-    <!-- Chat Area -->
-    <div class="chat-area">
-      <div class="chat-messages" id="chatMessages">
-        <div class="chat-welcome">
-          <p>Tell me what you want to get from web content today.</p>
-          <p class="chat-welcome-hint">I'll help you set a reading goal so content can be adapted to your needs.</p>
-        </div>
-      </div>
-
-      <div class="goal-preview" id="goalPreview" style="display:none;">
-        <div class="preview-header">
-          <span>Reading Goal</span>
-          <button class="preview-dismiss" id="goalDismiss" aria-label="Dismiss reading goal">&times;</button>
-        </div>
-        <div class="preview-body">
-          <div class="preview-field"><strong>Goal:</strong> <span id="goalPreviewText"></span></div>
-          <div class="preview-field"><strong>Depth:</strong> <span id="goalPreviewDepth"></span></div>
-          <div class="preview-field"><strong>Focus:</strong> <span id="goalPreviewFocus"></span></div>
-          <div class="preview-field"><strong>Style:</strong> <span id="goalPreviewStyle"></span></div>
-          <div class="preview-field"><strong>Notes:</strong> <span id="goalPreviewNotes"></span></div>
-        </div>
-        <div class="preview-actions">
-          <button class="btn btn--primary btn--sm" id="applyGoalBtn">Renarrate Page With This</button>
-          <button class="btn btn--secondary btn--sm" id="discardGoalBtn">Discard</button>
-        </div>
-      </div>
-
-
-      <div class="refinement-banner" id="refinementBanner" style="display:none;">
-        <span>Multiple negative feedbacks detected. Consider refining your persona.</span>
-        <button class="btn btn--secondary btn--sm" id="refineBannerBtn">Refine</button>
-        <button class="preview-dismiss" id="refineBannerDismiss" aria-label="Dismiss refinement suggestion">&times;</button>
-      </div>
-
-      <div class="quick-replies" id="quickReplies" style="display:none;"></div>
-
-      <div class="chat-input-area">
-        <button class="btn btn--primary btn--full" id="setGoalBtn" style="display:none;">Set Reading Goal</button>
-        <div class="chat-secondary-actions" id="secondaryActions" style="display:none;">
-        </div>
-        <div class="chat-input-row">
-          <textarea id="chatInput" placeholder="Type a message..." rows="1" aria-label="Chat message input"></textarea>
-          <button class="send-btn" id="sendBtn" title="Send" aria-label="Send message">&#9654;</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Footer -->
-    <div class="footer-bar">
-      <a href="#" id="optionsLink" class="footer-link">Settings</a>
-    </div>
+  <div class="popup-header">
+    <span class="popup-wordmark">Clear</span>
+    <span class="popup-meta">v1.0</span>
   </div>
 
-  <script src="popup.js"></script>
+  <button class="popup-btn popup-btn--primary" id="openOverlayBtn">
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+    Open Overlay
+  </button>
+
+  <button class="popup-btn popup-btn--ghost" id="settingsBtn">
+    Settings
+  </button>
+
+  <button class="popup-btn popup-btn--ghost" id="viewExtractionBtn">
+    View Extracted Page
+  </button>
+
+  <div class="popup-footer">
+    <a href="#" id="optionsLink">Options</a>
+  </div>
+
+  <script src="popup-stub.js"></script>
 </body>
 </html>

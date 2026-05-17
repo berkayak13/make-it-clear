@@ -1,14 +1,76 @@
 let isEnabled = false;
 let currentTask = 'simple';
-let renarrationOverlay = null;
 let lastRunId = null;
 let selectionHandler = null;
+let selectionPopup = null;
+let extensionContextDead = false;
+
+function isExtensionContextError(error) {
+  return /Extension context invalidated/i.test(error?.message || String(error || ''));
+}
+
+function hasExtensionContext() {
+  if (extensionContextDead) return false;
+  try {
+    return !!chrome?.runtime?.id;
+  } catch (e) {
+    if (isExtensionContextError(e)) extensionContextDead = true;
+    return false;
+  }
+}
+
+function markExtensionContextDead(error) {
+  if (!isExtensionContextError(error)) return false;
+  extensionContextDead = true;
+  removeEventListeners();
+  hideSelectionPopup();
+  return true;
+}
+
+function safeSendMessage(message, callback) {
+  if (!hasExtensionContext()) {
+    if (callback) callback(null);
+    return Promise.resolve(null);
+  }
+  try {
+    if (callback) {
+      chrome.runtime.sendMessage(message, (res) => {
+        const error = chrome.runtime.lastError;
+        if (error) {
+          markExtensionContextDead(error);
+          callback(null, error);
+          return;
+        }
+        callback(res, null);
+      });
+      return Promise.resolve(null);
+    }
+    return chrome.runtime.sendMessage(message).catch((e) => {
+      markExtensionContextDead(e);
+      return null;
+    });
+  } catch (e) {
+    markExtensionContextDead(e);
+    if (callback) callback(null, e);
+    return Promise.resolve(null);
+  }
+}
+
+function safeRuntimeUrl(path) {
+  if (!hasExtensionContext()) return '';
+  try {
+    return chrome.runtime.getURL(path);
+  } catch (e) {
+    markExtensionContextDead(e);
+    return '';
+  }
+}
 
 init();
 
 async function init() {
   try {
-    const settings = await chrome.runtime.sendMessage({ action: 'get-settings' });
+    const settings = await safeSendMessage({ action: 'get-settings' });
     if (settings) {
       isEnabled = settings.enabled;
       currentTask = settings.currentTask;
@@ -19,114 +81,196 @@ async function init() {
 
   if (isEnabled) {
     setupEventListeners();
-    createOverlay();
   }
-}
-
-chrome.storage.onChanged.addListener((changes) => {
-  if (changes.enabled) {
-    isEnabled = changes.enabled.newValue;
-    if (isEnabled) {
-      setupEventListeners();
-      createOverlay();
-    } else {
-      removeEventListeners();
-      removeOverlay();
+  if (hasExtensionContext()) {
+    try {
+      chrome.storage.onChanged.addListener((changes) => {
+        if (changes.enabled) {
+          isEnabled = changes.enabled.newValue;
+          if (isEnabled) {
+            setupEventListeners();
+          } else {
+            removeEventListeners();
+            hideSelectionPopup();
+          }
+        }
+        if (changes.currentTask) currentTask = changes.currentTask.newValue;
+      });
+    } catch (e) {
+      markExtensionContextDead(e);
     }
   }
-  if (changes.currentTask) currentTask = changes.currentTask.newValue;
-});
-
-function createOverlay() {
-  if (renarrationOverlay) return;
-  renarrationOverlay = document.createElement('div');
-  renarrationOverlay.id = 'renarration-overlay';
-  renarrationOverlay.style.display = 'none';
-  document.body.appendChild(renarrationOverlay);
 }
 
-function removeOverlay() {
-  renarrationOverlay?.remove();
-  renarrationOverlay = null;
-}
+/* ═══════════════════════════════════════════════════════════
+   SVG ICONS — inline, 14×14 default, stroke-based
+═══════════════════════════════════════════════════════════ */
 
-function showOverlay(content, x, y, runId) {
-  if (!renarrationOverlay) return;
-  lastRunId = runId || null;
+const ClearIcons = {
+  check: '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="m2.5 6.5 2.5 2.5 4.5-5.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  close: '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="m3 3 6 6m0-6-6 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+  plus: '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 2v8M2 6h8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
+  sparkle: '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1.5v3M7 9.5v3M1.5 7h3M9.5 7h3M3.5 3.5l2 2M8.5 8.5l2 2M3.5 10.5l2-2M8.5 5.5l2-2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>',
+};
 
-  const feedbackHtml = runId ? `
-      <div class="renarration-feedback">
-        <button class="feedback-btn feedback-up" data-type="thumbs-up" title="Good renarration">&#128077;</button>
-        <button class="feedback-btn feedback-down" data-type="thumbs-down" title="Needs improvement">&#128078;</button>
-        <button class="feedback-btn feedback-edit" data-type="correction" title="Suggest correction">&#9998;</button>
-        <span class="feedback-status" id="feedbackStatus"></span>
-      </div>
-      <div class="renarration-correction" id="correctionArea" style="display:none;">
-        <textarea id="correctionText" placeholder="Suggest a better renarration..." rows="3"></textarea>
-        <button class="correction-submit" id="submitCorrection">Submit</button>
-      </div>
-  ` : '';
+/* ═══════════════════════════════════════════════════════════
+   SELECTION POPUP — glass card above text selection
+═══════════════════════════════════════════════════════════ */
 
-  renarrationOverlay.innerHTML = `
-    <div class="renarration-content">
-      <div class="renarration-header">
-        <span class="renarration-title">Renarration</span>
-        <button class="renarration-close" id="renarration-close-btn">&times;</button>
+function showSelectionPopup(text, range) {
+  hideSelectionPopup();
+  const rect = range.getBoundingClientRect();
+  const wordCount = text.split(/\s+/).length;
+
+  const popup = document.createElement('div');
+  popup.id = 'clear-selection-popup';
+
+  const spaceAbove = rect.top;
+  const spaceBelow = window.innerHeight - rect.bottom;
+  const showAbove = spaceAbove > 180 || spaceAbove > spaceBelow;
+  const pointerClass = showAbove ? 'clear-selection-pointer--below' : 'clear-selection-pointer--above';
+
+  let left = rect.left + (rect.width / 2) - 60;
+  left = Math.max(8, Math.min(left, window.innerWidth - 328));
+
+  if (showAbove) {
+    popup.style.bottom = (window.innerHeight - rect.top + 10) + 'px';
+    popup.style.top = 'auto';
+  } else {
+    popup.style.top = (rect.bottom + 10) + 'px';
+    popup.style.bottom = 'auto';
+  }
+  popup.style.left = left + 'px';
+
+  const taskLabel = currentTask === 'simple' ? 'default' : currentTask;
+
+  popup.innerHTML = `
+    <div class="clear-selection-pointer ${pointerClass}"></div>
+    <div class="clear-selection-card">
+      <div class="clear-selection-eyebrow">
+        <span class="clear-selection-eyebrow-text">RENARRATE SELECTION · ${wordCount} words</span>
+        <span class="clear-selection-lens">${escapeHtml(taskLabel)} lens</span>
       </div>
-      <div class="renarration-body">${escapeHtml(content)}</div>
-      ${feedbackHtml}
+      <div class="clear-selection-body" id="clear-selection-body">
+        <div style="font-family: var(--font-sans); font-style: italic; font-size: 12px; color: var(--muted);">Processing…</div>
+      </div>
+      <div class="clear-selection-actions" id="clear-selection-actions" style="display: none;">
+        <button class="clear-btn clear-btn--xs clear-btn--ghost" data-action="good">${ClearIcons.check} Good</button>
+        <button class="clear-btn clear-btn--xs clear-btn--ghost" data-action="off" style="color: var(--muted-2);">Off</button>
+        <span class="spacer"></span>
+        <button class="clear-btn clear-btn--xs" data-action="retry" style="color: var(--muted);">Try again</button>
+        <button class="clear-btn clear-btn--xs clear-btn--primary" data-action="pin">${ClearIcons.plus} Pin</button>
+      </div>
+      <span class="feedback-status" id="clear-feedback-status"></span>
     </div>
   `;
 
-  renarrationOverlay.style.display = 'block';
-  renarrationOverlay.style.left = `${x}px`;
-  renarrationOverlay.style.top = `${y}px`;
+  document.documentElement.appendChild(popup);
+  selectionPopup = popup;
 
-  document.getElementById('renarration-close-btn')?.addEventListener('click', hideOverlay);
-  renarrationOverlay.querySelectorAll('.feedback-btn').forEach((btn) => {
+  processSelectionRenarration(text, popup);
+
+  popup.querySelectorAll('[data-action]').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
-      if (btn.dataset.type === 'correction') {
-        const area = document.getElementById('correctionArea');
-        if (area) area.style.display = area.style.display === 'none' ? 'block' : 'none';
-      } else {
-        sendFeedback(btn.dataset.type);
+      const action = btn.dataset.action;
+      if (action === 'good') sendFeedback('thumbs-up');
+      else if (action === 'off') sendFeedback('thumbs-down');
+      else if (action === 'retry') {
+        const body = popup.querySelector('#clear-selection-body');
+        if (body) body.innerHTML = '<div style="font-family: var(--font-sans); font-style: italic; font-size: 12px; color: var(--muted);">Retrying…</div>';
+        popup.querySelector('#clear-selection-actions').style.display = 'none';
+        processSelectionRenarration(text, popup);
       }
+      else if (action === 'pin') console.log('[Clear] Pin action — not yet wired');
     });
   });
-  document.getElementById('submitCorrection')?.addEventListener('click', () => {
-    const text = document.getElementById('correctionText')?.value?.trim();
-    if (text) sendFeedback('correction', text);
-  });
+
+  document.addEventListener('click', onClickOutsidePopup, true);
+  document.addEventListener('selectionchange', onNewSelection);
 }
 
+function onClickOutsidePopup(e) {
+  if (selectionPopup && !selectionPopup.contains(e.target)) {
+    hideSelectionPopup();
+  }
+}
+
+function onNewSelection() {
+  const sel = window.getSelection();
+  if (!sel || sel.isCollapsed || !sel.toString().trim()) {
+    hideSelectionPopup();
+  }
+}
+
+function hideSelectionPopup() {
+  if (selectionPopup) {
+    selectionPopup.remove();
+    selectionPopup = null;
+  }
+  document.removeEventListener('click', onClickOutsidePopup, true);
+  document.removeEventListener('selectionchange', onNewSelection);
+}
+
+async function processSelectionRenarration(text, popup) {
+  try {
+    const response = await safeSendMessage({
+      action: 'renarrate-text',
+      text,
+      task: currentTask,
+    });
+
+    const body = popup.querySelector('#clear-selection-body');
+    const actions = popup.querySelector('#clear-selection-actions');
+    if (!body) return;
+
+    if (response?.success) {
+      lastRunId = response.runId || null;
+      body.textContent = response.result;
+      if (actions) actions.style.display = 'flex';
+    } else {
+      body.innerHTML = `<div style="color: var(--neg); font-family: var(--font-sans); font-size: 12px;">${escapeHtml(response.error || 'Unknown error')}</div>`;
+    }
+  } catch (error) {
+    const body = popup.querySelector('#clear-selection-body');
+    if (body) {
+      body.innerHTML = `<div style="color: var(--neg); font-family: var(--font-sans); font-size: 12px;">${escapeHtml(error.message || 'Unknown error')}</div>`;
+    }
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   FEEDBACK
+═══════════════════════════════════════════════════════════ */
+
 function sendFeedback(feedbackType, correctedText) {
-  const statusEl = document.getElementById('feedbackStatus');
+  const statusEl = document.getElementById('clear-feedback-status');
   const flashStatus = (msg) => {
     if (!statusEl) return;
     statusEl.textContent = msg;
     setTimeout(() => { if (statusEl) statusEl.textContent = ''; }, 2000);
   };
 
-  chrome.runtime.sendMessage({
+  safeSendMessage({
     action: 'submit-feedback',
     runId: lastRunId,
     feedbackType,
     correctedText: correctedText || null,
-  }, (res) => {
-    if (chrome.runtime.lastError) {
-      flashStatus('Failed to send feedback');
+  }, (res, error) => {
+    if (error) {
+      flashStatus('Failed');
       return;
     }
-    flashStatus(res?.success ? 'Feedback sent!' : 'Failed to send feedback');
+    flashStatus(res?.success ? 'Sent!' : 'Failed');
   });
 }
 
-function hideOverlay() {
-  if (renarrationOverlay) renarrationOverlay.style.display = 'none';
-}
+/* ═══════════════════════════════════════════════════════════
+   EVENT LISTENERS
+═══════════════════════════════════════════════════════════ */
 
 function setupEventListeners() {
+  injectClearFonts();
   if (selectionHandler) document.removeEventListener('mouseup', selectionHandler);
   selectionHandler = handleTextSelection;
   document.addEventListener('mouseup', selectionHandler);
@@ -139,38 +283,143 @@ function removeEventListeners() {
 
 async function handleTextSelection(e) {
   if (!isEnabled) return;
+  if (e.target.closest('#clear-selection-popup')) return;
+  if (e.target.closest('#renarration-split-panel')) return;
+
   const selection = window.getSelection();
   const text = selection.toString().trim();
-  if (text && text.length > 10 && !e.target.closest('#renarration-overlay')) {
+  if (text && text.length > 10) {
     const range = selection.getRangeAt(0);
-    const rect = range.getBoundingClientRect();
-    showRenarrationButton(rect.right + 5, rect.top, text);
+    showSelectionPopup(text, range);
   }
 }
 
-function showRenarrationButton(x, y, text) {
-  document.getElementById('renarration-trigger-btn')?.remove();
+/* ═══════════════════════════════════════════════════════════
+   SPLIT RENARRATION PANEL
+═══════════════════════════════════════════════════════════ */
 
-  const button = document.createElement('button');
-  button.id = 'renarration-trigger-btn';
-  button.className = 'renarration-trigger';
-  button.textContent = 'R';
-  button.title = 'Renarrate selected text';
-  button.style.position = 'absolute';
-  button.style.left = `${x + window.scrollX}px`;
-  button.style.top = `${y + window.scrollY}px`;
-  button.style.zIndex = '10000';
-  button.addEventListener('click', (e) => {
-    e.stopPropagation();
-    processTextRenarration(text, x, y);
-    button.remove();
-  });
-  document.body.appendChild(button);
-  setTimeout(() => button.remove(), 3000);
+function showRenarrationPanel() {
+  let panel = document.getElementById('renarration-split-panel');
+  if (!panel) {
+    document.body.classList.add('renarration-split-active');
+    panel = document.createElement('div');
+    panel.id = 'renarration-split-panel';
+    panel.innerHTML = `
+      <div class="split-drag-handle"></div>
+      <div class="split-panel-header">
+        <div class="split-header-info">
+          <div class="split-header-top">
+            <span class="split-header-wordmark">Clear</span>
+            <span class="split-header-meta">RENARRATED</span>
+          </div>
+          <div class="split-header-lens"></div>
+        </div>
+        <span class="split-header-spacer"></span>
+        <button class="split-panel-close" data-action="original">Original</button>
+        <button class="split-panel-close" data-action="translate">Translate</button>
+        <button class="split-panel-close" data-action="close">${ClearIcons.close}</button>
+      </div>
+      <div class="split-panel-toc" id="split-panel-toc">
+        <span class="clear-chip clear-chip--accent">① Summary</span>
+        <span class="clear-chip">② Key points</span>
+        <span class="clear-chip">③ Analysis</span>
+        <span class="clear-chip">④ Implications</span>
+      </div>
+      <div class="split-panel-body" id="renarration-panel-body">
+        <div class="split-panel-loading">
+          <div class="split-panel-spinner"></div>
+          <span class="renarration-progress-text">Preparing…</span>
+        </div>
+      </div>
+      <div class="split-panel-footer">
+        <span class="clear-eyebrow" id="split-footer-meta"></span>
+        <span class="spacer"></span>
+        <button class="clear-btn clear-btn--xs clear-btn--ghost" onclick="console.log('[Clear] Save thread')">Save thread</button>
+        <button class="clear-btn clear-btn--xs clear-btn--ghost" onclick="console.log('[Clear] Ask follow-up')">Ask follow-up</button>
+      </div>
+    `;
+    document.documentElement.appendChild(panel);
+
+    panel.querySelector('[data-action="close"]')?.addEventListener('click', hideRenarrationPanel);
+    panel.querySelector('[data-action="original"]')?.addEventListener('click', () => console.log('[Clear] Original view — not yet wired'));
+    panel.querySelector('[data-action="translate"]')?.addEventListener('click', () => console.log('[Clear] Translate — not yet wired'));
+    setupPanelResize(panel);
+  }
+  updateRenarrationProgress('Preparing…');
 }
 
+function setupPanelResize(panel) {
+  const handle = panel.querySelector('.split-drag-handle');
+  handle?.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    handle.classList.add('dragging');
+    const overlay = document.createElement('div');
+    overlay.className = 'split-drag-overlay';
+    document.documentElement.appendChild(overlay);
+
+    const onMove = (ev) => {
+      const pct = Math.min(80, Math.max(20, (ev.clientX / window.innerWidth) * 100));
+      document.body.style.width = pct + '%';
+      panel.style.width = (100 - pct) + '%';
+    };
+    const onUp = () => {
+      handle.classList.remove('dragging');
+      overlay.remove();
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
+}
+
+function updateRenarrationProgress(text, isError = false) {
+  const body = document.getElementById('renarration-panel-body');
+  if (!body) return;
+  body.innerHTML = '';
+  const wrap = document.createElement('div');
+  wrap.className = 'split-panel-loading';
+  if (!isError) {
+    const spinner = document.createElement('div');
+    spinner.className = 'split-panel-spinner';
+    wrap.appendChild(spinner);
+  }
+  const status = document.createElement('span');
+  status.className = isError ? 'renarration-progress-text is-error' : 'renarration-progress-text';
+  status.textContent = text || '';
+  wrap.appendChild(status);
+  body.appendChild(wrap);
+}
+
+function renderRenarrationText(text) {
+  const body = document.getElementById('renarration-panel-body');
+  if (!body) return;
+  body.innerHTML = '';
+  const content = document.createElement('div');
+  content.className = 'renarration-final-text';
+  content.textContent = text || '';
+  body.appendChild(content);
+
+  const meta = document.getElementById('split-footer-meta');
+  if (meta) {
+    const wordCount = (text || '').split(/\s+/).filter(Boolean).length;
+    const readMin = Math.max(1, Math.round(wordCount / 250));
+    meta.textContent = `${readMin} MIN READ`;
+  }
+}
+
+function hideRenarrationPanel() {
+  document.getElementById('renarration-split-panel')?.remove();
+  document.body.classList.remove('renarration-split-active');
+  document.body.style.width = '';
+}
+
+/* ═══════════════════════════════════════════════════════════
+   PAGE EXTRACTION (unchanged)
+═══════════════════════════════════════════════════════════ */
+
 const SKIP_TAGS = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'SVG', 'CANVAS', 'INPUT', 'TEXTAREA', 'SELECT', 'BUTTON', 'IFRAME', 'OBJECT', 'EMBED']);
-const EXTENSION_UI_SELECTOR = '#renarration-overlay, #renarration-split-panel, #renarration-trigger-btn';
+const EXTENSION_UI_SELECTOR = '#clear-selection-popup, #renarration-split-panel';
 const IMAGE_MAX_RESULTS = 40;
 const IMAGE_MIN_RENDERED_WIDTH = 120;
 const IMAGE_MIN_RENDERED_HEIGHT = 80;
@@ -274,11 +523,11 @@ function bestPictureSourceUrl(img) {
   for (const source of picture.querySelectorAll('source')) {
     const media = source.getAttribute('media');
     if (media && window.matchMedia && !window.matchMedia(media).matches) continue;
-    const raw = bestSrcsetUrl(source.getAttribute('srcset')) || source.getAttribute('src') || '';
-    if (!raw) continue;
     const parsed = parseSrcset(source.getAttribute('srcset'));
-    const score = parsed.sort((a, b) => b.score - a.score)[0]?.score || 1;
-    candidates.push({ url: raw, score });
+    const best = parsed.sort((a, b) => b.score - a.score)[0];
+    const url = best?.url || source.getAttribute('src') || '';
+    if (!url) continue;
+    candidates.push({ url, score: best?.score || 1 });
   }
 
   return candidates.sort((a, b) => b.score - a.score)[0]?.url || '';
@@ -377,11 +626,11 @@ function imageCaption(el) {
   return truncateText(el.getAttribute?.('title') || el.getAttribute?.('aria-label') || '', 180);
 }
 
-function nearbyImageText(el) {
+function nearbyImageText(el, captionText) {
   const container = el.closest('figure') || el.parentElement;
   if (!container) return '';
   const text = truncateText(container.innerText || container.textContent || '', IMAGE_CONTEXT_CHARS);
-  return text === imageCaption(el) ? '' : text;
+  return text === captionText ? '' : text;
 }
 
 function imageLooksUsable(meta, el) {
@@ -438,13 +687,14 @@ function makeImageMeta(rawUrl, el, source, index) {
   const url = normalizeImageUrl(rawUrl);
   if (!url) return null;
   const dims = el ? imageDimensions(el) : { width: 0, height: 0, renderedWidth: 0, renderedHeight: 0 };
+  const caption = el ? imageCaption(el) : '';
   const meta = {
     url,
     source,
     alt: truncateText(el?.getAttribute?.('alt') || '', 180),
-    caption: el ? imageCaption(el) : '',
+    caption,
     heading: el ? nearestHeading(el) : '',
-    nearbyText: el ? nearbyImageText(el) : '',
+    nearbyText: el ? nearbyImageText(el, caption) : '',
     width: dims.width,
     height: dims.height,
     renderedWidth: dims.renderedWidth,
@@ -487,12 +737,13 @@ function extractPageImages() {
   }
 
   for (const el of backgroundImageElements()) {
-    if (!isVisibleElement(el)) continue;
-    const rect = el.getBoundingClientRect();
-    if (rect.width < 220 || rect.height < 120) continue;
+    if (!el || el.closest(EXTENSION_UI_SELECTOR)) continue;
     const style = getComputedStyle(el);
+    if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') continue;
     const urls = cssBackgroundUrls(style.backgroundImage);
     if (!urls.length) continue;
+    const rect = el.getBoundingClientRect();
+    if (rect.width < 220 || rect.height < 120) continue;
     const imageIndex = index++;
     for (const rawUrl of urls) {
       const item = makeImageMeta(rawUrl, el, 'css-background', imageIndex);
@@ -512,122 +763,51 @@ function extractPageImages() {
     .sort((a, b) => a.index - b.index);
 }
 
-function showRenarrationPanel() {
-  let panel = document.getElementById('renarration-split-panel');
-  if (!panel) {
-    document.body.classList.add('renarration-split-active');
-    panel = document.createElement('div');
-    panel.id = 'renarration-split-panel';
-    panel.innerHTML = `
-      <div class="split-drag-handle"></div>
-      <div class="split-panel-header">
-        <span class="split-panel-title">Renarrated Page</span>
-        <button class="split-panel-close" title="Close split view">&times;</button>
-      </div>
-      <div class="split-panel-body" id="renarration-panel-body">
-        <div class="split-panel-loading">
-          <div class="split-panel-spinner"></div>
-          <span class="renarration-progress-text">Preparing...</span>
-        </div>
-      </div>
-    `;
-    document.documentElement.appendChild(panel);
-    panel.querySelector('.split-panel-close')?.addEventListener('click', hideRenarrationPanel);
-    setupPanelResize(panel);
+/* ═══════════════════════════════════════════════════════════
+   MESSAGE HANDLER (unchanged protocol)
+═══════════════════════════════════════════════════════════ */
+
+if (hasExtensionContext()) {
+  try {
+    chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
+      if (request.action === 'renarration-content-ready') {
+        sendResponse({ success: true });
+        return false;
+      }
+      if (request.action === 'extract-visible-page-text') {
+        sendResponse(extractVisiblePageText());
+        return false;
+      }
+      if (request.action === 'show-renarration-panel') {
+        showRenarrationPanel();
+        sendResponse({ success: true });
+        return false;
+      }
+      if (request.action === 'update-renarration-progress') {
+        updateRenarrationProgress(request.text || '', !!request.isError);
+        sendResponse({ success: true });
+        return false;
+      }
+      if (request.action === 'render-renarration-text') {
+        renderRenarrationText(request.text || '');
+        sendResponse({ success: true });
+        return false;
+      }
+      if (request.action === 'hide-renarration-panel') {
+        hideRenarrationPanel();
+        sendResponse({ success: true });
+        return false;
+      }
+      return false;
+    });
+  } catch (e) {
+    markExtensionContextDead(e);
   }
-  updateRenarrationProgress('Preparing...');
 }
 
-function setupPanelResize(panel) {
-  const handle = panel.querySelector('.split-drag-handle');
-  handle?.addEventListener('mousedown', (e) => {
-    e.preventDefault();
-    handle.classList.add('dragging');
-    const overlay = document.createElement('div');
-    overlay.className = 'split-drag-overlay';
-    document.documentElement.appendChild(overlay);
-
-    const onMove = (ev) => {
-      const pct = Math.min(80, Math.max(20, (ev.clientX / window.innerWidth) * 100));
-      document.body.style.width = pct + '%';
-      panel.style.width = (100 - pct) + '%';
-    };
-    const onUp = () => {
-      handle.classList.remove('dragging');
-      overlay.remove();
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
-    };
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
-  });
-}
-
-function updateRenarrationProgress(text, isError = false) {
-  const body = document.getElementById('renarration-panel-body');
-  if (!body) return;
-  body.innerHTML = '';
-  const wrap = document.createElement('div');
-  wrap.className = 'split-panel-loading';
-  if (!isError) {
-    const spinner = document.createElement('div');
-    spinner.className = 'split-panel-spinner';
-    wrap.appendChild(spinner);
-  }
-  const status = document.createElement('span');
-  status.className = isError ? 'renarration-progress-text is-error' : 'renarration-progress-text';
-  status.textContent = text || '';
-  wrap.appendChild(status);
-  body.appendChild(wrap);
-}
-
-function renderRenarrationText(text) {
-  const body = document.getElementById('renarration-panel-body');
-  if (!body) return;
-  body.innerHTML = '';
-  const pre = document.createElement('div');
-  pre.className = 'renarration-final-text';
-  pre.textContent = text || '';
-  body.appendChild(pre);
-}
-
-function hideRenarrationPanel() {
-  document.getElementById('renarration-split-panel')?.remove();
-  document.body.classList.remove('renarration-split-active');
-  document.body.style.width = '';
-}
-
-chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
-  if (request.action === 'renarration-content-ready') {
-    sendResponse({ success: true });
-    return false;
-  }
-  if (request.action === 'extract-visible-page-text') {
-    sendResponse(extractVisiblePageText());
-    return false;
-  }
-  if (request.action === 'show-renarration-panel') {
-    showRenarrationPanel();
-    sendResponse({ success: true });
-    return false;
-  }
-  if (request.action === 'update-renarration-progress') {
-    updateRenarrationProgress(request.text || '', !!request.isError);
-    sendResponse({ success: true });
-    return false;
-  }
-  if (request.action === 'render-renarration-text') {
-    renderRenarrationText(request.text || '');
-    sendResponse({ success: true });
-    return false;
-  }
-  if (request.action === 'hide-renarration-panel') {
-    hideRenarrationPanel();
-    sendResponse({ success: true });
-    return false;
-  }
-  return false;
-});
+/* ═══════════════════════════════════════════════════════════
+   UTILITIES
+═══════════════════════════════════════════════════════════ */
 
 function escapeHtml(text) {
   const div = document.createElement('div');
@@ -635,22 +815,77 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
-async function processTextRenarration(text, x, y) {
-  showOverlay('Processing text...', x, y + 30);
-
-  try {
-    const response = await chrome.runtime.sendMessage({
-      action: 'renarrate-text',
-      text,
-      task: currentTask,
-    });
-
-    if (response.success) {
-      showOverlay(response.result, x, y + 30, response.runId || null);
-    } else {
-      showOverlay('Error: ' + (response.error || 'Unknown error'), x, y + 30);
+function injectClearFonts() {
+  if (document.getElementById('clear-fonts')) return;
+  const fontBase = safeRuntimeUrl('assets/fonts/');
+  if (!fontBase) return;
+  const style = document.createElement('style');
+  style.id = 'clear-fonts';
+  style.textContent = `
+    @font-face {
+      font-family: 'Geist';
+      font-style: normal;
+      font-weight: 100 900;
+      font-display: swap;
+      src: url(${fontBase}geist-latin.woff2) format('woff2');
+      unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
     }
-  } catch (error) {
-    showOverlay('Error: ' + (error.message || 'Unknown error'), x, y + 30);
-  }
+    @font-face {
+      font-family: 'Geist';
+      font-style: normal;
+      font-weight: 100 900;
+      font-display: swap;
+      src: url(${fontBase}geist-latin-ext.woff2) format('woff2');
+      unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+    }
+    @font-face {
+      font-family: 'Geist Mono';
+      font-style: normal;
+      font-weight: 100 900;
+      font-display: swap;
+      src: url(${fontBase}geist-mono-latin.woff2) format('woff2');
+      unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+    }
+    @font-face {
+      font-family: 'Geist Mono';
+      font-style: normal;
+      font-weight: 100 900;
+      font-display: swap;
+      src: url(${fontBase}geist-mono-latin-ext.woff2) format('woff2');
+      unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+    }
+    @font-face {
+      font-family: 'Newsreader';
+      font-style: normal;
+      font-weight: 400;
+      font-display: swap;
+      src: url(${fontBase}newsreader-latin.woff2) format('woff2');
+      unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+    }
+    @font-face {
+      font-family: 'Newsreader';
+      font-style: normal;
+      font-weight: 400;
+      font-display: swap;
+      src: url(${fontBase}newsreader-latin-ext.woff2) format('woff2');
+      unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+    }
+    @font-face {
+      font-family: 'Newsreader';
+      font-style: italic;
+      font-weight: 400;
+      font-display: swap;
+      src: url(${fontBase}newsreader-italic-latin.woff2) format('woff2');
+      unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+    }
+    @font-face {
+      font-family: 'Newsreader';
+      font-style: italic;
+      font-weight: 400;
+      font-display: swap;
+      src: url(${fontBase}newsreader-italic-latin-ext.woff2) format('woff2');
+      unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+    }
+  `;
+  (document.head || document.documentElement).appendChild(style);
 }

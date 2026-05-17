@@ -454,9 +454,8 @@
           <span class="badge">Extractor</span>
           <h3>Page knowledge extraction</h3>
           <p>
-            <code>src/page-flow/extract-page.js</code> combines visible text from the content script with
-            screenshot slices from <code>src/utils/screenshot-capture.js</code>, then asks OpenAI for compact
-            structured JSON.
+            <code>src/page-flow/extract-page.js</code> combines visible DOM text from the content script with
+            direct page images, then asks OpenAI for compact structured JSON.
           </p>
         </article>
 
@@ -574,10 +573,10 @@
 
         <article class="flow-step">
           <span class="badge">3. Extraction</span>
-          <h3>Text and screenshots</h3>
+          <h3>DOM text and page images</h3>
           <p>
             <code>extractPageKnowledge()</code> reads visible text from <code>content.js</code>,
-            captures full-page slices, selects up to eight representative images, and calls OpenAI for JSON.
+            selects direct page images, and calls OpenAI for JSON.
           </p>
         </article>
 
@@ -630,16 +629,16 @@
           </div>
         </div>
         <div class="sequence-row">
-          <div class="actor">Screenshot utility</div>
+          <div class="actor">Content image extraction</div>
           <div class="event">
-            <code>captureFullPageSlices()</code> scrolls the page, waits for layout to settle, captures visible
-            tab PNG data URLs, retries Chrome capture rate-limit errors, and restores the original scroll position.
+            <code>content.js</code> collects direct page images from metadata, <code>img</code>, <code>srcset</code>,
+            <code>picture</code>, and CSS backgrounds, then filters low-signal decorative images.
           </div>
         </div>
         <div class="sequence-row">
           <div class="actor">OpenAI JSON call</div>
           <div class="event">
-            <code>callOpenAIJson()</code> sends the extraction prompt plus selected screenshots to the Responses API.
+            <code>callOpenAIJson()</code> sends visible DOM text chunks and selected direct page images to the Responses API.
             The output must match the strict schema with <code>title</code>, <code>topic</code>,
             <code>summary</code>, <code>facts</code>, <code>entities</code>, and <code>keyTerms</code>.
           </div>
@@ -712,7 +711,7 @@
     <section class="section" id="selected-text-flow">
       <h2>Selected Text Flow</h2>
       <p>
-        Selected text renarration is the smaller path. It does not capture screenshots and does not run page
+        Selected text renarration is the smaller path. It does not run page
         knowledge extraction. It sends only the selected text plus the active task/persona prompt context.
       </p>
 
@@ -912,7 +911,7 @@ VITE_OPENAI_TIMEOUT_MS    defaults to 120000</pre>
         <article class="card span-6">
           <h3>Tab and extraction errors</h3>
           <p>
-            If there is no active tab, no extractable text/screenshots, or a Chrome API failure, the handler returns
+            If there is no active tab, no extractable text/images, or a Chrome API failure, the handler returns
             <code>{ success: false, error }</code>. Full page errors are also shown in the split panel.
           </p>
         </article>
@@ -941,7 +940,7 @@ VITE_OPENAI_TIMEOUT_MS    defaults to 120000</pre>
           <h3>What exists now</h3>
           <ul class="list">
             <li>OpenAI Responses API wrapper for text, vision, and strict JSON output.</li>
-            <li>Page extraction from visible text plus screenshot slices.</li>
+            <li>Page extraction from visible DOM text plus direct page images.</li>
             <li>Final plain-text page renarration in a split panel.</li>
             <li>Selected-text overlay renarration.</li>
             <li>Chat-based reading goal extraction.</li>
