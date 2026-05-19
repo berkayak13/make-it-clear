@@ -33,56 +33,13 @@ export const DEFAULT_TASKS = {
   }
 };
 
-export const DEFAULT_PERSONAS = {
-  'berat': {
-    name: 'Berat (Neighborhood Barber)',
-    description: 'Low computer literacy; prefers very plain Turkish/English explanations.',
-    systemAddendum: 'Target audience persona: Berat is a neighborhood barber with limited computer experience. Use very plain language and avoid economic jargon.'
-  },
-  'student': {
-    name: 'Undergrad Student',
-    description: 'Understands basic academic concepts; wants clear but not oversimplified explanations.',
-    systemAddendum: 'Target audience persona: An undergraduate student seeking clear educational explanations with light context.'
-  },
-  'researcher': {
-    name: 'Academic Researcher',
-    description: 'Prefers formal, precise, domain-rich terminology.',
-    systemAddendum: 'Target audience persona: Academic researcher expecting formal tone with precise terminology.'
-  },
-  'general': {
-    name: 'General Public',
-    description: 'Average reader; keep it accessible and neutral.',
-    systemAddendum: 'Target audience persona: General public; keep tone neutral and accessible.'
-  },
-  'gamer_student': {
-    name: 'High-School Gamer',
-    description: 'High school student, enjoys video games; prefers casual, engaging explanations with relatable metaphors.',
-    systemAddendum:
-      'Target audience persona: High-school student who enjoys video games. Use casual, energetic language, short sentences, and relatable game-based metaphors when appropriate. Avoid heavy jargon; if technical terms are needed, briefly define them using simple analogies.'
-  },
-  'smallbiz_owner': {
-    name: 'Small Business Owner',
-    description: 'Runs a small business and handles basic accounting in Excel; prefers direct, practical, and actionable explanations.',
-    systemAddendum:
-      'Target audience persona: Small business owner who performs accounting tasks (often in Excel). Provide clear, step-by-step guidance, prioritize practical examples and actionable items, and show short illustrative snippets (e.g., Excel formulas or brief workflow steps) when relevant. Keep language concise and business-focused.'
-  },
-  'arch_student': {
-    name: 'Architecture Student',
-    description: 'University architecture student experienced with 3D design tools and technical drawings; prefers precise, design-oriented language.',
-    systemAddendum:
-      'Target audience persona: University student majoring in architecture who frequently uses 3D design software. Use precise, domain-relevant terminology (but define very specialized terms if they are uncommon), reference spatial concepts and design workflow when useful, and give examples that can map to 3D modeling or drafting steps. Keep explanations structured and include suggested practical next steps for application in design software.'
-  }
-};
-
 /**
- * Get settings with migration from legacy 'profiles' key to 'tasks'.
+ * Get task settings, filling missing values with defaults.
  */
 export async function getSettingsWithTaskMigration(extraKeys = []) {
   const keys = new Set([
     'tasks',
     'currentTask',
-    'profiles',
-    'currentProfile',
     ...extraKeys
   ]);
   const settings = await chrome.storage.sync.get([...keys]);
@@ -90,14 +47,6 @@ export async function getSettingsWithTaskMigration(extraKeys = []) {
   let currentTask = settings.currentTask;
   let shouldWrite = false;
 
-  if ((!tasks || !Object.keys(tasks).length) && settings.profiles && Object.keys(settings.profiles).length) {
-    tasks = settings.profiles;
-    shouldWrite = true;
-  }
-  if (!currentTask && settings.currentProfile) {
-    currentTask = settings.currentProfile;
-    shouldWrite = true;
-  }
   if (!tasks || !Object.keys(tasks).length) {
     tasks = DEFAULT_TASKS;
     shouldWrite = true;

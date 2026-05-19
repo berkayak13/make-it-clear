@@ -20,8 +20,8 @@
 
 ## Active Message Contracts
 
-- Popup: `run-page-renarration`.
-- Side panel: `extract-page-knowledge`, `get-last-extraction`.
+- Overlay/viewer: `run-page-renarration-from-extraction`.
+- Overlay/viewer: `extract-page-knowledge`.
 - Chat: `chatbot-new-session`, `chatbot-get-session`, `chatbot-send`, `chatbot-set-reading-goal`.
 - Selected text: `renarrate-text`.
 - Content page panel: `extract-visible-page-text`, `show-renarration-panel`, `update-renarration-progress`, `render-renarration-text`, `hide-renarration-panel`.
@@ -33,11 +33,11 @@ Target checks:
 - `npm run build`
 - `npm run knip`
 - `git diff --check`
-- legacy provider/action reference search
+- retired provider/action reference search
 
 Manual smoke checks:
 
-- Popup page renarration opens the split panel and renders plain text.
+- Page renarration from extracted knowledge opens the split panel and renders plain text.
 - Saved reading goal is included in final renarration prompts.
 - Chat can save/apply reading goals.
 - Selected-text overlay still renarrates selected text.

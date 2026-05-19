@@ -20,14 +20,7 @@ async function loadCachedPrompt(path, fallback) {
 export function getChatbotSystemPrompt() {
   return loadCachedPrompt(
     'src/prompts/chatbot-system.md',
-    'You are a friendly assistant helping users discover their personalized reading profile. Ask one question at a time about their background, interests, and preferences.'
-  );
-}
-
-export function getPersonaExtractionPrompt() {
-  return loadCachedPrompt(
-    'src/prompts/persona-extraction.md',
-    'Extract a persona JSON from this conversation. Return only JSON with fields: name, description, systemAddendum, interests, expertiseDomains, expertiseLevel.'
+    'You are a friendly assistant helping users define their reading goals. Ask one question at a time about what they want from web content.'
   );
 }
 

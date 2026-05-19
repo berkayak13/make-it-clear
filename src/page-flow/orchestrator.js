@@ -85,6 +85,12 @@ function notifyExtraction(status, extraction = null, error = null) {
   } catch {}
 }
 
+function hasExtractionContent(extraction) {
+  if (String(extraction?.compactText || '').trim()) return true;
+  const facts = extraction?.facts || extraction?.knowledge?.facts || [];
+  return Array.isArray(facts) && facts.some((fact) => String(typeof fact === 'string' ? fact : fact?.text || '').trim());
+}
+
 export const pageFlowHandlers = {
   'extract-page-knowledge': async (request, sender) => {
     const tab = await activeTabFromRequest(request, sender);
@@ -110,11 +116,6 @@ export const pageFlowHandlers = {
     }
   },
 
-  'get-last-extraction': async () => {
-    const { lastExtraction } = await chrome.storage.local.get(['lastExtraction']);
-    return { success: true, extraction: lastExtraction || null };
-  },
-
   'run-page-renarration-from-extraction': async (request, sender) => {
     if (pageRunInProgress) {
       return { success: false, error: 'Page renarration already in progress' };
@@ -127,10 +128,7 @@ export const pageFlowHandlers = {
     if (!lastExtraction) {
       return { success: false, error: 'First extract the page' };
     }
-    if (lastExtraction.model === 'local-fast-text') {
-      return { success: false, error: 'First extract the page' };
-    }
-    if (!String(lastExtraction.compactText || '').trim()) {
+    if (!hasExtractionContent(lastExtraction)) {
       return { success: false, error: 'First extract the page' };
     }
     if (!lastExtraction.url || !tab.url || lastExtraction.url !== tab.url) {
@@ -188,73 +186,4 @@ export const pageFlowHandlers = {
     }
   },
 
-  'run-page-renarration': async (request, sender) => {
-    if (pageRunInProgress) {
-      return { success: false, error: 'Page renarration already in progress' };
-    }
-
-    const tab = await activeTabFromRequest(request, sender);
-    if (!tab?.id) return { success: false, error: 'No active tab' };
-
-    pageRunInProgress = true;
-    const runId = crypto.randomUUID ? crypto.randomUUID() : String(Date.now());
-
-    try {
-      await openRenarrationPanel(tab);
-      await sendToTabRequired(tab.id, {
-        action: 'update-renarration-progress',
-        text: 'Extracting page text and images...',
-      });
-
-      const extraction = await extractPageKnowledge({
-        tabId: tab.id,
-        pageMetadata: request?.pageMetadata || { url: tab.url, title: tab.title || '' },
-        onProgress: (text) => sendToTabOptional(tab.id, { action: 'update-renarration-progress', text }),
-      });
-
-      await sendToTabRequired(tab.id, {
-        action: 'update-renarration-progress',
-        text: 'Writing renarration with saved reading goal...',
-      });
-
-      const renarration = await renarratePage({
-        extraction,
-        taskName: request?.task,
-      });
-
-      await chrome.storage.local.set({
-        lastPageRenarration: {
-          extraction,
-          renarration: renarration.text.slice(0, 30000),
-          model: renarration.model,
-          runId,
-          at: new Date().toISOString(),
-          url: tab.url,
-          title: tab.title || '',
-        },
-      });
-
-      await sendToTabRequired(tab.id, {
-        action: 'render-renarration-text',
-        text: renarration.text,
-      });
-
-      return {
-        success: true,
-        runId,
-        extraction,
-        renarration: renarration.text,
-      };
-    } catch (e) {
-      const error = e?.message || String(e);
-      await sendToTabOptional(tab.id, {
-        action: 'update-renarration-progress',
-        text: `Error: ${error}`,
-        isError: true,
-      });
-      return { success: false, error };
-    } finally {
-      pageRunInProgress = false;
-    }
-  },
 };

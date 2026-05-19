@@ -27,7 +27,6 @@
       <nav class="rd-tabs">
         <button class="tab active" data-tab="overview">Overview</button>
         <button class="tab" data-tab="conversations">Conversations</button>
-        <button class="tab" data-tab="experiments">Experiments</button>
         <button class="tab" data-tab="feedback">Feedback</button>
         <button class="tab" data-tab="preferences">Preferences</button>
         <button class="tab" data-tab="logs">Logs</button>
@@ -42,11 +41,6 @@
           <span class="clear-eyebrow">Sessions</span>
           <div class="rd-kpi-value" id="kpiSessions">—</div>
           <div class="rd-kpi-delta" id="kpiSessionsDelta"></div>
-        </div>
-        <div class="rd-kpi-card">
-          <span class="clear-eyebrow">Experiment runs</span>
-          <div class="rd-kpi-value" id="kpiExperiments">—</div>
-          <div class="rd-kpi-delta" id="kpiExperimentsDelta"></div>
         </div>
         <div class="rd-kpi-card">
           <span class="clear-eyebrow">Feedback events</span>
@@ -72,22 +66,12 @@
           <div class="rd-feedback-legend" id="feedbackLegend"></div>
         </div>
 
-        <!-- Recent runs -->
-        <div class="rd-card">
-          <span class="clear-eyebrow">Recent experiment runs</span>
-          <div id="recentRuns" class="rd-recent-runs"></div>
-        </div>
       </div>
     </div>
 
     <!-- Conversations Tab -->
     <div class="tab-content" id="tab-conversations">
       <div id="conversationsList"></div>
-    </div>
-
-    <!-- Experiments Tab -->
-    <div class="tab-content" id="tab-experiments">
-      <div id="experimentsList"></div>
     </div>
 
     <!-- Feedback Tab -->
@@ -107,7 +91,6 @@
           <option value="">All Categories</option>
           <option value="renarration">Renarration</option>
           <option value="feedback">Feedback</option>
-          <option value="persona-change">Persona Change</option>
           <option value="chatbot">Chatbot</option>
         </select>
       </div>

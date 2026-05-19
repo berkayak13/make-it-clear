@@ -2,7 +2,7 @@ import { researchGet, researchPut, researchGetByIndex } from '../utils/firestore
 import { getOrCreateUserId } from '../utils/storage-helpers.js';
 import { generateId } from '../utils/id.js';
 import { callLLM } from '../utils/llm-dispatch.js';
-import { getChatbotSystemPrompt, getPersonaExtractionPrompt, getGoalExtractionPrompt } from '../utils/cached-prompts.js';
+import { getChatbotSystemPrompt, getGoalExtractionPrompt } from '../utils/cached-prompts.js';
 
 const LOCAL_CHAT_SESSIONS_KEY = 'chatSessions';
 const LOCAL_USER_PREFERENCES_KEY = 'userPreferences';
@@ -126,8 +126,6 @@ export const chatbotHandlers = {
         userId,
         timestamp: Date.now(),
         messages: [],
-        extractedProfile: null,
-        appliedPersonaKey: null
       };
       await saveSession(session, { makeCurrent: true });
       return { success: true, sessionId: session.sessionId };
@@ -177,64 +175,6 @@ export const chatbotHandlers = {
         modelReply: result.result.slice(0, 500)
       });
       return { success: true, reply: result.result };
-    } catch (e) {
-      return { success: false, error: e.message };
-    }
-  },
-
-  'chatbot-generate-persona': async (request, sender) => {
-    try {
-      const session = await getSessionOrThrow(request.sessionId);
-      const extractionPrompt = await getPersonaExtractionPrompt();
-      const transcript = buildTranscript(session.messages);
-      const messages = [{ role: 'user', content: 'Conversation transcript:\n\n' + transcript }];
-      const result = await callLLM(messages, extractionPrompt);
-      if (!result.success) { return { success: false, error: result.error }; }
-
-      const persona = parseJsonResponse(result.result, 'persona');
-      session.extractedProfile = persona;
-      await saveSession(session);
-      return { success: true, persona };
-    } catch (e) {
-      return { success: false, error: e.message };
-    }
-  },
-
-  'chatbot-apply-persona': async (request, sender) => {
-    try {
-      const persona = request.persona;
-      if (!persona || !persona.name) { return { success: false, error: 'Invalid persona' }; }
-      const slug = persona.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-+$/, '');
-      const key = 'chatbot-' + slug + '-' + generateId().slice(0, 8);
-      const personaObj = {
-        name: persona.name,
-        description: persona.description || '',
-        systemAddendum: persona.systemAddendum || persona.description || '',
-        interests: persona.interests,
-        expertiseDomains: persona.expertiseDomains,
-        expertiseLevel: persona.expertiseLevel,
-        source: 'chatbot'
-      };
-      const { personas = {} } = await chrome.storage.sync.get(['personas']);
-      personas[key] = personaObj;
-      await chrome.storage.sync.set({ personas, currentPersona: key });
-
-      if (request.sessionId) {
-        const session = await getLocalSession(request.sessionId) || await getResearchSession(request.sessionId);
-        if (session) {
-          session.appliedPersonaKey = key;
-          await saveSession(session);
-        }
-      }
-      const userId = await getOrCreateUserId();
-      void logResearch({
-        userId,
-        category: 'persona-change',
-        personaKey: key,
-        personaName: persona.name,
-        source: 'chatbot'
-      });
-      return { success: true, personaKey: key };
     } catch (e) {
       return { success: false, error: e.message };
     }

@@ -162,38 +162,6 @@
   flex-shrink: 0;
 }
 
-/* ── Chip ── */
-
-.clear-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 24px;
-  padding: 0 10px;
-  border-radius: var(--r-pill);
-  background: color-mix(in oklch, var(--ink) 5%, transparent);
-  font-family: var(--font-sans);
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--ink-2);
-  border: 1px solid transparent;
-  cursor: pointer;
-  transition: background 150ms var(--ease);
-}
-
-.clear-chip:hover {
-  background: color-mix(in oklch, var(--ink) 9%, transparent);
-}
-
-.clear-chip--accent {
-  background: color-mix(in oklch, var(--accent) 14%, transparent);
-  color: var(--accent-ink);
-}
-
-.clear-chip--accent:hover {
-  background: color-mix(in oklch, var(--accent) 20%, transparent);
-}
-
 /* ── Eyebrow label ── */
 
 .clear-eyebrow {
@@ -319,17 +287,6 @@ body.renarration-split-active {
 
 .split-panel-close:hover {
   background: color-mix(in oklch, var(--ink) 5%, transparent);
-}
-
-/* ── TOC wayfinder strip ── */
-
-.split-panel-toc {
-  padding: 12px 22px 10px;
-  border-bottom: 1px solid var(--hairline-soft);
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  flex-shrink: 0;
 }
 
 /* ── Split panel body ── */

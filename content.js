@@ -159,7 +159,6 @@ function showSelectionPopup(text, range) {
         <button class="clear-btn clear-btn--xs clear-btn--ghost" data-action="off" style="color: var(--muted-2);">Off</button>
         <span class="spacer"></span>
         <button class="clear-btn clear-btn--xs" data-action="retry" style="color: var(--muted);">Try again</button>
-        <button class="clear-btn clear-btn--xs clear-btn--primary" data-action="pin">${ClearIcons.plus} Pin</button>
       </div>
       <span class="feedback-status" id="clear-feedback-status"></span>
     </div>
@@ -182,7 +181,6 @@ function showSelectionPopup(text, range) {
         popup.querySelector('#clear-selection-actions').style.display = 'none';
         processSelectionRenarration(text, popup);
       }
-      else if (action === 'pin') console.log('[Clear] Pin action — not yet wired');
     });
   });
 
@@ -315,15 +313,7 @@ function showRenarrationPanel() {
           <div class="split-header-lens"></div>
         </div>
         <span class="split-header-spacer"></span>
-        <button class="split-panel-close" data-action="original">Original</button>
-        <button class="split-panel-close" data-action="translate">Translate</button>
         <button class="split-panel-close" data-action="close">${ClearIcons.close}</button>
-      </div>
-      <div class="split-panel-toc" id="split-panel-toc">
-        <span class="clear-chip clear-chip--accent">① Summary</span>
-        <span class="clear-chip">② Key points</span>
-        <span class="clear-chip">③ Analysis</span>
-        <span class="clear-chip">④ Implications</span>
       </div>
       <div class="split-panel-body" id="renarration-panel-body">
         <div class="split-panel-loading">
@@ -333,16 +323,11 @@ function showRenarrationPanel() {
       </div>
       <div class="split-panel-footer">
         <span class="clear-eyebrow" id="split-footer-meta"></span>
-        <span class="spacer"></span>
-        <button class="clear-btn clear-btn--xs clear-btn--ghost" onclick="console.log('[Clear] Save thread')">Save thread</button>
-        <button class="clear-btn clear-btn--xs clear-btn--ghost" onclick="console.log('[Clear] Ask follow-up')">Ask follow-up</button>
       </div>
     `;
     document.documentElement.appendChild(panel);
 
     panel.querySelector('[data-action="close"]')?.addEventListener('click', hideRenarrationPanel);
-    panel.querySelector('[data-action="original"]')?.addEventListener('click', () => console.log('[Clear] Original view — not yet wired'));
-    panel.querySelector('[data-action="translate"]')?.addEventListener('click', () => console.log('[Clear] Translate — not yet wired'));
     setupPanelResize(panel);
   }
   updateRenarrationProgress('Preparing…');
@@ -415,7 +400,7 @@ function hideRenarrationPanel() {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   PAGE EXTRACTION (unchanged)
+   PAGE EXTRACTION
 ═══════════════════════════════════════════════════════════ */
 
 const SKIP_TAGS = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'SVG', 'CANVAS', 'INPUT', 'TEXTAREA', 'SELECT', 'BUTTON', 'IFRAME', 'OBJECT', 'EMBED']);
@@ -425,9 +410,18 @@ const IMAGE_MIN_RENDERED_WIDTH = 120;
 const IMAGE_MIN_RENDERED_HEIGHT = 80;
 const IMAGE_MIN_RENDERED_AREA = 12000;
 const IMAGE_CONTEXT_CHARS = 300;
+const SECTION_ELEMENT_LIMIT = 1200;
+const SECTION_TEXT_CHARS = 9000;
+const SECTION_MAX_RESULTS = 160;
 const DECORATIVE_IMAGE_RE = /(^|[\s/_-])(adchoices|avatar|badge|blank|button|favicon|icon|logo|pixel|placeholder|share|social|spacer|spinner|sprite|tracking|transparent)([\s/_\-.]|$)/i;
 const CONTENT_CLASS_RE = /(^|[\s_-])(article|content|entry|main|post|story)([\s_-]|$)/i;
 const NON_CONTENT_CLASS_RE = /(^|[\s_-])(ad|ads|advert|banner|cookie|footer|header|nav|navbar|promo|share|sidebar|social|sponsor)([\s_-]|$)/i;
+
+function logContentExtraction(label, details) {
+  try {
+    console.log(`[Clear Extraction][content] ${label}`, details);
+  } catch {}
+}
 
 function extractVisiblePageText() {
   const chunks = [];
@@ -454,20 +448,42 @@ function extractVisiblePageText() {
     chunks.push(text);
   }
 
+  const sectionContext = extractPageSections();
   let images = [];
   try {
-    images = extractPageImages();
+    images = extractPageImages(sectionContext);
   } catch {
     images = [];
   }
 
-  return {
+  const response = {
     success: true,
     text: chunks.join('\n'),
     images,
+    sections: sectionContext.sections.map((section) => ({
+      id: section.id,
+      index: section.index,
+      heading: section.heading,
+      text: section.text,
+      imageIds: section.imageIds,
+    })),
     title: document.title || '',
     url: location.href,
   };
+
+  logContentExtraction('visible-page-response', {
+    url: response.url,
+    title: response.title,
+    visibleTextChunkCount: chunks.length,
+    visibleTextCharCount: response.text.length,
+    sectionCount: response.sections.length,
+    imageCount: response.images.length,
+    text: response.text,
+    sections: response.sections,
+    images: response.images,
+  });
+
+  return response;
 }
 
 function normalizeText(text) {
@@ -477,6 +493,69 @@ function normalizeText(text) {
 function truncateText(text, maxChars = IMAGE_CONTEXT_CHARS) {
   const value = normalizeText(text);
   return value.length > maxChars ? value.slice(0, maxChars - 3).trimEnd() + '...' : value;
+}
+
+function stableSectionId(index) {
+  return `section-${index + 1}`;
+}
+
+function isVisibleTextElement(el) {
+  if (!el || SKIP_TAGS.has(el.tagName) || el.closest(EXTENSION_UI_SELECTOR)) return false;
+  const style = getComputedStyle(el);
+  if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
+  const rect = el.getBoundingClientRect();
+  return rect.width > 0 && rect.height > 0;
+}
+
+function extractPageSections() {
+  const roots = Array.from(document.querySelectorAll('article, main, [role="main"]'));
+  const root = roots.find(isVisibleTextElement) || document.body;
+  const selector = 'h1,h2,h3,h4,h5,h6,p,li,blockquote,pre,figcaption,td,th';
+  const elements = Array.from(root?.querySelectorAll?.(selector) || [])
+    .filter(isVisibleTextElement)
+    .slice(0, SECTION_ELEMENT_LIMIT);
+  const sections = [];
+  let current = null;
+
+  const startSection = (heading, top) => {
+    const section = {
+      id: stableSectionId(sections.length),
+      index: sections.length,
+      heading: truncateText(heading || '', 160),
+      textParts: [],
+      imageIds: [],
+      top,
+    };
+    sections.push(section);
+    current = section;
+    return section;
+  };
+
+  for (const el of elements) {
+    const text = truncateText(el.innerText || el.textContent || '', SECTION_TEXT_CHARS);
+    if (!text) continue;
+    const rect = el.getBoundingClientRect();
+    const isHeading = /^H[1-6]$/.test(el.tagName);
+    if (isHeading || !current) {
+      current = startSection(isHeading ? text : '', rect.top + window.scrollY);
+      if (isHeading) continue;
+    }
+    if (!current.textParts.includes(text)) current.textParts.push(text);
+  }
+
+  return {
+    sections: sections
+      .map((section) => ({
+        id: section.id,
+        index: section.index,
+        heading: section.heading,
+        text: truncateText(section.textParts.join('\n'), SECTION_TEXT_CHARS),
+        imageIds: section.imageIds,
+        top: section.top,
+      }))
+      .filter((section) => section.text || section.heading)
+      .slice(0, SECTION_MAX_RESULTS),
+  };
 }
 
 function normalizeImageUrl(rawUrl) {
@@ -683,18 +762,36 @@ function scoreImage(meta, el) {
   return score;
 }
 
-function makeImageMeta(rawUrl, el, source, index) {
+function imageSectionIds(el, sectionContext) {
+  const sections = sectionContext?.sections || [];
+  if (!sections.length || !el) return [];
+  const heading = normalizeText(nearestHeading(el)).toLowerCase();
+  if (heading) {
+    const byHeading = sections.find((section) => normalizeText(section.heading).toLowerCase() === heading);
+    if (byHeading) return [byHeading.id];
+  }
+
+  const top = (el.getBoundingClientRect?.().top || 0) + window.scrollY;
+  const before = sections
+    .filter((section) => Number.isFinite(section.top) && section.top <= top + 8)
+    .sort((a, b) => b.top - a.top)[0];
+  return before ? [before.id] : [sections[0].id];
+}
+
+function makeImageMeta(rawUrl, el, source, index, sectionContext) {
   const url = normalizeImageUrl(rawUrl);
   if (!url) return null;
   const dims = el ? imageDimensions(el) : { width: 0, height: 0, renderedWidth: 0, renderedHeight: 0 };
   const caption = el ? imageCaption(el) : '';
   const meta = {
+    id: `image-${index + 1}`,
     url,
     source,
     alt: truncateText(el?.getAttribute?.('alt') || '', 180),
     caption,
     heading: el ? nearestHeading(el) : '',
     nearbyText: el ? nearbyImageText(el, caption) : '',
+    sectionIds: imageSectionIds(el, sectionContext),
     width: dims.width,
     height: dims.height,
     renderedWidth: dims.renderedWidth,
@@ -712,12 +809,12 @@ function backgroundImageElements() {
   return Array.from(new Set([...prioritized, ...fallback])).slice(0, 1600);
 }
 
-function extractPageImages() {
+function extractPageImages(sectionContext) {
   const candidates = [];
   let index = 0;
 
   document.querySelectorAll('meta[property="og:image"], meta[property="og:image:url"], meta[name="twitter:image"], meta[name="twitter:image:src"]').forEach((meta) => {
-    const item = makeImageMeta(meta.getAttribute('content'), null, 'og:image', index++);
+    const item = makeImageMeta(meta.getAttribute('content'), null, 'og:image', index++, sectionContext);
     if (item) candidates.push(item);
   });
 
@@ -731,7 +828,7 @@ function extractPageImages() {
       ['picture-source', bestPictureSourceUrl(img)],
     ];
     for (const [source, rawUrl] of sources) {
-      const item = makeImageMeta(rawUrl, img, source, imageIndex);
+      const item = makeImageMeta(rawUrl, img, source, imageIndex, sectionContext);
       if (item) candidates.push(item);
     }
   }
@@ -746,7 +843,7 @@ function extractPageImages() {
     if (rect.width < 220 || rect.height < 120) continue;
     const imageIndex = index++;
     for (const rawUrl of urls) {
-      const item = makeImageMeta(rawUrl, el, 'css-background', imageIndex);
+      const item = makeImageMeta(rawUrl, el, 'css-background', imageIndex, sectionContext);
       if (item) candidates.push(item);
     }
   }
@@ -757,10 +854,20 @@ function extractPageImages() {
     if (!existing || item.score > existing.score) byUrl.set(item.url, item);
   }
 
-  return Array.from(byUrl.values())
+  const images = Array.from(byUrl.values())
     .sort((a, b) => b.score - a.score || a.index - b.index)
     .slice(0, IMAGE_MAX_RESULTS)
     .sort((a, b) => a.index - b.index);
+
+  const bySection = new Map((sectionContext?.sections || []).map((section) => [section.id, section]));
+  for (const image of images) {
+    for (const sectionId of image.sectionIds || []) {
+      const section = bySection.get(sectionId);
+      if (section && !section.imageIds.includes(image.id)) section.imageIds.push(image.id);
+    }
+  }
+
+  return images;
 }
 
 /* ═══════════════════════════════════════════════════════════

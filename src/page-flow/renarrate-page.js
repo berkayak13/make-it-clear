@@ -16,12 +16,20 @@ function formatReadingGoal(goal) {
   ].filter(Boolean).join('\n') || 'No saved reading goal.';
 }
 
+function formatFact(fact) {
+  if (typeof fact === 'string') return fact;
+  return String(fact?.text || fact?.content || '').trim();
+}
+
 function formatKnowledge(knowledge = {}) {
+  const facts = Array.isArray(knowledge.facts)
+    ? knowledge.facts.map(formatFact).filter(Boolean)
+    : [];
   return [
     knowledge.title ? `Title: ${knowledge.title}` : '',
     knowledge.topic ? `Topic: ${knowledge.topic}` : '',
     knowledge.summary ? `Summary: ${knowledge.summary}` : '',
-    Array.isArray(knowledge.facts) && knowledge.facts.length ? `Facts:\n- ${knowledge.facts.join('\n- ')}` : '',
+    facts.length ? `Facts:\n- ${facts.join('\n- ')}` : '',
     Array.isArray(knowledge.entities) && knowledge.entities.length ? `Entities: ${knowledge.entities.join(', ')}` : '',
     Array.isArray(knowledge.keyTerms) && knowledge.keyTerms.length ? `Key terms: ${knowledge.keyTerms.join(', ')}` : '',
   ].filter(Boolean).join('\n\n');

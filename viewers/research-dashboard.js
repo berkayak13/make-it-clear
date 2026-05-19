@@ -49,7 +49,7 @@ function setupControls() {
   }
 }
 
-const DATA_TAB_IDS = ['conversationsList', 'experimentsList', 'feedbackList', 'preferencesList', 'logsList'];
+const DATA_TAB_IDS = ['conversationsList', 'feedbackList', 'preferencesList', 'logsList'];
 
 function setTabMessage(html) {
   for (const id of DATA_TAB_IDS) {
@@ -91,7 +91,7 @@ async function loadAllData() {
 function populateUserFilter() {
   const select = document.getElementById('userFilter');
   const userIds = new Set();
-  for (const storeName of ['chatSessions', 'researchLogs', 'feedbackEvents', 'experimentRuns', 'preferenceHistory', 'userPreferences']) {
+  for (const storeName of ['chatSessions', 'researchLogs', 'feedbackEvents', 'userPreferences']) {
     (allData[storeName] || []).forEach(r => { if (r.userId) userIds.add(r.userId); });
   }
   const current = select.value;
@@ -122,7 +122,6 @@ function applyFilters(records) {
 function renderAll() {
   renderOverview();
   renderConversations();
-  renderExperiments();
   renderFeedback();
   renderPreferences();
   renderLogs();
@@ -131,16 +130,14 @@ function renderAll() {
 
 function renderOverview() {
   const sessions = allData.chatSessions || [];
-  const experiments = allData.experimentRuns || [];
   const feedback = allData.feedbackEvents || [];
 
   const userIds = new Set();
-  for (const store of ['chatSessions', 'researchLogs', 'feedbackEvents', 'experimentRuns', 'preferenceHistory']) {
+  for (const store of ['chatSessions', 'researchLogs', 'feedbackEvents', 'userPreferences']) {
     (allData[store] || []).forEach(r => { if (r.userId) userIds.add(r.userId); });
   }
 
   document.getElementById('kpiSessions').textContent = sessions.length;
-  document.getElementById('kpiExperiments').textContent = experiments.length;
   document.getElementById('kpiFeedback').textContent = feedback.length;
   document.getElementById('kpiUsers').textContent = userIds.size;
 
@@ -173,24 +170,6 @@ function renderOverview() {
       </div>
     `).join('');
   }
-
-  // Recent runs
-  const recent = experiments.slice().sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)).slice(0, 5);
-  const runsEl = document.getElementById('recentRuns');
-  if (runsEl) {
-    if (!recent.length) {
-      runsEl.innerHTML = '<div class="empty-state">No runs yet.</div>';
-    } else {
-      runsEl.innerHTML = recent.map(r => `
-        <div class="rd-run-row">
-          <span class="user">${escapeHtml(r.userId?.slice(0, 6) || '--')}</span>
-          <span class="page" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(r.inputTextSample?.slice(0, 40) || '--')}</span>
-          <span class="task">${escapeHtml(r.taskName || '--')}</span>
-          <span class="score">${r.bestScore ? r.bestScore.toFixed(1) : '--'}</span>
-        </div>
-      `).join('');
-    }
-  }
 }
 
 function formatTime(ts) {
@@ -203,12 +182,6 @@ function escapeHtml(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
-function scoreClass(score) {
-  if (score >= 4) return 'high';
-  if (score >= 3) return 'mid';
-  return 'low';
-}
-
 // ---- Conversations ----
 function renderConversations() {
   const el = document.getElementById('conversationsList');
@@ -217,55 +190,19 @@ function renderConversations() {
     el.innerHTML = '<div class="empty-state">No chat sessions found.</div>';
     return;
   }
-  let html = '<table><tr><th>Session</th><th>User</th><th>Time</th><th>Messages</th><th>Persona</th><th>Details</th></tr>';
+  let html = '<table><tr><th>Session</th><th>User</th><th>Time</th><th>Messages</th><th>Details</th></tr>';
   sessions.forEach((s, i) => {
     const msgCount = s.messages?.length || 0;
-    const persona = s.extractedProfile?.name || s.appliedPersonaKey || '--';
     html += `<tr>
       <td style="font-family:monospace;font-size:11px;">${escapeHtml(s.sessionId?.slice(0, 8))}</td>
       <td><span class="pill info">${escapeHtml(s.userId)}</span></td>
       <td>${formatTime(s.timestamp)}</td>
       <td>${msgCount}</td>
-      <td>${escapeHtml(persona)}</td>
       <td><button onclick="toggleExpand('conv-${i}')">View</button></td>
     </tr>
-    <tr><td colspan="6" style="padding:0;border:none;">
+    <tr><td colspan="5" style="padding:0;border:none;">
       <div class="expand-content" id="conv-${i}">
         ${(s.messages || []).map(m => `<div class="msg-bubble ${m.role}">${escapeHtml(m.content)}</div>`).join('')}
-        ${s.extractedProfile ? '<hr style="margin:8px 0;"><strong>Extracted Profile:</strong><pre>' + escapeHtml(JSON.stringify(s.extractedProfile, null, 2)) + '</pre>' : ''}
-      </div>
-    </td></tr>`;
-  });
-  html += '</table>';
-  el.innerHTML = html;
-}
-
-// ---- Experiments ----
-function renderExperiments() {
-  const el = document.getElementById('experimentsList');
-  const experiments = applyFilters(allData.experimentRuns || []).slice().sort((a, b) => b.timestamp - a.timestamp);
-  if (!experiments.length) {
-    el.innerHTML = '<div class="empty-state">No experiment runs found. Run page renarration to see data here.</div>';
-    return;
-  }
-  let html = '<table><tr><th>ID</th><th>User</th><th>Time</th><th>Task</th><th>Persona</th><th>Attempts</th><th>Best Score</th><th>Details</th></tr>';
-  experiments.forEach((exp, i) => {
-    const sc = scoreClass(exp.bestScore || 0);
-    html += `<tr>
-      <td style="font-family:monospace;font-size:11px;">${escapeHtml(exp.experimentId?.slice(0, 8))}</td>
-      <td><span class="pill info">${escapeHtml(exp.userId)}</span></td>
-      <td>${formatTime(exp.timestamp)}</td>
-      <td>${escapeHtml(exp.taskName)}</td>
-      <td>${escapeHtml(exp.personaName)}</td>
-      <td>${exp.attemptCount || exp.attempts?.length || 0}</td>
-      <td><span class="score-bar ${sc}" style="width:${(exp.bestScore || 0) * 20}px;"></span> ${(exp.bestScore || 0).toFixed(1)}</td>
-      <td><button onclick="toggleExpand('exp-${i}')">View</button></td>
-    </tr>
-    <tr><td colspan="8" style="padding:0;border:none;">
-      <div class="expand-content" id="exp-${i}">
-        <strong>Input sample:</strong><br>${escapeHtml(exp.inputTextSample)}<br><br>
-        <strong>Best output:</strong><br>${escapeHtml(exp.bestOutput)}<br><br>
-        <strong>Attempts:</strong><pre>${escapeHtml(JSON.stringify(exp.attempts, null, 2))}</pre>
       </div>
     </td></tr>`;
   });
@@ -299,21 +236,19 @@ function renderFeedback() {
 // ---- Preferences ----
 function renderPreferences() {
   const el = document.getElementById('preferencesList');
-  const prefs = applyFilters(allData.preferenceHistory || []).slice().sort((a, b) => b.timestamp - a.timestamp);
+  const prefs = applyFilters(allData.userPreferences || []).slice().sort((a, b) => b.timestamp - a.timestamp);
   if (!prefs.length) {
-    el.innerHTML = '<div class="empty-state">No preference changes recorded.</div>';
+    el.innerHTML = '<div class="empty-state">No saved reading goals found.</div>';
     return;
   }
-  let html = '<table><tr><th>User</th><th>Time</th><th>Field</th><th>Old Value</th><th>New Value</th></tr>';
+  let html = '<table><tr><th>User</th><th>Time</th><th>Session</th><th>Reading Goal</th></tr>';
   prefs.forEach(p => {
-    const oldVal = typeof p.oldValue === 'object' ? JSON.stringify(p.oldValue) : String(p.oldValue ?? '--');
-    const newVal = typeof p.newValue === 'object' ? JSON.stringify(p.newValue) : String(p.newValue ?? '--');
+    const goal = typeof p.preferences === 'object' ? JSON.stringify(p.preferences) : String(p.preferences ?? '--');
     html += `<tr>
       <td><span class="pill info">${escapeHtml(p.userId)}</span></td>
       <td>${formatTime(p.timestamp)}</td>
-      <td><strong>${escapeHtml(p.field)}</strong></td>
-      <td style="font-size:12px;">${escapeHtml(oldVal?.slice(0, 100))}</td>
-      <td style="font-size:12px;">${escapeHtml(newVal?.slice(0, 100))}</td>
+      <td style="font-family:monospace;font-size:11px;">${escapeHtml(p.sessionId?.slice(0, 8) || '--')}</td>
+      <td style="font-size:12px;">${escapeHtml(goal?.slice(0, 180))}</td>
     </tr>`;
   });
   html += '</table>';
@@ -351,7 +286,7 @@ function renderLogs() {
 // ---- Export ----
 function renderExport() {
   const el = document.getElementById('exportSection');
-  const stores = ['chatSessions', 'researchLogs', 'feedbackEvents', 'experimentRuns', 'preferenceHistory', 'userPreferences'];
+  const stores = ['chatSessions', 'researchLogs', 'feedbackEvents', 'userPreferences'];
   const hasAnyData = Object.values(allData).some(arr => Array.isArray(arr) && arr.length > 0);
   el.innerHTML = stores.map(name => {
     const count = (allData[name] || []).length;

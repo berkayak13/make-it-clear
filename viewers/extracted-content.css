@@ -136,6 +136,15 @@ body {
   color: var(--ink-2);
 }
 
+.ev-fact-meta {
+  display: block;
+  margin-top: 4px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
 .ev-fact-conf {
   display: flex;
   align-items: center;
@@ -287,4 +296,3 @@ body {
   color: var(--muted);
   text-transform: uppercase;
 }
-

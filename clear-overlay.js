@@ -22,8 +22,10 @@
   let extractionInProgress = false;
   let extensionContextDead = false;
 
-  function isStaleLocalExtraction(value) {
-    return value?.model === 'local-fast-text';
+  function hasExtractionContent(value) {
+    if (String(value?.compactText || '').trim()) return true;
+    const facts = value?.facts || value?.knowledge?.facts || [];
+    return Array.isArray(facts) && facts.some((fact) => String(typeof fact === 'string' ? fact : fact?.text || '').trim());
   }
 
   function isExtensionContextError(error) {
@@ -382,7 +384,7 @@
           </div>
         </div>
         <div id="ov-knowledge-content">
-          <div class="ov-knowledge-empty">Not extracted yet. Click "Renarrate this page" to extract.</div>
+          <div class="ov-knowledge-empty">Not extracted yet. Click "Extract page" when you need it.</div>
         </div>
       </div>
       <hr class="ov-hr"/>
@@ -475,13 +477,6 @@
       collapsedEl.classList.add('ov-hidden');
     }
     applyPosition();
-    setTimeout(() => {
-      try {
-        ensureExtractionForPage();
-      } catch (e) {
-        if (!isExtensionContextError(e)) console.warn('[Clear] Auto extraction failed:', e?.message || e);
-      }
-    }, 0);
   }
 
   function hide() {
@@ -540,9 +535,14 @@
       shadow.getElementById('ov-retry')?.addEventListener('click', triggerExtraction);
       return;
     }
-    if (!extraction || !extraction.compactText) {
+    if (state === 'extract-required') {
       statusEl.innerHTML = '';
-      contentEl.innerHTML = `<div class="ov-knowledge-empty">Not extracted yet. Click "Renarrate this page" to extract.</div>`;
+      contentEl.innerHTML = `<div class="ov-knowledge-empty">Extract the page first, then renarrate.</div>`;
+      return;
+    }
+    if (!hasExtractionContent(extraction)) {
+      statusEl.innerHTML = '';
+      contentEl.innerHTML = `<div class="ov-knowledge-empty">Not extracted yet. Click "Extract page" when you need it.</div>`;
       return;
     }
     statusEl.innerHTML = `${I.check}<span style="color:var(--muted)">EXTRACTED</span>`;
@@ -728,12 +728,6 @@
     }
   }
 
-  function ensureExtractionForPage() {
-    if (extractionInProgress) return;
-    if (extraction?.compactText && extraction.url === location.href && !isStaleLocalExtraction(extraction)) return;
-    triggerExtraction();
-  }
-
   async function openExtractionViewer() {
     try {
       await safeSendMessage({ action: 'open-extracted-content-viewer' });
@@ -744,8 +738,10 @@
 
   async function triggerRenarration() {
     try {
-      const pageExtraction = extraction || await triggerExtraction();
-      if (!pageExtraction) return;
+      if (!hasExtractionContent(extraction) || extraction.url !== location.href) {
+        renderKnowledge('extract-required');
+        return;
+      }
       const res = await safeSendMessage({
         action: 'run-page-renarration-from-extraction',
         pageMetadata: { url: location.href, title: document.title },
@@ -837,9 +833,8 @@
       const { lastExtraction } = await safeLocalGet(['lastExtraction']);
       if (
         lastExtraction &&
-        lastExtraction.compactText &&
-        lastExtraction.url === location.href &&
-        !isStaleLocalExtraction(lastExtraction)
+        hasExtractionContent(lastExtraction) &&
+        lastExtraction.url === location.href
       ) {
         extraction = lastExtraction;
         renderKnowledge();

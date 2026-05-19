@@ -208,8 +208,8 @@
       <div class="flow">
         <article class="step">
           <span class="badge">1. User Action</span>
-          <h3>Popup starts the run</h3>
-          <p><code>popup.js</code> sends <code>run-page-renarration</code> with the active tab id, URL, and title.</p>
+          <h3>Overlay starts the run</h3>
+          <p>The overlay sends <code>run-page-renarration-from-extraction</code> after page knowledge has been extracted for the active tab.</p>
         </article>
 
         <article class="step">
@@ -227,7 +227,7 @@
         <article class="step">
           <span class="badge">4. Renarration</span>
           <h3>Goal-aware rewrite</h3>
-          <p><code>renarrate-page.js</code> combines the saved reading goal, active task, active persona, raw page text, and extracted facts.</p>
+          <p><code>renarrate-page.js</code> combines the saved reading goal, active task, raw page text, and extracted facts.</p>
         </article>
 
         <article class="step">
@@ -252,7 +252,7 @@
       <section class="panel half">
         <h2>Reading Goal Flow</h2>
         <ul class="list">
-          <li>The popup or side panel starts a chat session with <code>chatbot-new-session</code>.</li>
+          <li>The overlay starts a chat session with <code>chatbot-new-session</code>.</li>
           <li><code>chatbot-send</code> appends messages and gets an OpenAI reply.</li>
           <li><code>chatbot-set-reading-goal</code> extracts a structured goal from the transcript.</li>
           <li>When the user applies the goal, it is saved to <code>chrome.storage.sync.readingGoal</code>.</li>
@@ -269,9 +269,9 @@
       </section>
 
       <section class="panel third">
-        <h2>Side Panel Extraction</h2>
+        <h2>Overlay Extraction</h2>
         <p>
-          The side panel uses <code>extract-page-knowledge</code> to run extraction without creating the final split-panel rewrite.
+          The overlay uses <code>extract-page-knowledge</code> to run extraction before creating the final split-panel rewrite.
           It renders the latest title, topic, summary, facts, entities, and key terms.
         </p>
       </section>
@@ -287,8 +287,8 @@
       <section class="panel">
         <h2>Message Contracts</h2>
         <div class="contract">
-          <code>run-page-renarration</code>
-          <span>Popup entry point for full page extraction, final rewrite, storage, and split-panel rendering.</span>
+          <code>run-page-renarration-from-extraction</code>
+          <span>Overlay and extracted-content entry point for final rewrite, storage, and split-panel rendering after extraction.</span>
         </div>
         <div class="contract">
           <code>extract-page-knowledge</code>
@@ -319,7 +319,7 @@
       <section class="panel half">
         <h2>Persistent Data</h2>
         <ul class="list">
-          <li><code>chrome.storage.sync</code>: tasks, personas, active selections, prompt template, reading goal.</li>
+          <li><code>chrome.storage.sync</code>: tasks, active selection, prompt template, reading goal.</li>
           <li><code>chrome.storage.local</code>: latest extraction, latest page renarration, current chat session id, research settings.</li>
           <li>Cloud Firestore helpers are isolated in <code>src/utils/firestore-client.js</code>.</li>
         </ul>

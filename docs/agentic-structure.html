@@ -412,7 +412,7 @@
         </p>
         <p>
           In this repo, "agentic" means the extension keeps user intent in state, extracts page knowledge, chooses prompts
-          from task, persona, and reading goal context, then runs the next step automatically. The orchestration is in code,
+          from task and reading goal context, then runs the next step automatically. The orchestration is in code,
           not in autonomous agent files.
         </p>
       </section>
@@ -464,7 +464,7 @@
           <h3>Renarration generation</h3>
           <p>
             <code>src/page-flow/renarrate-page.js</code> builds the final prompt from extracted knowledge,
-            raw page text, active task, active persona, and saved reading goal. It returns plain text only.
+            raw page text, active task, and saved reading goal. It returns plain text only.
           </p>
         </article>
 
@@ -522,17 +522,15 @@
           </div>
         </div>
         <div class="table-row">
-          <div class="table-cell"><code>popup.js</code></div>
+          <div class="table-cell"><code>popup-stub.js</code></div>
           <div class="table-cell">
-            Provides the popup chat UI and the <code>Renarrate Page</code> button. It starts chat sessions,
-            applies reading goals, and triggers the full page renarration message.
+            Opens the on-page overlay, opens settings, or opens the extracted-content viewer.
           </div>
         </div>
         <div class="table-row">
-          <div class="table-cell"><code>sidepanel.js</code></div>
+          <div class="table-cell"><code>sidepanel-stub.js</code></div>
           <div class="table-cell">
-            Provides a larger chat UI and an extraction panel. It can run extraction only, without rendering
-            the final page rewrite.
+            Opens the same on-page overlay from the Chrome side panel surface.
           </div>
         </div>
         <div class="table-row">
@@ -555,10 +553,10 @@
       <div class="flow-strip">
         <article class="flow-step">
           <span class="badge">1. User action</span>
-          <h3>Popup sends a request</h3>
+          <h3>Overlay sends a request</h3>
           <p>
-            The popup button sends <code>run-page-renarration</code> with <code>tabId</code>,
-            page URL, and page title.
+            The overlay sends <code>run-page-renarration-from-extraction</code> with <code>tabId</code>
+            after page knowledge is available.
           </p>
         </article>
 
@@ -584,7 +582,7 @@
           <span class="badge">4. Renarration</span>
           <h3>Prompt with intent</h3>
           <p>
-            <code>renarratePage()</code> builds a system prompt from task, persona, boilerplate, and reading goal,
+            <code>renarratePage()</code> builds a system prompt from task, boilerplate, and reading goal,
             then sends page knowledge and raw text as the user input.
           </p>
         </article>
@@ -603,8 +601,8 @@
         <div class="sequence-row">
           <div class="actor">Popup</div>
           <div class="event">
-            <code>popup.js</code> queries the active tab and sends <code>run-page-renarration</code>.
-            The message includes <code>pageMetadata</code> so extraction and storage can preserve URL and title.
+            The overlay sends <code>run-page-renarration-from-extraction</code>.
+            The message can include <code>pageMetadata</code> so storage can preserve URL and title.
           </div>
         </div>
         <div class="sequence-row">
@@ -617,8 +615,8 @@
         <div class="sequence-row">
           <div class="actor">Orchestrator</div>
           <div class="event">
-            <code>pageFlowHandlers['run-page-renarration']</code> resolves the active tab, generates a run id,
-            tells the content script to show the panel, and starts extraction.
+            <code>pageFlowHandlers['run-page-renarration-from-extraction']</code> resolves the active tab, generates a run id,
+            tells the content script to show the panel, and starts the final rewrite from the saved extraction.
           </div>
         </div>
         <div class="sequence-row">
@@ -646,7 +644,7 @@
         <div class="sequence-row">
           <div class="actor">Prompt builder</div>
           <div class="event">
-            <code>buildRenarrationPrompt()</code> loads current tasks, personas, prompt template, system boilerplate,
+            <code>buildRenarrationPrompt()</code> loads current tasks, prompt template, system boilerplate,
             and <code>chrome.storage.sync.readingGoal</code>. The final system prompt combines all of them.
           </div>
         </div>
@@ -681,8 +679,8 @@
           <ul class="list">
             <li><code>chatbot-new-session</code> creates a session with a stable user id and empty messages.</li>
             <li><code>chatbot-send</code> appends the user's message, loads recent preference history, and calls OpenAI.</li>
-            <li>The chatbot system prompt asks one question at a time and formats quick replies with <code>&gt;&gt;</code>.</li>
-            <li>The popup and side panel parse <code>&gt;&gt;</code> lines into clickable quick-reply buttons.</li>
+            <li>The chatbot system prompt asks one question at a time and keeps answers concise.</li>
+            <li>The overlay stores the extracted reading goal in <code>chrome.storage.sync.readingGoal</code>.</li>
           </ul>
         </article>
 
@@ -712,7 +710,7 @@
       <h2>Selected Text Flow</h2>
       <p>
         Selected text renarration is the smaller path. It does not run page
-        knowledge extraction. It sends only the selected text plus the active task/persona prompt context.
+        knowledge extraction. It sends only the selected text plus the active task prompt context.
       </p>
 
       <div class="sequence">
@@ -749,7 +747,6 @@
           <ul class="list">
             <li><code>enabled</code></li>
             <li><code>currentTask</code> and <code>tasks</code></li>
-            <li><code>currentPersona</code> and <code>personas</code></li>
             <li><code>systemPromptTemplate</code></li>
             <li><code>readingGoal</code></li>
           </ul>
@@ -774,7 +771,6 @@
             <li><code>chatSessions</code></li>
             <li><code>researchLogs</code></li>
             <li><code>feedbackEvents</code></li>
-            <li><code>experimentRuns</code></li>
             <li><code>userPreferences</code></li>
           </ul>
         </article>
@@ -796,7 +792,7 @@
 
       <div class="table">
         <div class="table-row">
-          <div class="table-cell"><code>run-page-renarration</code></div>
+          <div class="table-cell"><code>run-page-renarration-from-extraction</code></div>
           <div class="table-cell">
             Full page flow. Opens the split panel, extracts knowledge, generates final text, stores the result,
             and renders it on the active page.
@@ -805,14 +801,8 @@
         <div class="table-row">
           <div class="table-cell"><code>extract-page-knowledge</code></div>
           <div class="table-cell">
-            Extraction-only flow used by the side panel. Produces structured page knowledge and stores
+            Extraction-only flow used by the overlay and extracted-content viewer. Produces structured page knowledge and stores
             <code>lastExtraction</code>.
-          </div>
-        </div>
-        <div class="table-row">
-          <div class="table-cell"><code>get-last-extraction</code></div>
-          <div class="table-cell">
-            Reads the most recent extraction from local storage so the side panel can restore state.
           </div>
         </div>
         <div class="table-row">
@@ -848,7 +838,7 @@
         <div class="table-row">
           <div class="table-cell"><code>chatbot-*</code></div>
           <div class="table-cell">
-            Chat session, chat response, persona extraction, persona apply, and reading-goal extraction actions.
+            Chat session, chat response, and reading-goal extraction actions.
           </div>
         </div>
         <div class="table-row">
@@ -944,7 +934,7 @@ VITE_OPENAI_TIMEOUT_MS    defaults to 120000</pre>
             <li>Final plain-text page renarration in a split panel.</li>
             <li>Selected-text overlay renarration.</li>
             <li>Chat-based reading goal extraction.</li>
-            <li>Options-managed tasks, personas, and prompt template.</li>
+            <li>Options-managed tasks and prompt template.</li>
           </ul>
         </article>
 

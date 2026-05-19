@@ -197,11 +197,6 @@
       font-weight: 700;
     }
 
-    .badge.legacy {
-      background: #fdecd3;
-      color: var(--orange);
-    }
-
     .list {
       margin: 0;
       padding-left: 18px;
@@ -367,10 +362,10 @@
   <main>
     <header>
       <div class="hero">
-        <span class="badge">Side Panel · Reading Assistant</span>
+        <span class="badge">Overlay · Reading Assistant</span>
         <h1>How the Chat Works</h1>
         <p>
-          The side panel chat is a goal-oriented assistant. The user talks to it about what they want from
+          The overlay chat is a goal-oriented assistant. The user talks to it about what they want from
           web content; once the conversation has enough signal, a separate extraction pass turns the
           transcript into a structured <code>readingGoal</code> that the renarration pipeline consumes.
         </p>
@@ -385,20 +380,19 @@
         <ul class="toc">
           <li><a href="#surface">1 · UI surface</a></li>
           <li><a href="#roundtrip">2 · Message round-trip</a></li>
-          <li><a href="#prompt">3 · System prompt &amp; quick replies</a></li>
+          <li><a href="#prompt">3 · System prompt</a></li>
           <li><a href="#extraction">4 · Goal extraction</a></li>
           <li><a href="#storage">5 · Storage map</a></li>
-          <li><a href="#legacy">6 · Legacy persona path</a></li>
-          <li><a href="#gotchas">7 · Gotchas</a></li>
+          <li><a href="#gotchas">6 · Gotchas</a></li>
         </ul>
       </aside>
     </header>
 
     <section id="surface" class="section">
       <span class="badge">1 · UI surface</span>
-      <h2>What the side panel renders</h2>
+      <h2>What the overlay renders</h2>
       <p>
-        Everything lives in <code>sidepanel.html</code> and is wired up by <code>sidepanel.js</code>.
+        Everything lives in the on-page overlay injected by <code>clear-overlay.js</code>.
         There is no framework — just DOM nodes with stable IDs that the script grabs on
         <code>DOMContentLoaded</code>.
       </p>
@@ -438,15 +432,6 @@
             for <code>extraction-progress</code> / <code>extraction-update</code> broadcast messages
             from the background. It is independent of the chat &mdash; mentioned here only so its
             wiring is not mistaken for chat logic.
-          </p>
-        </div>
-        <div class="card span-6">
-          <h3>Refinement banner</h3>
-          <p>
-            On open, the panel sends <code>check-feedback-trends</code> to the background. If the
-            response carries <code>shouldRefine: true</code>, a banner suggests refining preferences.
-            Clicking it pre-fills the input with a prompt and focuses the textarea &mdash; it does not
-            send automatically.
           </p>
         </div>
       </div>
@@ -503,7 +488,7 @@
           <p>
             The reply is persisted as a <code>model</code> turn, a redacted log row goes into
             <code>researchLogs</code>, and the text returns to the UI. Lines beginning with
-            <code>&gt;&gt;&nbsp;</code> become quick-reply chips; the rest becomes a model bubble.
+            the reply is rendered as a model bubble.
           </p>
         </div>
       </div>
@@ -511,12 +496,12 @@
       <div class="sequence" style="margin-top: 22px;">
         <h3>Detailed sequence</h3>
         <div class="sequence-row">
-          <div class="actor">sidepanel.js</div>
+          <div class="actor">clear-overlay.js</div>
           <div class="event">
             <p>
               <code>chrome.runtime.sendMessage({ action: 'chatbot-send', sessionId, message })</code>
             </p>
-            <p>Blocks the send button, hides quick replies, removes the welcome card on the first turn.</p>
+            <p>Blocks the send button and removes the welcome card on the first turn.</p>
           </div>
         </div>
         <div class="sequence-row">
@@ -575,16 +560,15 @@
               truncated entry (first 500 chars of each side) to <code>researchLogs</code> when
               <code>enableResearchLogging</code> is not explicitly false.
             </p>
-            <p>Returns <code>{ success: true, reply }</code> to the side panel.</p>
+            <p>Returns <code>{ success: true, reply }</code> to the overlay.</p>
           </div>
         </div>
         <div class="sequence-row">
-          <div class="actor">sidepanel.js</div>
+          <div class="actor">clear-overlay.js</div>
           <div class="event">
             <p>
-              <code>renderModelReply(text)</code> splits on newlines, partitions
-              <code>&gt;&gt;&nbsp;option</code> lines into quick-reply chips, and renders the rest as
-              a model bubble. The send button re-enables and the textarea is refocused.
+              The overlay adds the assistant response to its message list, re-renders the chat, re-enables
+              the send button, and refocuses the textarea.
             </p>
           </div>
         </div>
@@ -600,19 +584,18 @@
     </section>
 
     <section id="prompt" class="section">
-      <span class="badge">3 · System prompt &amp; quick replies</span>
+      <span class="badge">3 · System prompt</span>
       <h2>The conversation contract</h2>
 
       <p>
-        <code>src/prompts/chatbot-system.md</code> is the contract between the UI and the model. Two
-        rules it enforces matter for the rendering pipeline:
+	        <code>src/prompts/chatbot-system.md</code> is the contract between the UI and the model. Three
+	        rules it enforces matter for the rendering pipeline:
       </p>
 
       <ul class="list">
         <li>
-          <strong>One question, 3&ndash;4 options, each prefixed with <code>&gt;&gt;&nbsp;</code></strong> &mdash;
-          the UI splits those lines out as clickable chips. Free-form text is always allowed too;
-          the model is told to handle both.
+	          <strong>Ask one question at a time.</strong> The UI accepts free-form answers; the model is told
+	          not to emit numbered choices, selectable options, or button-style lines.
         </li>
         <li>
           <strong>Never emit JSON or structured data.</strong> Goal extraction is a separate call
@@ -625,18 +608,10 @@
         </li>
       </ul>
 
-      <pre><code>// Example model reply that the UI knows how to render:
-Got it. How much detail do you want?
-
-&gt;&gt; Brief overview
-&gt;&gt; Moderate detail
-&gt;&gt; Full deep-dive</code></pre>
-
-      <p>
-        On restore (re-opening the panel), <code>renderMessages()</code> still strips the
-        <code>&gt;&gt;&nbsp;</code> lines but does <em>not</em> recreate the chip buttons &mdash; the user
-        has already moved past that turn.
-      </p>
+	      <p>
+	        On restore, <code>renderChat()</code> rebuilds the message list from the saved session and keeps
+	        the latest conversation state available in the overlay.
+	      </p>
     </section>
 
     <section id="extraction" class="section">
@@ -705,17 +680,17 @@ Got it. How much detail do you want?
         <div class="table-row">
           <div class="table-cell">IndexedDB</div>
           <div class="table-cell">chatSessions</div>
-          <div class="table-cell">Full message history, extracted goal, applied persona key &mdash; keyed by <code>sessionId</code>.</div>
+          <div class="table-cell">Full message history and extracted goal &mdash; keyed by <code>sessionId</code>.</div>
         </div>
         <div class="table-row">
           <div class="table-cell">IndexedDB</div>
           <div class="table-cell">userPreferences</div>
-          <div class="table-cell">Append-only log of extracted goals. Indexed by <code>userId</code>; the chat reads the most recent 5 entries to personalize.</div>
+          <div class="table-cell">Append-only log of extracted goals. Indexed by <code>userId</code>; the chat reads the most recent 5 entries to tailor future questions.</div>
         </div>
         <div class="table-row">
           <div class="table-cell">IndexedDB</div>
           <div class="table-cell">researchLogs</div>
-          <div class="table-cell">Per-turn redacted log (500-char clip per side) plus separate <code>reading-goal</code> and <code>persona-change</code> entries. Gated by <code>enableResearchLogging</code>.</div>
+          <div class="table-cell">Per-turn redacted log (500-char clip per side) plus separate <code>reading-goal</code> entries. Gated by <code>enableResearchLogging</code>.</div>
         </div>
         <div class="table-row">
           <div class="table-cell">chrome.storage.local</div>
@@ -727,29 +702,11 @@ Got it. How much detail do you want?
           <div class="table-cell">readingGoal</div>
           <div class="table-cell">The applied goal &mdash; the only key the renarration pipeline reads from the chat flow.</div>
         </div>
-        <div class="table-row">
-          <div class="table-cell">chrome.storage.sync</div>
-          <div class="table-cell">personas, currentPersona</div>
-          <div class="table-cell">Written by the legacy persona path (see below). Not used by the goal flow.</div>
-        </div>
       </div>
     </section>
 
-    <section id="legacy" class="section">
-      <span class="badge legacy">6 · Legacy</span>
-      <h2>Persona handlers still in the file</h2>
-      <p>
-        <code>src/handlers/chatbot.js</code> exports two more handlers that the current UI does not
-        surface: <code>chatbot-generate-persona</code> (runs the persona-extraction prompt over the
-        transcript) and <code>chatbot-apply-persona</code> (saves the result into
-        <code>chrome.storage.sync.personas</code> under a generated slug + id). They predate the
-        reading-goal flow and remain wired up in case anything calls them &mdash; do not assume the
-        chat itself triggers them.
-      </p>
-    </section>
-
     <section id="gotchas" class="section">
-      <span class="badge">7 · Gotchas</span>
+      <span class="badge">6 · Gotchas</span>
       <h2>Things worth knowing before editing</h2>
       <ul class="list">
         <li>

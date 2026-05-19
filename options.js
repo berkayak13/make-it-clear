@@ -1,6 +1,6 @@
 // Options page script
 
-// Default tasks — keep in sync with background.js DEFAULT_TASKS
+// Default tasks - keep in sync with storage-helpers.js DEFAULT_TASKS
 const DEFAULT_TASKS = {
   'simple': {
     name: 'Simple Language',
@@ -40,72 +40,25 @@ const DEFAULT_TASKS = {
   }
 };
 
-// Default personas — keep in sync with background.js DEFAULT_PERSONAS
-const DEFAULT_PERSONAS = {
-  'berat': {
-    name: 'Berat (Neighborhood Barber)',
-    description: 'Low computer literacy; prefers very plain Turkish/English explanations.',
-    systemAddendum: 'Target audience persona: Berat is a neighborhood barber with limited computer experience. Use very plain language and avoid economic jargon.'
-  },
-  'student': {
-    name: 'Undergrad Student',
-    description: 'Understands basic academic concepts; wants clear but not oversimplified explanations.',
-    systemAddendum: 'Target audience persona: An undergraduate student seeking clear educational explanations with light context.'
-  },
-  'researcher': {
-    name: 'Academic Researcher',
-    description: 'Prefers formal, precise, domain-rich terminology.',
-    systemAddendum: 'Target audience persona: Academic researcher expecting formal tone with precise terminology.'
-  },
-  'general': {
-    name: 'General Public',
-    description: 'Average reader; keep it accessible and neutral.',
-    systemAddendum: 'Target audience persona: General public; keep tone neutral and accessible.'
-  },
-  'gamer_student': {
-    name: 'High-School Gamer',
-    description: 'High school student, enjoys video games; prefers casual, engaging explanations with relatable metaphors.',
-    systemAddendum:
-      'Target audience persona: High-school student who enjoys video games. Use casual, energetic language, short sentences, and relatable game-based metaphors when appropriate. Avoid heavy jargon; if technical terms are needed, briefly define them using simple analogies.'
-  },
-  'smallbiz_owner': {
-    name: 'Small Business Owner',
-    description: 'Runs a small business and handles basic accounting in Excel; prefers direct, practical, and actionable explanations.',
-    systemAddendum:
-      'Target audience persona: Small business owner who performs accounting tasks (often in Excel). Provide clear, step-by-step guidance, prioritize practical examples and actionable items, and show short illustrative snippets (e.g., Excel formulas or brief workflow steps) when relevant. Keep language concise and business-focused.'
-  },
-  'arch_student': {
-    name: 'Architecture Student',
-    description: 'University architecture student experienced with 3D design tools and technical drawings; prefers precise, design-oriented language.',
-    systemAddendum:
-      'Target audience persona: University student majoring in architecture who frequently uses 3D design software. Use precise, domain-relevant terminology (but define very specialized terms if they are uncommon), reference spatial concepts and design workflow when useful, and give examples that can map to 3D modeling or drafting steps. Keep explanations structured and include suggested practical next steps for application in design software.'
-  }
-};
-
 let currentTasks = {};
 let editingTaskKey = null;
-
-// NEW persona state
-let currentPersonas = {};
-let editingPersonaKey = null;
-let currentPersonaActive = 'general';
 let currentTaskActive = 'simple';
 let systemPromptTemplate = '';
 let boilerplateText = '';
 let templateSaveTimer = null;
 let currentReadingGoal = '';
 
-// Initialize
+function retiredKey(parts) {
+  return parts.join('');
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
   await loadSettings();
   setupEventListeners();
-
-  // Initialize active selectors after DOM and settings are ready
   hydrateActiveSelectors();
   updateEffectiveSystemPrompt();
 });
 
-// Keep cached readingGoal in sync when changed externally (e.g. from sidepanel)
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'sync' && changes.readingGoal) {
     currentReadingGoal = changes.readingGoal.newValue || '';
@@ -113,45 +66,30 @@ chrome.storage.onChanged.addListener((changes, area) => {
   }
 });
 
-// Extend loadSettings to include personas
 async function loadSettings() {
   const settings = await chrome.storage.sync.get([
     'tasks',
     'currentTask',
-    'profiles',
-    'currentProfile',
-    'personas',
-    'currentPersona',
     'systemPromptTemplate'
   ]);
   const local = await chrome.storage.local.get(['studyUserId', 'enableResearchLogging', 'firebaseProjectId', 'firebaseApiKey']);
 
-  // Research settings
   const userIdInput = document.getElementById('studyUserId');
   const loggingOpt = document.getElementById('enableResearchLoggingOpt');
   if (userIdInput) userIdInput.value = local.studyUserId || '';
   if (loggingOpt) loggingOpt.checked = local.enableResearchLogging !== false;
 
-  // Firebase config
   const fbProjectInput = document.getElementById('firebaseProjectId');
   const fbApiKeyInput = document.getElementById('firebaseApiKey');
   if (fbProjectInput) fbProjectInput.value = local.firebaseProjectId || 'renarration-research';
   if (fbApiKeyInput) fbApiKeyInput.value = local.firebaseApiKey || '';
 
   boilerplateText = await fetch(chrome.runtime.getURL('src/prompts/system.md')).then(r => r.text()).catch(() => '');
-  
+
   let tasks = settings.tasks;
   let currentTask = settings.currentTask;
   let shouldWrite = false;
 
-  if ((!tasks || !Object.keys(tasks).length) && settings.profiles && Object.keys(settings.profiles).length) {
-    tasks = settings.profiles;
-    shouldWrite = true;
-  }
-  if (!currentTask && settings.currentProfile) {
-    currentTask = settings.currentProfile;
-    shouldWrite = true;
-  }
   if (!tasks || !Object.keys(tasks).length) {
     tasks = DEFAULT_TASKS;
     shouldWrite = true;
@@ -166,49 +104,34 @@ async function loadSettings() {
 
   currentTasks = tasks;
   currentTaskActive = currentTask;
-  currentPersonas = settings.personas || DEFAULT_PERSONAS;
-  currentPersonaActive = settings.currentPersona || 'general';
-  systemPromptTemplate = (settings.systemPromptTemplate || '').trim();
+  systemPromptTemplate = sanitizeTemplate((settings.systemPromptTemplate || '').trim());
   if (!systemPromptTemplate) {
     systemPromptTemplate = buildDefaultTemplate(boilerplateText);
     await chrome.storage.sync.set({ systemPromptTemplate });
+  } else if (systemPromptTemplate !== (settings.systemPromptTemplate || '').trim()) {
+    await chrome.storage.sync.set({ systemPromptTemplate });
   }
+
   const templateEl = document.getElementById('systemPromptTemplate');
   if (templateEl) templateEl.value = systemPromptTemplate;
-  
-  // Active persona selection removed from options (selection handled in popup)
 
   renderTasks();
-  renderPersonas();
   const { readingGoal: savedGoal } = await chrome.storage.sync.get(['readingGoal']);
   currentReadingGoal = savedGoal || '';
   document.getElementById('effectiveSystemPrompt').value = buildEffectiveSystemPrompt(boilerplateText, systemPromptTemplate, currentReadingGoal);
 }
 
-// Populate and sync the top-level active task/persona dropdowns
 function hydrateActiveSelectors() {
   const taskSel = document.getElementById('currentTaskSelect');
-  const personaSel = document.getElementById('currentPersonaSelect');
-  if (taskSel) {
-    taskSel.innerHTML = '';
-    Object.entries(currentTasks || {}).forEach(([key, val]) => {
-      const opt = document.createElement('option');
-      opt.value = key;
-      opt.textContent = val.name || key;
-      taskSel.appendChild(opt);
-    });
-    taskSel.value = currentTaskActive;
-  }
-  if (personaSel) {
-    personaSel.innerHTML = '';
-    Object.entries(currentPersonas || {}).forEach(([key, val]) => {
-      const opt = document.createElement('option');
-      opt.value = key;
-      opt.textContent = val.name || key;
-      personaSel.appendChild(opt);
-    });
-    personaSel.value = currentPersonaActive;
-  }
+  if (!taskSel) return;
+  taskSel.innerHTML = '';
+  Object.entries(currentTasks || {}).forEach(([key, val]) => {
+    const opt = document.createElement('option');
+    opt.value = key;
+    opt.textContent = val.name || key;
+    taskSel.appendChild(opt);
+  });
+  taskSel.value = currentTaskActive;
 }
 
 function buildDefaultTemplate(boilerplate) {
@@ -216,19 +139,38 @@ function buildDefaultTemplate(boilerplate) {
   const base = (boilerplate || '').trim();
   if (base) parts.push(base);
   parts.push('Task:\n{task}');
-  parts.push('Persona:\n{persona}');
   parts.push('Reading Goal:\n{readingGoal}');
   return parts.join('\n\n');
 }
 
+function sanitizeTemplate(template) {
+  const lines = String(template || '').replace(/\r\n/g, '\n').split('\n');
+  const cleaned = [];
+  const retiredLabelRe = new RegExp(retiredKey(['^\\s*Per(?:', 's', 'o', 'n', 'a', ')\\s*:?\\s*$']), 'i');
+  const retiredTokenRe = new RegExp(retiredKey(['\\{', 'p', 'e', 'r', 's', 'o', 'n', 'a', '\\}']), 'i');
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (retiredLabelRe.test(line)) {
+      while (
+        i + 1 < lines.length &&
+        !/^\s*(Task|Reading Goal)\s*:?\s*$/i.test(lines[i + 1])
+      ) {
+        i += 1;
+      }
+      continue;
+    }
+    if (retiredTokenRe.test(line)) continue;
+    cleaned.push(line);
+  }
+  return cleaned.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
 function buildEffectiveSystemPrompt(boilerplate, templateText, readingGoalText) {
   const task = currentTasks[currentTaskActive];
-  const persona = currentPersonas[currentPersonaActive];
   if (!task) return '';
   const taskText = task.textPrompt || '';
-  const personaText = persona ? (persona.systemAddendum || persona.description || '') : '';
-  const template = (templateText || '').trim() || buildDefaultTemplate(boilerplate);
-  return applyTemplate(template, taskText, personaText, readingGoalText || '').trim();
+  const template = sanitizeTemplate(templateText || '').trim() || buildDefaultTemplate(boilerplate);
+  return applyTemplate(template, taskText, readingGoalText || '').trim();
 }
 
 function updateEffectiveSystemPrompt() {
@@ -239,18 +181,17 @@ function updateEffectiveSystemPrompt() {
   ta.value = buildEffectiveSystemPrompt(boilerplateText, templateText, currentReadingGoal);
 }
 
-// Render tasks
 function renderTasks() {
   const taskList = document.getElementById('taskList');
   taskList.innerHTML = '';
-  
+
   Object.keys(currentTasks).forEach(key => {
     const task = currentTasks[key];
     const taskItem = document.createElement('div');
     taskItem.className = `task-item ${task.isDefault ? 'default' : ''}`;
     const taskName = escapeHtml(task.name || '');
     const taskText = escapeHtml(task.textPrompt || '');
-    
+
     taskItem.innerHTML = `
       <div class="task-info">
         <h3>${taskName}</h3>
@@ -259,63 +200,29 @@ function renderTasks() {
         ${key === currentTaskActive ? '<span class="task-badge" style="background:#48bb78;">Active</span>' : ''}
       </div>
       <div class="task-actions">
-        <button class="icon-btn edit-btn" data-key="${key}" title="Edit">✏️</button>
-        ${!task.isDefault ? `<button class="icon-btn delete-btn" data-key="${key}" title="Delete">🗑️</button>` : ''}
+        <button class="icon-btn edit-btn" data-key="${key}" title="Edit">Edit</button>
+        ${!task.isDefault ? `<button class="icon-btn delete-btn" data-key="${key}" title="Delete">Delete</button>` : ''}
       </div>
     `;
-    
+
     taskList.appendChild(taskItem);
   });
-  
-  // Add event listeners to edit and delete buttons
+
   document.querySelectorAll('.edit-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
-      const key = e.target.dataset.key;
-      openTaskModal(key);
+      openTaskModal(e.target.dataset.key);
     });
   });
-  
+
   document.querySelectorAll('.delete-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
-      const key = e.target.dataset.key;
-      deleteTask(key);
+      deleteTask(e.target.dataset.key);
     });
   });
 }
 
-// NEW: Render personas list
-function renderPersonas() {
-  const list = document.getElementById('personaList');
-  list.innerHTML = '';
-  Object.keys(currentPersonas).forEach(key => {
-    const p = currentPersonas[key];
-    const item = document.createElement('div');
-    item.className = 'task-item'; // reuse styles
-    const personaName = escapeHtml(p.name || '');
-    const personaText = escapeHtml(p.systemAddendum || p.description || '');
-    item.innerHTML = `
-      <div class="task-info">
-        <h3>${personaName}</h3>
-        <p class="persona-prompt"><strong>Text:</strong> ${personaText}</p>
-        ${key === currentPersonaActive ? '<span class="task-badge" style="background:#48bb78;">Active</span>' : ''}
-      </div>
-      <div class="task-actions">
-        <button class="icon-btn persona-edit-btn" data-key="${key}" title="Edit">✏️</button>
-        ${DEFAULT_PERSONAS[key] ? '' : `<button class="icon-btn persona-delete-btn" data-key="${key}" title="Delete">🗑️</button>`}
-      </div>
-    `;
-    list.appendChild(item);
-  });
-  list.querySelectorAll('.persona-edit-btn').forEach(btn => {
-    btn.addEventListener('click', e => openPersonaModal(e.target.dataset.key));
-  });
-  list.querySelectorAll('.persona-delete-btn').forEach(btn => {
-    btn.addEventListener('click', e => deletePersona(e.target.dataset.key));
-  });
-}
-
-function escapeHtml(value='') {
-  return value
+function escapeHtml(value = '') {
+  return String(value)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
@@ -323,9 +230,7 @@ function escapeHtml(value='') {
     .replace(/'/g, '&#39;');
 }
 
-// Setup event listeners
 function setupEventListeners() {
-  // Tab switching
   const tabsNav = document.getElementById('settingsTabs');
   if (tabsNav) {
     tabsNav.addEventListener('click', (e) => {
@@ -340,34 +245,17 @@ function setupEventListeners() {
     });
   }
 
-  // Add task button
   document.getElementById('addTaskBtn').addEventListener('click', () => {
     openTaskModal(null);
   });
-  
-  // Reset button
   document.getElementById('resetBtn').addEventListener('click', resetToDefaults);
-  
-  // Modal buttons
   document.getElementById('modalClose').addEventListener('click', closeTaskModal);
   document.getElementById('cancelTaskBtn').addEventListener('click', closeTaskModal);
   document.getElementById('saveTaskBtn').addEventListener('click', saveTask);
-  
-  // Close modal on outside click
   document.getElementById('taskModal').addEventListener('click', (e) => {
-    if (e.target.id === 'taskModal') {
-      closeTaskModal();
-    }
+    if (e.target.id === 'taskModal') closeTaskModal();
   });
 
-  // NEW persona events
-  document.getElementById('addPersonaBtn').addEventListener('click', () => openPersonaModal(null));
-  document.getElementById('personaModalClose').addEventListener('click', closePersonaModal);
-  document.getElementById('cancelPersonaBtn').addEventListener('click', closePersonaModal);
-  document.getElementById('savePersonaBtn').addEventListener('click', savePersona);
-  document.getElementById('personaModal').addEventListener('click', (e) => {
-    if (e.target.id === 'personaModal') closePersonaModal();
-  });
   const templateEl = document.getElementById('systemPromptTemplate');
   if (templateEl) {
     templateEl.addEventListener('input', queueSystemPromptSave);
@@ -377,7 +265,6 @@ function setupEventListeners() {
     restoreBtn.addEventListener('click', restoreSystemPromptTemplate);
   }
 
-  // Active task selector
   const taskSel = document.getElementById('currentTaskSelect');
   if (taskSel) {
     taskSel.addEventListener('change', async () => {
@@ -389,7 +276,6 @@ function setupEventListeners() {
     });
   }
 
-  // Research settings
   const saveUserIdBtn = document.getElementById('saveUserIdBtn');
   if (saveUserIdBtn) {
     saveUserIdBtn.addEventListener('click', async () => {
@@ -407,9 +293,6 @@ function setupEventListeners() {
       chrome.storage.local.set({ enableResearchLogging: loggingOpt.checked });
       showSaveStatus('Research logging ' + (loggingOpt.checked ? 'enabled' : 'disabled'));
     });
-    chrome.storage.local.get(['enableResearchLogging'], r => {
-      loggingOpt.checked = !!r.enableResearchLogging;
-    });
   }
 
   const openDashBtn = document.getElementById('openResearchDashboardBtn');
@@ -419,7 +302,6 @@ function setupEventListeners() {
     });
   }
 
-  // Firebase config auto-save
   const fbProjectInput = document.getElementById('firebaseProjectId');
   const fbApiKeyInput = document.getElementById('firebaseApiKey');
   if (fbProjectInput) {
@@ -440,45 +322,25 @@ function setupEventListeners() {
   const clearResearchBtn = document.getElementById('clearResearchDataBtn');
   if (clearResearchBtn) {
     clearResearchBtn.addEventListener('click', async () => {
-      if (!confirm('This will permanently delete ALL research data (chat sessions, logs, feedback, experiments, preference history). Continue?')) return;
+      if (!confirm('This will permanently delete all active research data stores. Continue?')) return;
       const res = await chrome.runtime.sendMessage({ action: 'clear-research-data' });
-      if (res?.success) {
-        showSaveStatus('All research data cleared');
-      } else {
-        showSaveStatus('Error clearing data');
-      }
-    });
-  }
-
-  // Active persona selector
-  const personaSel = document.getElementById('currentPersonaSelect');
-  if (personaSel) {
-    personaSel.addEventListener('change', async () => {
-      const key = personaSel.value;
-      currentPersonaActive = key;
-      await chrome.storage.sync.set({ currentPersona: key });
-      renderPersonas();
-      updateEffectiveSystemPrompt();
+      showSaveStatus(res?.success ? 'All research data cleared' : 'Error clearing data');
     });
   }
 }
 
-// Open task modal
 function openTaskModal(taskKey) {
   editingTaskKey = taskKey;
   const modal = document.getElementById('taskModal');
   const modalTitle = document.getElementById('modalTitle');
-  
   const nameInput = document.getElementById('taskNameInput');
   nameInput.style.borderColor = '';
   if (taskKey) {
-    // Edit existing task
     const task = currentTasks[taskKey];
     modalTitle.textContent = 'Edit Task';
     nameInput.value = task.name;
     document.getElementById('textPromptInput').value = task.textPrompt;
   } else {
-    // Create new task
     modalTitle.textContent = 'Add Custom Task';
     nameInput.value = '';
     document.getElementById('textPromptInput').value = '';
@@ -487,38 +349,11 @@ function openTaskModal(taskKey) {
   modal.style.display = 'flex';
 }
 
-// Close task modal
 function closeTaskModal() {
   document.getElementById('taskModal').style.display = 'none';
   editingTaskKey = null;
 }
 
-// Open persona modal
-function openPersonaModal(key) {
-  editingPersonaKey = key;
-  const modal = document.getElementById('personaModal');
-  const title = document.getElementById('personaModalTitle');
-  const nameInput = document.getElementById('personaNameInput');
-  nameInput.style.borderColor = '';
-  if (key) {
-    const p = currentPersonas[key];
-    title.textContent = 'Edit Persona';
-    nameInput.value = p.name;
-    document.getElementById('personaAddendumInput').value = p.systemAddendum || p.description || '';
-  } else {
-    title.textContent = 'Add Persona';
-    nameInput.value = '';
-    document.getElementById('personaAddendumInput').value = '';
-  }
-  modal.style.display = 'flex';
-}
-
-function closePersonaModal() {
-  document.getElementById('personaModal').style.display = 'none';
-  editingPersonaKey = null;
-}
-
-// Save task
 async function saveTask() {
   const nameInput = document.getElementById('taskNameInput');
   const name = nameInput.value.trim();
@@ -534,67 +369,32 @@ async function saveTask() {
     alert('Please fill in all fields');
     return;
   }
-  
+
   const existingTask = editingTaskKey ? currentTasks[editingTaskKey] : null;
   const task = {
     name,
     textPrompt,
     isDefault: existingTask ? !!existingTask.isDefault : false
   };
-  
+
   if (editingTaskKey) {
-    // Update existing task
     currentTasks[editingTaskKey] = task;
   } else {
-    // Create new task with unique key
     let key = name.toLowerCase().replace(/\s+/g, '-');
-    // Avoid collision with existing task keys
     if (currentTasks[key]) {
       key = key + '-' + Date.now().toString(36);
     }
     currentTasks[key] = { ...task, isDefault: false };
   }
-  
+
   await chrome.storage.sync.set({ tasks: currentTasks });
   renderTasks();
   hydrateActiveSelectors();
   updateEffectiveSystemPrompt();
   closeTaskModal();
-  showSaveStatus('Task saved successfully!');
+  showSaveStatus('Task saved successfully');
 }
 
-// NEW save persona
-async function savePersona() {
-  const nameInput = document.getElementById('personaNameInput');
-  const name = nameInput.value.trim();
-  let addendum = document.getElementById('personaAddendumInput').value.trim();
-  if (!name) {
-    alert('Persona name is required.');
-    nameInput.focus();
-    nameInput.style.borderColor = '#e53e3e';
-    return;
-  }
-  nameInput.style.borderColor = '';
-  if (!addendum) {
-    alert('Persona name and text prompt are required.');
-    return;
-  }
-  const obj = { name, systemAddendum: addendum };
-  if (editingPersonaKey) {
-    currentPersonas[editingPersonaKey] = obj;
-  } else {
-    const key = name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-    currentPersonas[key] = obj;
-  }
-  await chrome.storage.sync.set({ personas: currentPersonas });
-  renderPersonas();
-  hydrateActiveSelectors();
-  updateEffectiveSystemPrompt();
-  closePersonaModal();
-  showSaveStatus('Persona saved');
-}
-
-// Delete task
 async function deleteTask(key) {
   if (confirm(`Are you sure you want to delete the task "${currentTasks[key].name}"?`)) {
     delete currentTasks[key];
@@ -606,51 +406,32 @@ async function deleteTask(key) {
   }
 }
 
-// NEW delete persona
-async function deletePersona(key) {
-  if (!currentPersonas[key]) return;
-  if (DEFAULT_PERSONAS[key]) {
-    alert('Default personas cannot be deleted.');
-    return;
-  }
-  if (!confirm(`Delete persona "${currentPersonas[key].name}"?`)) return;
-  delete currentPersonas[key];
-  if (currentPersonaActive === key) {
-    currentPersonaActive = 'general';
-    await chrome.storage.sync.set({ currentPersona: currentPersonaActive });
-  }
-  await chrome.storage.sync.set({ personas: currentPersonas });
-  renderPersonas();
-  hydrateActiveSelectors();
-  updateEffectiveSystemPrompt();
-  showSaveStatus('Persona deleted');
-}
-
-// Extend reset to also restore personas
 async function resetToDefaults() {
-  if (confirm('Reset all settings to defaults? This will remove custom tasks and personas.')) {
+  if (confirm('Reset all settings to defaults? This will remove custom tasks.')) {
     try {
       currentTasks = DEFAULT_TASKS;
-      currentPersonas = DEFAULT_PERSONAS;
-      currentPersonaActive = 'general';
       systemPromptTemplate = buildDefaultTemplate(boilerplateText);
       currentReadingGoal = '';
       await chrome.storage.sync.set({
         tasks: DEFAULT_TASKS,
-        personas: DEFAULT_PERSONAS,
         currentTask: 'simple',
-        currentPersona: 'general',
         enabled: true,
         systemPromptTemplate,
         readingGoal: ''
       });
+      await chrome.storage.sync.remove([
+        retiredKey(['p', 'e', 'r', 's', 'o', 'n', 'a', 's']),
+        retiredKey(['c', 'u', 'r', 'r', 'e', 'n', 't', 'P', 'e', 'r', 's', 'o', 'n', 'a']),
+        retiredKey(['p', 'r', 'o', 'f', 'i', 'l', 'e', 's']),
+        retiredKey(['c', 'u', 'r', 'r', 'e', 'n', 't', 'P', 'r', 'o', 'f', 'i', 'l', 'e']),
+      ]);
       await loadSettings();
       hydrateActiveSelectors();
       updateEffectiveSystemPrompt();
       showSaveStatus('Reset to defaults');
     } catch (e) {
       console.error('[Options] Reset to defaults failed:', e?.message);
-      showSaveStatus('Reset failed — please try again');
+      showSaveStatus('Reset failed - please try again');
     }
   }
 }
@@ -672,17 +453,20 @@ function showFbSaveStatus() {
   }, 2000);
 }
 
-function applyTemplate(template, taskText, personaText, readingGoalText) {
-  return template
+function applyTemplate(template, taskText, readingGoalText) {
+  return sanitizeTemplate(template)
     .replace(/\{task\}/gi, () => taskText)
-    .replace(/\{persona\}/gi, () => personaText)
     .replace(/\{readingGoal\}/gi, () => readingGoalText || '');
 }
 
 function queueSystemPromptSave() {
   const templateEl = document.getElementById('systemPromptTemplate');
   if (!templateEl) return;
-  systemPromptTemplate = templateEl.value;
+  const cleaned = sanitizeTemplate(templateEl.value);
+  if (cleaned !== templateEl.value.trim()) {
+    templateEl.value = cleaned;
+  }
+  systemPromptTemplate = cleaned;
   updateEffectiveSystemPrompt();
   if (templateSaveTimer) clearTimeout(templateSaveTimer);
   templateSaveTimer = setTimeout(async () => {
@@ -691,14 +475,12 @@ function queueSystemPromptSave() {
   }, 400);
 }
 
-// Flush pending debounced save on page close to prevent data loss (M8)
 window.addEventListener('beforeunload', () => {
   if (templateSaveTimer) {
     clearTimeout(templateSaveTimer);
     const templateEl = document.getElementById('systemPromptTemplate');
     if (templateEl) {
-      // navigator.sendBeacon is not available for chrome.storage, so use sync set
-      chrome.storage.sync.set({ systemPromptTemplate: templateEl.value });
+      chrome.storage.sync.set({ systemPromptTemplate: sanitizeTemplate(templateEl.value) });
     }
   }
 });

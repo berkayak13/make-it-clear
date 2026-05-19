@@ -233,8 +233,7 @@ body {
   line-height: 1.45;
 }
 
-.task-prompt,
-.persona-prompt {
+.task-prompt {
   white-space: pre-wrap;
   word-break: break-word;
   display: -webkit-box;

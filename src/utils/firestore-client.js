@@ -8,8 +8,6 @@ export const RESEARCH_STORES = {
   chatSessions: { keyPath: 'sessionId' },
   researchLogs: { keyPath: 'logId' },
   feedbackEvents: { keyPath: 'feedbackId' },
-  experimentRuns: { keyPath: 'experimentId' },
-  preferenceHistory: { keyPath: 'id', autoGenerate: true },
   userPreferences: { keyPath: 'preferenceId', autoGenerate: true }
 };
 

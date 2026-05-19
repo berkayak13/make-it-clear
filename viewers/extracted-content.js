@@ -29,8 +29,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     loadedExtraction = lastExtraction;
 
     const knowledge = lastExtraction.knowledge || {};
-    const staleLocalExtraction = isStaleLocalExtraction(lastExtraction);
-
     // Title
     if (lastExtraction.title) {
       titleEl.textContent = lastExtraction.title;
@@ -46,7 +44,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     // Word count & read time
-    const text = lastExtraction.compactText || '';
+    const text = lastExtraction.compactText || formatFactsAsText(lastExtraction.facts || knowledge.facts || []);
     const words = text.split(/\s+/).filter(Boolean).length;
     if (words) {
       wordCountEl.textContent = `${words.toLocaleString()} WORDS`;
@@ -55,16 +53,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     // Summary
-    if (staleLocalExtraction) {
-      summaryEl.textContent = 'This stored extraction was created by the retired local fallback. Click Re-extract to generate structured facts and claims.';
-    } else if (lastExtraction.summary || knowledge.summary) {
+    if (lastExtraction.summary || knowledge.summary) {
       summaryEl.textContent = lastExtraction.summary || knowledge.summary;
     } else if (text) {
       summaryEl.textContent = text.slice(0, 300) + (text.length > 300 ? '...' : '');
     }
 
     // Facts / key points
-    const facts = staleLocalExtraction ? [] : (lastExtraction.facts || lastExtraction.keyPoints || knowledge.facts || []);
+    const facts = lastExtraction.facts || lastExtraction.keyPoints || knowledge.facts || [];
     if (facts.length) {
       emptyState.style.display = 'none';
       factsLabel.textContent = `Facts & claims · ${facts.length}`;
@@ -72,14 +68,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         const row = document.createElement('div');
         row.className = 'ev-fact-row';
 
-        const factText = typeof f === 'string' ? f : (f.text || f.content || '');
+        const factText = factTextValue(f);
+        if (!factText) return;
         const kindStr = (typeof f === 'string' ? 'CLAIM' : (f.kind || f.type || 'CLAIM')).toUpperCase();
         const kindClass = ({ COUNTER: '--counter', FIGURE: '--figure', QUOTE: '--quote' })[kindStr] || '--claim';
-        const conf = typeof f === 'string' || f.confidence == null ? 0.8 : f.confidence;
+        const conf = clamp01(typeof f === 'string' || f.confidence == null ? 0.8 : f.confidence);
+        const meta = factMetaValue(f);
 
         row.innerHTML = `
           <span class="ev-fact-kind ev-fact-kind${kindClass}">${esc(kindStr)}</span>
-          <span class="ev-fact-text">${esc(factText)}</span>
+          <span class="ev-fact-text">${esc(factText)}${meta ? `<span class="ev-fact-meta">${esc(meta)}</span>` : ''}</span>
           <div class="ev-fact-conf">
             <span class="ev-fact-conf-num">${Math.round(conf * 100)}</span>
             <div class="ev-fact-conf-bar">
@@ -127,6 +125,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (meta.tokensIn || lastExtraction.tokensIn) rows.push(['Tokens', `${meta.tokensIn || lastExtraction.tokensIn || '?'} in · ${meta.tokensOut || lastExtraction.tokensOut || '?'} out`]);
       if (meta.latency || lastExtraction.latency) rows.push(['Latency', `${((meta.latency || lastExtraction.latency) / 1000).toFixed(1)} s`]);
       if (lastExtraction.durationMs) rows.push(['Duration', `${(lastExtraction.durationMs / 1000).toFixed(1)} s`]);
+      if (lastExtraction.textSegmentCount != null) rows.push(['Text segments', lastExtraction.textSegmentCount]);
+      if (lastExtraction.imageBatchCount != null) rows.push(['Image batches', lastExtraction.imageBatchCount]);
+      if (lastExtraction.agentCount != null) rows.push(['Agents', `${lastExtraction.agentCount}${lastExtraction.failedAgentCount ? ` · ${lastExtraction.failedAgentCount} failed` : ''}`]);
+      if (Array.isArray(lastExtraction.warnings) && lastExtraction.warnings.length) rows.push(['Warnings', lastExtraction.warnings.length]);
       rows.forEach(([k, v]) => {
         const el = document.createElement('div');
         el.className = 'ev-meta-row-item';
@@ -191,10 +193,29 @@ async function resolveSourceTabId(extraction) {
   return tabs.find((tab) => tab.url === extraction.url)?.id || null;
 }
 
-function isStaleLocalExtraction(value) {
-  return value?.model === 'local-fast-text';
+function factTextValue(fact) {
+  return typeof fact === 'string' ? fact : (fact?.text || fact?.content || '');
+}
+
+function formatFactsAsText(facts) {
+  return (facts || []).map(factTextValue).filter(Boolean).join('\n');
+}
+
+function factMetaValue(fact) {
+  if (!fact || typeof fact === 'string') return '';
+  return [
+    fact.source ? `source: ${fact.source}` : '',
+    Array.isArray(fact.sectionIds) && fact.sectionIds.length ? `sections: ${fact.sectionIds.join(', ')}` : '',
+    Array.isArray(fact.imageIds) && fact.imageIds.length ? `images: ${fact.imageIds.join(', ')}` : '',
+  ].filter(Boolean).join(' · ');
+}
+
+function clamp01(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return 0.8;
+  return Math.max(0, Math.min(1, number));
 }
 
 function esc(str) {
-  return (str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  return String(str ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }

@@ -22,7 +22,6 @@
       </div>
       <nav class="settings-tabs" id="settingsTabs">
         <button class="settings-tab active" data-tab="tasks">Tasks</button>
-        <button class="settings-tab" data-tab="personas">Personas</button>
         <button class="settings-tab" data-tab="prompt">System Prompt</button>
         <button class="settings-tab" data-tab="research">Research</button>
         <button class="settings-tab" data-tab="about">About</button>
@@ -49,31 +48,11 @@
       </div>
     </section>
 
-    <!-- Tab: Personas -->
-    <section class="settings-panel" data-panel="personas">
-      <div class="settings-section-header">
-        <div class="settings-section-title-row">
-          <span class="clear-eyebrow">Personas</span>
-          <span class="settings-header-spacer"></span>
-          <span class="clear-eyebrow" style="margin-right:8px;">Active:</span>
-          <select id="currentPersonaSelect" class="settings-select"></select>
-        </div>
-        <p class="settings-section-desc">Define audience personas that modify the system prompt.</p>
-      </div>
-      <div class="task-list" id="personaList"></div>
-      <div class="settings-section-actions">
-        <button id="addPersonaBtn" class="clear-btn clear-btn--primary">
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-          Add Persona
-        </button>
-      </div>
-    </section>
-
     <!-- Tab: System Prompt -->
     <section class="settings-panel" data-panel="prompt">
       <div class="settings-section-header">
         <span class="clear-eyebrow">System Prompt Template</span>
-        <p class="settings-section-desc">Edit the template and insert <code>{task}</code>, <code>{persona}</code>, and <code>{readingGoal}</code> anywhere.</p>
+        <p class="settings-section-desc">Edit the template and insert <code>{task}</code> and <code>{readingGoal}</code> anywhere.</p>
       </div>
       <div class="prompt-editor-wrap">
         <textarea id="systemPromptTemplate" rows="10" class="settings-textarea settings-textarea--mono" placeholder="System prompt template..."></textarea>
@@ -177,32 +156,6 @@
       <div class="settings-modal-footer">
         <button id="cancelTaskBtn" class="clear-btn clear-btn--ghost">Cancel</button>
         <button id="saveTaskBtn" class="clear-btn clear-btn--primary">Save Task</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Persona Editor Modal -->
-  <div id="personaModal" class="settings-modal" style="display:none;">
-    <div class="settings-modal-content">
-      <div class="settings-modal-header">
-        <h2 id="personaModalTitle">Edit Persona</h2>
-        <button class="settings-modal-close" id="personaModalClose">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-        </button>
-      </div>
-      <div class="settings-modal-body">
-        <div class="settings-field">
-          <label class="settings-label">Persona Name</label>
-          <input type="text" id="personaNameInput" placeholder="e.g., Senior Citizen" class="settings-input">
-        </div>
-        <div class="settings-field">
-          <label class="settings-label">Text Prompt</label>
-          <textarea id="personaAddendumInput" rows="4" placeholder="Persona guidance for the LLM..." class="settings-textarea"></textarea>
-        </div>
-      </div>
-      <div class="settings-modal-footer">
-        <button id="cancelPersonaBtn" class="clear-btn clear-btn--ghost">Cancel</button>
-        <button id="savePersonaBtn" class="clear-btn clear-btn--primary">Save Persona</button>
       </div>
     </div>
   </div>

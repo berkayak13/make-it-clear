@@ -1,9 +1,9 @@
 import { getSettingsWithTaskMigration, getOrCreateUserId } from '../utils/storage-helpers.js';
 import { generateId } from '../utils/id.js';
 import { researchPut, researchGetByIndex, researchGetAll, researchClearStore, researchExportCSV, RESEARCH_STORES } from '../utils/firestore-client.js';
-import { renarrateText, checkFeedbackTrends, setUserId } from '../utils/renarration.js';
+import { renarrateText, setUserId } from '../utils/renarration.js';
 
-const RESEARCH_STORES_KEYS = ['chatSessions', 'researchLogs', 'feedbackEvents', 'experimentRuns', 'preferenceHistory', 'userPreferences'];
+const RESEARCH_STORES_KEYS = ['chatSessions', 'researchLogs', 'feedbackEvents', 'userPreferences'];
 
 function getResearchStoreNames() {
   if (RESEARCH_STORES && typeof RESEARCH_STORES === 'object') {
@@ -35,22 +35,10 @@ export const simpleHandlers = {
   'get-settings': async (_request, _sender) => {
     return getSettingsWithTaskMigration([
       'enabled',
-      'personas',
-      'currentPersona',
       'currentTask',
       'tasks',
       'systemPromptTemplate'
     ]);
-  },
-
-  'get-logs': async (_request, _sender) => {
-    const data = await chrome.storage.local.get(['testLogs']);
-    return { success: true, logs: data.testLogs || [] };
-  },
-
-  'clear-logs': async (_request, _sender) => {
-    await chrome.storage.local.set({ testLogs: [], completedTestIds: [] });
-    return { success: true };
   },
 
   'get-user-id': async (_request, _sender) => {
@@ -79,8 +67,7 @@ export const simpleHandlers = {
       feedbackType: request.feedbackType,
       correctedText: request.correctedText || null,
       rating: request.rating || null,
-      taskName: request.taskName || '',
-      personaName: request.personaName || ''
+      taskName: request.taskName || ''
     };
     await researchPut('feedbackEvents', feedback);
     if (request.feedbackType === 'thumbs-down') {
@@ -98,10 +85,6 @@ export const simpleHandlers = {
       }
     }
     return { success: true };
-  },
-
-  'check-feedback-trends': async (_request, _sender) => {
-    return checkFeedbackTrends();
   },
 
   'export-research-data': async (request, _sender) => {

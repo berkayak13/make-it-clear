@@ -1,9 +1,8 @@
 import { callLLM } from './llm-dispatch.js';
-import { getSettingsWithTaskMigration, DEFAULT_TASKS, getOrCreateUserId } from './storage-helpers.js';
-import { researchGetByIndex } from './firestore-client.js';
+import { getSettingsWithTaskMigration, DEFAULT_TASKS } from './storage-helpers.js';
 import { getSystemBoilerplate, applyPromptTemplate } from './prompt-loader.js';
 
-const ENGLISH_OUTPUT_RULE = 'Output language requirement: Write the final renarration in English, even if the source page, selected text, task, persona, saved reading goal, or user message uses another language.';
+const ENGLISH_OUTPUT_RULE = 'Output language requirement: Write the final renarration in English, even if the source page, selected text, task, saved reading goal, or user message uses another language.';
 
 export function truncateForContext(text, maxChars = 12000) {
   return text.length > maxChars ? text.slice(0, maxChars) + '...(truncated)' : text;
@@ -23,25 +22,10 @@ function formatReadingGoal(goal) {
 
 export async function buildRenarrationPrompt(taskName, overrideTask, options = {}) {
   const settings = await getSettingsWithTaskMigration([
-    'personas',
-    'currentPersona',
     'systemPromptTemplate',
   ]);
   const tasks = settings.tasks || DEFAULT_TASKS;
   const task = overrideTask || tasks[taskName || settings.currentTask] || tasks.simple || DEFAULT_TASKS.simple;
-
-  let persona = null;
-  if (options?.personaKey && settings.personas?.[options.personaKey]) {
-    persona = settings.personas[options.personaKey];
-  } else if (typeof options?.personaText === 'string' && options.personaText.trim()) {
-    persona = {
-      name: options.personaKey || 'Custom Persona',
-      description: options.personaText.trim(),
-      systemAddendum: options.personaText.trim(),
-    };
-  } else {
-    persona = settings.personas?.[settings.currentPersona];
-  }
 
   const boilerplate = await getSystemBoilerplate();
   const { readingGoal } = await chrome.storage.sync.get(['readingGoal']);
@@ -49,14 +33,13 @@ export async function buildRenarrationPrompt(taskName, overrideTask, options = {
     applyPromptTemplate(
       settings.systemPromptTemplate,
       task?.textPrompt || '',
-      persona ? (persona.systemAddendum || persona.description || '') : '',
       boilerplate,
       formatReadingGoal(readingGoal)
     ),
     ENGLISH_OUTPUT_RULE,
   ].filter(Boolean).join('\n\n');
 
-  return { systemPrompt, task, persona, readingGoal: formatReadingGoal(readingGoal) };
+  return { systemPrompt, task, readingGoal: formatReadingGoal(readingGoal) };
 }
 
 export async function renarrateText(text, taskName, overrideTask, options = {}) {
@@ -81,23 +64,4 @@ export async function setUserId(userId) {
   if (!clean) throw new Error('User ID is required');
   await chrome.storage.local.set({ studyUserId: clean });
   return clean;
-}
-
-export async function checkFeedbackTrends() {
-  try {
-    const userId = await getOrCreateUserId();
-    const allFeedback = await researchGetByIndex('feedbackEvents', 'userId', userId);
-    const recent = allFeedback
-      .filter((f) => f.feedbackType === 'thumbs-down')
-      .sort((a, b) => b.timestamp - a.timestamp)
-      .slice(0, 3);
-
-    return {
-      success: true,
-      shouldRefine: recent.length >= 3,
-      recentNegativeCount: recent.length,
-    };
-  } catch (e) {
-    return { success: false, shouldRefine: false, error: e?.message || String(e) };
-  }
 }

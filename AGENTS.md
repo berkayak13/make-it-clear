@@ -75,7 +75,7 @@ Active modules:
 
 - `src/utils/openai-client.js`: Responses API wrapper for text, vision, and structured JSON calls. Requests use `store: false`.
 - `src/page-flow/extract-page.js`: combines content-script visible DOM text with direct page images and extracts compact page knowledge.
-- `src/page-flow/renarrate-page.js`: creates final plain text from page text, extracted knowledge, active task/persona, and saved reading goal.
+- `src/page-flow/renarrate-page.js`: creates final plain text from page text, extracted knowledge, active task, and saved reading goal.
 - `src/page-flow/orchestrator.js`: owns page renarration progress, error handling, storage, and content panel messages.
 - `src/handlers/chatbot.js`: owns chat sessions and `chatbot-set-reading-goal`.
 - `content.js`: owns selected-text overlay and the split panel. Render final page renarration with `textContent`, never generated HTML.
