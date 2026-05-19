@@ -48,6 +48,16 @@ document.addEventListener('DOMContentLoaded', () => {
     window.close();
   });
 
+  const staticSiteBtn = document.getElementById('staticSiteBtn');
+  staticSiteBtn?.addEventListener('click', async () => {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const tabParam = tab?.id ? `&tabId=${encodeURIComponent(tab.id)}` : '';
+    chrome.tabs.create({
+      url: chrome.runtime.getURL(`viewers/extracted-content.html?action=site${tabParam}`),
+    });
+    window.close();
+  });
+
   optionsLink.addEventListener('click', (e) => {
     e.preventDefault();
     chrome.runtime.openOptionsPage();
