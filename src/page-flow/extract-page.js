@@ -10,9 +10,16 @@ const CHARS_PER_EXTRA_IMAGE = 45000;
 const IMAGE_BATCH_SIZE = 2;
 const TEXT_CONCURRENCY = 4;
 const IMAGE_CONCURRENCY = 2;
-const MAX_TEXT_OUTPUT_TOKENS = 1800;
-const MAX_IMAGE_OUTPUT_TOKENS = 1200;
-const MAX_ORCHESTRATOR_OUTPUT_TOKENS = 3000;
+// Reasoning models (e.g. gpt-5.5) count reasoning tokens against this budget,
+// so it must leave room for the chain of thought plus the JSON output.
+// Caps are generous because extraction now aims for comprehensive coverage —
+// the fact set is the sole content source for renarration.
+const MAX_TEXT_OUTPUT_TOKENS = 9000;
+const MAX_IMAGE_OUTPUT_TOKENS = 7000;
+const MAX_ORCHESTRATOR_OUTPUT_TOKENS = 16000;
+// Extraction is structured fact-finding, not open-ended problem solving — low
+// reasoning effort keeps the subagents fast and cheap without losing accuracy.
+const EXTRACTION_REASONING_EFFORT = 'low';
 
 const FACT_KINDS = new Set(['FACT', 'CLAIM', 'QUOTE', 'FIGURE', 'COUNTER', 'VISUAL']);
 const FACT_SOURCES = new Set(['text', 'image', 'mixed']);
@@ -28,9 +35,9 @@ function boundedTimeout(maxMs) {
   return Number.isFinite(configured) && configured > 0 ? Math.min(configured, maxMs) : maxMs;
 }
 
-const TEXT_STAGE_TIMEOUT_MS = boundedTimeout(30000);
-const IMAGE_STAGE_TIMEOUT_MS = boundedTimeout(20000);
-const ORCHESTRATOR_TIMEOUT_MS = boundedTimeout(30000);
+const TEXT_STAGE_TIMEOUT_MS = boundedTimeout(60000);
+const IMAGE_STAGE_TIMEOUT_MS = boundedTimeout(60000);
+const ORCHESTRATOR_TIMEOUT_MS = boundedTimeout(110000);
 
 const factSchema = {
   type: 'object',
@@ -364,8 +371,10 @@ function buildTextPrompt({ segment, index, total, pageMetadata, visible }) {
   return [
     'Extract structured page knowledge from this visible DOM text segment for a renarration system.',
     'Use only this segment. Do not infer facts from missing segments.',
-    'Focus on main article/page content. Omit navigation, ads, cookie banners, repeated boilerplate, and unrelated sidebar text.',
-    'Return atomic facts, claims, quotes, figures, counterpoints, and relationships. Link each item to the provided section IDs and relevant image IDs when text refers to a nearby image.',
+    'Be exhaustive: capture every substantive piece of content in this segment — all facts, claims, quotes, statistics and figures, named entities in context, definitions, examples, caveats, and supporting detail. This is a complete-coverage extraction, not a highlight reel.',
+    'Emit each point as its own atomic item. Do not summarize, compress, or merge multiple points into one fact — nothing substantive should be lost.',
+    'Omit only true non-content: navigation, ads, cookie banners, repeated boilerplate, and unrelated sidebar text.',
+    'Link each item to the provided section IDs and relevant image IDs when text refers to a nearby image.',
     'Use FACT for established facts, CLAIM for author/source claims, QUOTE for direct quoted material, FIGURE for numbers/statistics, COUNTER for caveats or opposing points, and VISUAL only when text describes a visual element.',
     '',
     `URL: ${pageMetadata.url || visible.url || ''}`,
@@ -384,7 +393,7 @@ function buildVisionPrompt({ batch, index, total, pageMetadata, visible }) {
   return [
     'Extract structured visual knowledge from these direct website images for a renarration system.',
     'Use image pixels plus metadata. Ignore decorative, branding, ad, social, and layout-only images.',
-    'Return only visual information that affects page meaning: figures, charts, screenshots, labels, people, places, objects, evidence, and caption-image relationships.',
+    'Be thorough: capture all meaningful visual content — every figure, chart, screenshot, diagram, labeled element, data point, person, place, object, piece of evidence, and caption-image relationship that contributes to page meaning.',
     'Every visual fact must include the relevant imageIds. Include sectionIds when metadata supplies them.',
     '',
     `URL: ${pageMetadata.url || visible.url || ''}`,
@@ -425,8 +434,9 @@ function buildOrchestratorPrompt({ stageResults, sections, images, pageMetadata,
 
   return [
     'You are the final extraction orchestrator for a webpage renarration system.',
-    'Deduplicate and rank candidate facts from text and vision extraction subagents.',
-    'Keep only high-signal, page-relevant facts and claims. Preserve uncertainty by lowering confidence instead of inventing details.',
+    'Merge and deduplicate candidate facts from text and vision extraction subagents.',
+    'Retain every distinct substantive fact, claim, quote, figure, and detail — your job is consolidation, not curation. Do not drop content for being minor; only collapse genuine duplicates and near-duplicates.',
+    'When two candidates overlap, merge them into the most complete single fact rather than discarding either. Preserve uncertainty by lowering confidence instead of inventing details.',
     'Link facts to sectionIds and imageIds when supported. Use source "mixed" when both text and image evidence support a fact.',
     'Produce compactText as dense plain text notes suitable for a later renarration prompt. Do not use Markdown tables or HTML.',
     '',
@@ -468,6 +478,7 @@ async function runTextSubagents({ segments, pageMetadata, visible, onProgress })
         model: OPENAI_CONFIG.textModel,
         maxOutputTokens: MAX_TEXT_OUTPUT_TOKENS,
         timeoutMs: TEXT_STAGE_TIMEOUT_MS,
+        reasoningEffort: EXTRACTION_REASONING_EFFORT,
       });
       logExtraction(`${agentId} response`, {
         agentId,
@@ -498,13 +509,73 @@ async function runTextSubagents({ segments, pageMetadata, visible, onProgress })
   });
 }
 
+// OpenAI's servers frequently cannot download a page's image URLs (hotlink
+// protection, expiring CDN tokens, bot-blocked fetchers) — that fails the
+// whole vision batch with an HTTP 400 "Error while downloading" response. The
+// background service worker has <all_urls> host access, so it fetches the
+// bytes itself and sends them inline as data URIs instead.
+const IMAGE_FETCH_TIMEOUT_MS = 12000;
+const MAX_VISION_IMAGE_BYTES = 3_000_000;
+
+function arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
+}
+
+async function fetchImageAsDataUrl(url) {
+  if (!/^https?:\/\//i.test(String(url || ''))) return '';
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), IMAGE_FETCH_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, { signal: controller.signal, credentials: 'omit' });
+    if (!response.ok) return '';
+    const contentType = (response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+    if (contentType && !contentType.startsWith('image/')) return '';
+    const buffer = await response.arrayBuffer();
+    if (!buffer.byteLength || buffer.byteLength > MAX_VISION_IMAGE_BYTES) return '';
+    return `data:${contentType || 'image/jpeg'};base64,${arrayBufferToBase64(buffer)}`;
+  } catch {
+    return '';
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function runVisionSubagents({ batches, pageMetadata, visible, onProgress }) {
   if (!batches.length) return [];
   onProgress?.(`Extracting visual knowledge from ${plural(batches.flat().length, 'image')}...`);
   return mapWithConcurrency(batches, IMAGE_CONCURRENCY, async (batch, index) => {
     const agentId = `vision-${index + 1}`;
-    const prompt = buildVisionPrompt({ batch, index, total: batches.length, pageMetadata, visible });
-    const images = batch.map((image) => ({ ...image, detail: 'low' }));
+    // Embed each image as a data URI so OpenAI never has to download the URL.
+    const images = (await Promise.all(batch.map(async (image) => {
+      const dataUrl = await fetchImageAsDataUrl(image.url);
+      return dataUrl ? { ...image, detail: 'low', dataUrl } : null;
+    }))).filter(Boolean);
+
+    const fallback = {
+      sectionIds: normalizeIdList(images.flatMap((image) => image.sectionIds || [])),
+      imageIds: normalizeIdList(images.map((image) => image.id)),
+      source: 'image',
+    };
+
+    // A single dead URL would fail the whole request — if none of the batch's
+    // images could be fetched, skip the call instead of sending dead URLs.
+    if (!images.length) {
+      logExtraction(`${agentId} skipped`, {
+        agentId,
+        sourceType: 'image',
+        reason: 'no fetchable images in batch',
+        requestedImageCount: batch.length,
+      });
+      return { ok: true, agentId, sourceType: 'image', fallback, json: {} };
+    }
+
+    const prompt = buildVisionPrompt({ batch: images, index, total: batches.length, pageMetadata, visible });
     logExtraction(`${agentId} request`, {
       agentId,
       sourceType: 'image',
@@ -512,8 +583,8 @@ async function runVisionSubagents({ batches, pageMetadata, visible, onProgress }
       maxOutputTokens: MAX_IMAGE_OUTPUT_TOKENS,
       timeoutMs: IMAGE_STAGE_TIMEOUT_MS,
       imageDetail: 'low',
-      batch,
-      images,
+      requestedImageCount: batch.length,
+      embeddedImageCount: images.length,
       prompt,
     });
     try {
@@ -526,6 +597,7 @@ async function runVisionSubagents({ batches, pageMetadata, visible, onProgress }
         model: OPENAI_CONFIG.visionModel,
         maxOutputTokens: MAX_IMAGE_OUTPUT_TOKENS,
         timeoutMs: IMAGE_STAGE_TIMEOUT_MS,
+        reasoningEffort: EXTRACTION_REASONING_EFFORT,
       });
       logExtraction(`${agentId} response`, {
         agentId,
@@ -537,11 +609,7 @@ async function runVisionSubagents({ batches, pageMetadata, visible, onProgress }
         ok: true,
         agentId,
         sourceType: 'image',
-        fallback: {
-          sectionIds: normalizeIdList(batch.flatMap((image) => image.sectionIds || [])),
-          imageIds: normalizeIdList(batch.map((image) => image.id)),
-          source: 'image',
-        },
+        fallback,
         json: result.json || {},
       };
     } catch (error) {
@@ -635,6 +703,7 @@ async function runFinalOrchestrator({ stageResults, sections, images, pageMetada
     model: OPENAI_CONFIG.textModel,
     maxOutputTokens: MAX_ORCHESTRATOR_OUTPUT_TOKENS,
     timeoutMs: ORCHESTRATOR_TIMEOUT_MS,
+    reasoningEffort: EXTRACTION_REASONING_EFFORT,
   });
   logExtraction('orchestrator response', {
     json: result.json || {},

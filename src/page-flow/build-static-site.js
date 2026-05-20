@@ -104,14 +104,16 @@ function textToParagraphs(text) {
   return textToParagraphList(text).join('\n');
 }
 
-function renderFigure(image, imageMap) {
+function renderFigure(image, imageMap, captionOverride) {
   let src = imageMap?.[image.id] || image.url;
   if (!src) return '';
   // A secure-context page (chrome-extension://, https://) blocks plain-http
   // images as mixed content — upgrade them so they have a chance to load.
   if (/^http:\/\//i.test(src)) src = src.replace(/^http:/i, 'https:');
-  const alt = escapeHtml(image.alt || image.caption || image.heading || '');
-  const captionText = image.caption || image.alt || '';
+  // captionOverride carries the renarrated (e.g. translated) caption when one
+  // was produced; otherwise fall back to the original page caption.
+  const captionText = String(captionOverride || '').trim() || image.caption || image.alt || '';
+  const alt = escapeHtml(captionText || image.heading || '');
   const caption = captionText ? `<figcaption>${escapeHtml(captionText)}</figcaption>` : '';
   // referrerpolicy="no-referrer" stops hotlink-protected hosts from rejecting
   // the request because it came from a foreign (extension) origin.
@@ -156,8 +158,8 @@ function renderFacts(facts) {
 }
 
 const SITE_CSS = `
-:root{color-scheme:light dark;--ink:#1a1a1a;--muted:#6b6b6b;--paper:#fbfaf8;--card:#ffffff;--line:#e6e3dd;--accent:#b5532a;}
-@media (prefers-color-scheme:dark){:root{--ink:#e8e6e2;--muted:#9a968e;--paper:#16150f;--card:#1f1e17;--line:#332f25;--accent:#e0814f;}}
+:root{color-scheme:light dark;--ink:#1c1c1e;--muted:#69696f;--paper:#f6f6f4;--card:#ffffff;--line:#e3e3e1;--accent:#2f6f6a;}
+@media (prefers-color-scheme:dark){:root{--ink:#e7e7ea;--muted:#999aa0;--paper:#14151a;--card:#1d1e24;--line:#2e2f38;--accent:#5fb0a8;}}
 *{box-sizing:border-box;}
 body{margin:0;background:var(--paper);color:var(--ink);font:17px/1.65 Georgia,'Times New Roman',serif;-webkit-font-smoothing:antialiased;}
 .cl-wrap{max-width:720px;margin:0 auto;padding:48px 24px 96px;}
@@ -168,8 +170,8 @@ h2{font-size:1.4rem;letter-spacing:-.01em;margin:2.4em 0 .5em;}
 .cl-meta a{color:var(--muted);}
 .cl-summary{font-size:1.18rem;line-height:1.6;color:var(--ink);border-left:3px solid var(--accent);padding:4px 0 4px 20px;margin:28px 0;}
 .cl-section p{margin:0 0 1.1em;}
-.cl-figure{margin:30px 0;}
-.cl-figure img{display:block;width:100%;height:auto;border-radius:8px;background:var(--card);}
+.cl-figure{margin:28px auto;text-align:center;}
+.cl-figure img{display:block;width:auto;max-width:min(100%,440px);max-height:360px;height:auto;margin:0 auto;border-radius:8px;background:var(--card);}
 .cl-figure figcaption{font:13px/1.5 ui-sans-serif,system-ui,sans-serif;color:var(--muted);margin-top:8px;}
 .cl-facts{list-style:none;padding:0;margin:0;}
 .cl-facts li{display:flex;gap:12px;padding:12px 0;border-bottom:1px solid var(--line);font-size:.98rem;}
@@ -296,18 +298,87 @@ ${renderChips('Key terms', extraction.keyTerms || knowledge.keyTerms)}
 </html>`;
 }
 
+// URLs/alt text that look like ad, sponsor, or ad-network creatives. These are
+// never worth showing on a reading page even if they slipped past extraction.
+const AD_IMAGE_RE = /(^|[\s/_.-])(ad|ads|adv|advert|advertising|adserver|adservice|adsystem|banner|doubleclick|googlesyndication|2mdn|outbrain|taboola|promo|sponsor|sponsored)([\s/_.-]|$)/i;
+
+function isAdImage(image) {
+  const haystack = `${image?.url || ''} ${image?.alt || ''} ${image?.caption || ''} ${image?.source || ''}`.toLowerCase();
+  return AD_IMAGE_RE.test(haystack);
+}
+
+// Reduces a URL to a stable identity for one picture, collapsing the variants
+// that make the same image look unique: query strings (?w=800), responsive
+// filename size tokens (hero-1200x630.jpg), retina markers (hero@2x.jpg), and
+// WordPress's -scaled suffix. Without this, an og:image and the in-content
+// hero — the same photo at two CDN sizes — render as two separate figures.
+function imageDedupeKey(image) {
+  const url = String(image?.url || '').trim();
+  let path = url.toLowerCase().split(/[?#]/)[0];
+  try {
+    const parsed = new URL(url);
+    path = `${parsed.origin}${parsed.pathname}`.toLowerCase();
+  } catch {
+    /* keep the query-stripped raw string */
+  }
+  return path
+    .replace(/[-_]\d{2,4}x\d{2,4}(?=(\.[a-z0-9]+)?$)/, '')
+    .replace(/@\d+x(?=(\.[a-z0-9]+)?$)/, '')
+    .replace(/-scaled(?=(\.[a-z0-9]+)?$)/, '');
+}
+
+// Picks the images worth showing on a renarrated reading page: only the ones
+// the extraction tied to actual facts, with ads and duplicates removed.
+function selectRelevantImages(extraction) {
+  const images = Array.isArray(extraction?.images)
+    ? extraction.images.filter((image) => image && image.id)
+    : [];
+  if (!images.length) return [];
+
+  const facts = extraction?.facts || extraction?.knowledge?.facts || [];
+  const relevantIds = new Set();
+  for (const fact of facts) {
+    for (const id of (fact && fact.imageIds) || []) {
+      if (id) relevantIds.add(String(id));
+    }
+  }
+  // No fact references an image -> nothing is relevant enough to show.
+  if (!relevantIds.size) return [];
+
+  let pool = images.filter((image) => relevantIds.has(String(image.id)) && !isAdImage(image));
+
+  // The og:image is the social-share card — almost always a duplicate of an
+  // in-content hero shot. Drop it whenever real in-content images exist.
+  const inContent = pool.filter((image) => image.source !== 'og:image');
+  if (inContent.length) pool = inContent;
+
+  const seenUrl = new Set();
+  const seenAlt = new Set();
+  const result = [];
+  for (const image of pool) {
+    const urlKey = imageDedupeKey(image);
+    if (!urlKey || seenUrl.has(urlKey)) continue;
+    // Identical non-empty alt text means the same picture even when the URLs
+    // differ (e.g. og:image vs in-content image of the same photo).
+    const altKey = String(image.alt || '').trim().toLowerCase();
+    if (altKey && seenAlt.has(altKey)) continue;
+    seenUrl.add(urlKey);
+    if (altKey) seenAlt.add(altKey);
+    result.push(image);
+  }
+  return result;
+}
+
 // Pure builder: turns a renarration's plain text plus the original page's
 // images into a complete standalone HTML reading page. Images use their remote
 // URLs unless a { imageId: dataUri } map is supplied, so the document stays
 // small enough to hand between extension contexts. No network or chrome APIs.
-export function buildRenarratedSiteHTML(extraction = {}, renarrationText = '', imageMap = {}) {
+export function buildRenarratedSiteHTML(extraction = {}, renarrationText = '', imageMap = {}, captionMap = {}) {
   const knowledge = extraction.knowledge || {};
   const title = String(extraction.title || knowledge.title || 'Renarrated page').trim();
   const sourceUrl = String(extraction.url || '').trim();
   const host = hostnameOf(sourceUrl);
-  const images = Array.isArray(extraction.images)
-    ? extraction.images.filter((image) => image && image.id)
-    : [];
+  const images = selectRelevantImages(extraction);
 
   const wordCount = String(renarrationText || '').split(/\s+/).filter(Boolean).length;
   const readMin = Math.max(1, Math.round(wordCount / 250));
@@ -316,7 +387,9 @@ export function buildRenarratedSiteHTML(extraction = {}, renarrationText = '', i
   // dumping them in a trailing gallery. The renarration is plain prose with no
   // image anchors, so figures are spread evenly across the paragraphs.
   const paragraphs = textToParagraphList(renarrationText);
-  const figures = images.map((image) => renderFigure(image, imageMap)).filter(Boolean);
+  const figures = images
+    .map((image) => renderFigure(image, imageMap, captionMap?.[image.id]))
+    .filter(Boolean);
 
   let bodyHtml;
   if (!paragraphs.length) {

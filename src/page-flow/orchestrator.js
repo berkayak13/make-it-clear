@@ -90,7 +90,7 @@ export const pageFlowHandlers = {
 
       // Images keep their remote URLs (no data-URI embedding) so the document
       // stays small enough to pass through chrome.storage.local.
-      const html = buildRenarratedSiteHTML(lastExtraction, renarration.text);
+      const html = buildRenarratedSiteHTML(lastExtraction, renarration.text, {}, renarration.captions || {});
       const at = new Date().toISOString();
 
       await chrome.storage.local.set({
