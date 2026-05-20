@@ -2,7 +2,7 @@ import { researchGet, researchPut, researchGetByIndex } from '../utils/firestore
 import { getOrCreateUserId } from '../utils/storage-helpers.js';
 import { generateId } from '../utils/id.js';
 import { callLLM } from '../utils/llm-dispatch.js';
-import { getChatbotSystemPrompt, getGoalExtractionPrompt } from '../utils/cached-prompts.js';
+import { getChatbotSystemPrompt, getGoalExtractionPrompt } from '../utils/prompt-loader.js';
 
 const LOCAL_CHAT_SESSIONS_KEY = 'chatSessions';
 const LOCAL_USER_PREFERENCES_KEY = 'userPreferences';
@@ -142,6 +142,20 @@ export const chatbotHandlers = {
         if (session) await saveLocalSession(session);
       }
       return { success: !!session, session };
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  },
+
+  'chatbot-delete-session': async (request, sender) => {
+    try {
+      const sessions = await getLocalChatSessions();
+      delete sessions[request.sessionId];
+      const update = { [LOCAL_CHAT_SESSIONS_KEY]: sessions };
+      const { currentChatSessionId } = await chrome.storage.local.get(['currentChatSessionId']);
+      if (currentChatSessionId === request.sessionId) update.currentChatSessionId = null;
+      await chrome.storage.local.set(update);
+      return { success: true };
     } catch (e) {
       return { success: false, error: e.message };
     }

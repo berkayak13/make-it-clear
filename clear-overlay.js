@@ -367,7 +367,7 @@
           <span class="ov-eye">Reading goal</span>
           <div class="ov-head-actions">
             <button class="ov-edit" id="ov-set-goal">Set reading goal</button>
-            <button class="ov-edit" id="ov-edit-goal">Edit</button>
+            <button class="ov-edit" id="ov-delete-goal">Delete</button>
           </div>
         </div>
         <div class="ov-goal-empty" id="ov-goal-content">No reading goal set. Start a conversation below to set one.</div>
@@ -737,17 +737,34 @@
   }
 
   async function triggerRenarration() {
-    try {
-      if (!hasExtractionContent(extraction) || extraction.url !== location.href) {
-        renderKnowledge('extract-required');
-        return;
+    const btn = shadow.getElementById('ov-cta');
+    if (btn?.disabled) return;
+    if (!hasExtractionContent(extraction) || extraction.url !== location.href) {
+      renderKnowledge('extract-required');
+      return;
+    }
+    const restore = () => {
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = `${I.sparkle} Renarrate this page`;
       }
+    };
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Renarrating this page…';
+    }
+    try {
       const res = await safeSendMessage({
         action: 'run-page-renarration-from-extraction',
         pageMetadata: { url: location.href, title: document.title },
       });
       if (res?.success === false) throw new Error(res.error || 'Could not renarrate this page.');
-    } catch {}
+      // The renarrated page opens in a new tab; restore the button for reuse.
+      restore();
+    } catch (e) {
+      if (btn) btn.textContent = 'Renarration failed — try again';
+      setTimeout(restore, 2600);
+    }
   }
 
   /* ── Event wiring ── */
@@ -765,10 +782,30 @@
     shadow.getElementById('ov-set-goal').addEventListener('click', setReadingGoalFromChat);
     shadow.getElementById('ov-extract-page').addEventListener('click', triggerExtraction);
     shadow.getElementById('ov-view-extraction').addEventListener('click', openExtractionViewer);
-    shadow.getElementById('ov-edit-goal').addEventListener('click', () => {
-      const input = shadow.getElementById('ov-input');
-      input.value = 'I want to change my reading goal. ';
-      input.focus();
+    shadow.getElementById('ov-delete-goal').addEventListener('click', async () => {
+      const deletedSessionId = chatSessionId;
+
+      // Clear the UI immediately so it reflects the deletion even if the
+      // background round-trip is slow or fails.
+      if (revealTimer) { clearInterval(revealTimer); revealTimer = null; }
+      goal = null;
+      chatSessionId = null;
+      chatMessages = [];
+      const inputEl = shadow.getElementById('ov-input');
+      if (inputEl) inputEl.value = '';
+      renderGoal();
+      renderChat();
+
+      try {
+        await chrome.storage.sync.remove(['readingGoal']);
+        if (deletedSessionId) {
+          await safeSendMessage({ action: 'chatbot-delete-session', sessionId: deletedSessionId });
+        }
+      } catch (e) {
+        if (!markExtensionContextDead(e)) {
+          console.warn('[Clear] Could not delete reading goal:', e?.message || e);
+        }
+      }
     });
     collapsedEl.addEventListener('click', toggleCollapse);
     setupDrag();
@@ -778,15 +815,10 @@
   if (hasExtensionContext()) {
     try {
       chrome.runtime.onMessage.addListener((msg) => {
-        if (msg.action === 'OPEN_OVERLAY') {
-          if (overlayVisible && !collapsed) { hide(); }
-          else { collapsed = false; show(); }
-        }
         if (msg.action === 'SHOW_OVERLAY') {
           collapsed = false;
           show();
         }
-        if (msg.action === 'CLOSE_OVERLAY') hide();
         if (msg.action === 'extraction-progress' && msg.text) {
           renderKnowledge('loading');
         }

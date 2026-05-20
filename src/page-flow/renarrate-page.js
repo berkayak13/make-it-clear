@@ -4,18 +4,6 @@ import { buildRenarrationPrompt, truncateForContext } from '../utils/renarration
 const MAX_EXTRACTED_NOTES_CHARS = 30000;
 const MAX_RAW_TEXT_CHARS = 30000;
 
-function formatReadingGoal(goal) {
-  if (!goal) return 'No saved reading goal.';
-  if (typeof goal === 'string') return goal || 'No saved reading goal.';
-  return [
-    goal.readingGoal ? `Goal: ${goal.readingGoal}` : '',
-    goal.desiredDepth ? `Depth: ${goal.desiredDepth}` : '',
-    Array.isArray(goal.focusAreas) && goal.focusAreas.length ? `Focus: ${goal.focusAreas.join(', ')}` : '',
-    goal.outputStyle ? `Style: ${goal.outputStyle}` : '',
-    goal.additionalInstructions ? `Notes: ${goal.additionalInstructions}` : '',
-  ].filter(Boolean).join('\n') || 'No saved reading goal.';
-}
-
 function formatFact(fact) {
   if (typeof fact === 'string') return fact;
   return String(fact?.text || fact?.content || '').trim();
@@ -49,7 +37,7 @@ export async function renarratePage({ extraction, taskName } = {}) {
 
   const userText = [
     'Saved reading goal:',
-    formatReadingGoal(promptInfo.readingGoal),
+    promptInfo.readingGoal || 'No saved reading goal.',
     '',
     'Compact page source extracted from visible text and page images:',
     truncateForContext(extraction.compactText || formatKnowledge(extraction.knowledge), MAX_EXTRACTED_NOTES_CHARS),

@@ -87,7 +87,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         `;
         factsTable.appendChild(row);
       });
-    } else if (text && !staleLocalExtraction) {
+    } else if (text) {
       emptyState.style.display = 'none';
       rawSection.style.display = 'block';
       rawEl.textContent = text;

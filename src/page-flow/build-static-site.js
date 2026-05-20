@@ -92,22 +92,30 @@ export async function collectImageDataURIs(images = [], onProgress) {
   return map;
 }
 
-function textToParagraphs(text) {
+function textToParagraphList(text) {
   return String(text || '')
     .split(/\n{2,}|\r\n\r\n/)
     .map((block) => block.trim())
     .filter(Boolean)
-    .map((block) => `<p>${escapeHtml(block).replace(/\n/g, '<br>')}</p>`)
-    .join('\n');
+    .map((block) => `<p>${escapeHtml(block).replace(/\n/g, '<br>')}</p>`);
+}
+
+function textToParagraphs(text) {
+  return textToParagraphList(text).join('\n');
 }
 
 function renderFigure(image, imageMap) {
-  const src = imageMap?.[image.id] || image.url;
+  let src = imageMap?.[image.id] || image.url;
   if (!src) return '';
+  // A secure-context page (chrome-extension://, https://) blocks plain-http
+  // images as mixed content — upgrade them so they have a chance to load.
+  if (/^http:\/\//i.test(src)) src = src.replace(/^http:/i, 'https:');
   const alt = escapeHtml(image.alt || image.caption || image.heading || '');
   const captionText = image.caption || image.alt || '';
   const caption = captionText ? `<figcaption>${escapeHtml(captionText)}</figcaption>` : '';
-  return `<figure class="cl-figure"><img src="${escapeHtml(src)}" alt="${alt}" loading="lazy">${caption}</figure>`;
+  // referrerpolicy="no-referrer" stops hotlink-protected hosts from rejecting
+  // the request because it came from a foreign (extension) origin.
+  return `<figure class="cl-figure"><img src="${escapeHtml(src)}" alt="${alt}" loading="lazy" referrerpolicy="no-referrer">${caption}</figure>`;
 }
 
 function imagesForSection(section, images) {
@@ -284,6 +292,86 @@ ${renderChips('Key terms', extraction.keyTerms || knowledge.keyTerms)}
 </footer>
 </main>
 <script type="application/json" id="clear-page-data">${dataIsland}</script>
+</body>
+</html>`;
+}
+
+// Pure builder: turns a renarration's plain text plus the original page's
+// images into a complete standalone HTML reading page. Images use their remote
+// URLs unless a { imageId: dataUri } map is supplied, so the document stays
+// small enough to hand between extension contexts. No network or chrome APIs.
+export function buildRenarratedSiteHTML(extraction = {}, renarrationText = '', imageMap = {}) {
+  const knowledge = extraction.knowledge || {};
+  const title = String(extraction.title || knowledge.title || 'Renarrated page').trim();
+  const sourceUrl = String(extraction.url || '').trim();
+  const host = hostnameOf(sourceUrl);
+  const images = Array.isArray(extraction.images)
+    ? extraction.images.filter((image) => image && image.id)
+    : [];
+
+  const wordCount = String(renarrationText || '').split(/\s+/).filter(Boolean).length;
+  const readMin = Math.max(1, Math.round(wordCount / 250));
+
+  // Interleave the page's images within the renarrated text rather than
+  // dumping them in a trailing gallery. The renarration is plain prose with no
+  // image anchors, so figures are spread evenly across the paragraphs.
+  const paragraphs = textToParagraphList(renarrationText);
+  const figures = images.map((image) => renderFigure(image, imageMap)).filter(Boolean);
+
+  let bodyHtml;
+  if (!paragraphs.length) {
+    bodyHtml = ['<p>No renarrated text was produced for this page.</p>', ...figures].join('\n');
+  } else if (!figures.length) {
+    bodyHtml = paragraphs.join('\n');
+  } else {
+    const afterParagraph = new Map();
+    figures.forEach((figure, k) => {
+      let pos = Math.round(((k + 1) * paragraphs.length) / (figures.length + 1)) - 1;
+      pos = Math.min(Math.max(pos, 0), paragraphs.length - 1);
+      if (!afterParagraph.has(pos)) afterParagraph.set(pos, []);
+      afterParagraph.get(pos).push(figure);
+    });
+    const pieces = [];
+    paragraphs.forEach((paragraph, i) => {
+      pieces.push(paragraph);
+      (afterParagraph.get(i) || []).forEach((figure) => pieces.push(figure));
+    });
+    bodyHtml = pieces.join('\n');
+  }
+
+  const metaBits = [];
+  if (host) {
+    metaBits.push(sourceUrl
+      ? `<a href="${escapeHtml(sourceUrl)}">${escapeHtml(host)}</a>`
+      : escapeHtml(host));
+  }
+  metaBits.push(`<span>${readMin} min read</span>`);
+  metaBits.push('<span>Renarrated</span>');
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="generator" content="Clear · renarrated page">
+<title>${escapeHtml(title)}</title>
+<style>${SITE_CSS}</style>
+</head>
+<body>
+<main class="cl-wrap">
+<header class="cl-header">
+<span class="cl-eyebrow">Renarrated with Clear</span>
+<h1>${escapeHtml(title)}</h1>
+${metaBits.length ? `<div class="cl-meta">${metaBits.join('<span aria-hidden="true">·</span>')}</div>` : ''}
+</header>
+<section class="cl-section">${bodyHtml}</section>
+<hr class="cl-divider">
+<footer class="cl-footer">
+<p>This page was renarrated by the Clear extension from ${
+    sourceUrl ? `<a href="${escapeHtml(sourceUrl)}">${escapeHtml(host || sourceUrl)}</a>` : 'a web page'
+  } to match your reading goal.</p>
+</footer>
+</main>
 </body>
 </html>`;
 }

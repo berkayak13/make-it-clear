@@ -22,7 +22,7 @@
           <option value="">All Users</option>
         </select>
         <button id="refreshBtn" class="clear-btn clear-btn--sm clear-btn--ghost">Refresh</button>
-        <button id="exportAllBtn" class="clear-btn clear-btn--sm clear-btn--primary" onclick="exportAll()">Export</button>
+        <button id="exportAllBtn" class="clear-btn clear-btn--sm clear-btn--primary">Export</button>
       </div>
       <nav class="rd-tabs">
         <button class="tab active" data-tab="overview">Overview</button>
@@ -40,17 +40,14 @@
         <div class="rd-kpi-card">
           <span class="clear-eyebrow">Sessions</span>
           <div class="rd-kpi-value" id="kpiSessions">—</div>
-          <div class="rd-kpi-delta" id="kpiSessionsDelta"></div>
         </div>
         <div class="rd-kpi-card">
           <span class="clear-eyebrow">Feedback events</span>
           <div class="rd-kpi-value" id="kpiFeedback">—</div>
-          <div class="rd-kpi-delta" id="kpiFeedbackDelta"></div>
         </div>
         <div class="rd-kpi-card">
           <span class="clear-eyebrow">Users</span>
           <div class="rd-kpi-value" id="kpiUsers">—</div>
-          <div class="rd-kpi-delta" id="kpiUsersDelta"></div>
         </div>
       </div>
 
@@ -89,9 +86,9 @@
       <div class="rd-log-controls">
         <select id="logCategoryFilter" class="rd-select">
           <option value="">All Categories</option>
-          <option value="renarration">Renarration</option>
           <option value="feedback">Feedback</option>
           <option value="chatbot">Chatbot</option>
+          <option value="reading-goal">Reading goal</option>
         </select>
       </div>
       <div id="logsList"></div>

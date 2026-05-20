@@ -47,6 +47,18 @@ function setupControls() {
   if (catFilter) {
     catFilter.addEventListener('change', () => renderLogs());
   }
+
+  document.getElementById('exportAllBtn').addEventListener('click', exportAll);
+
+  // Delegated handler for dynamically rendered buttons. Inline onclick is
+  // blocked by the extension's content security policy.
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-action]');
+    if (!btn) return;
+    if (btn.dataset.action === 'toggle') toggleExpand(btn.dataset.target);
+    else if (btn.dataset.action === 'export-store') exportStore(btn.dataset.store, btn.dataset.format);
+    else if (btn.dataset.action === 'export-all') exportAll();
+  });
 }
 
 const DATA_TAB_IDS = ['conversationsList', 'feedbackList', 'preferencesList', 'logsList'];
@@ -198,7 +210,7 @@ function renderConversations() {
       <td><span class="pill info">${escapeHtml(s.userId)}</span></td>
       <td>${formatTime(s.timestamp)}</td>
       <td>${msgCount}</td>
-      <td><button onclick="toggleExpand('conv-${i}')">View</button></td>
+      <td><button data-action="toggle" data-target="conv-${i}">View</button></td>
     </tr>
     <tr><td colspan="5" style="padding:0;border:none;">
       <div class="expand-content" id="conv-${i}">
@@ -296,8 +308,8 @@ function renderExport() {
       <h4>${name}</h4>
       <p style="font-size:12px;color:#718096;margin-bottom:8px;">${count} records</p>
       <div class="btn-group">
-        <button onclick="exportStore(this.dataset.store, 'json')" data-store="${escapeHtml(name)}"${disabled}>JSON</button>
-        <button onclick="exportStore(this.dataset.store, 'csv')" data-store="${escapeHtml(name)}"${disabled}>CSV</button>
+        <button data-action="export-store" data-store="${escapeHtml(name)}" data-format="json"${disabled}>JSON</button>
+        <button data-action="export-store" data-store="${escapeHtml(name)}" data-format="csv"${disabled}>CSV</button>
       </div>
     </div>`;
   }).join('') + `
@@ -305,20 +317,20 @@ function renderExport() {
       <h4>All Data</h4>
       <p style="font-size:12px;color:#718096;margin-bottom:8px;">Export everything as a single JSON file</p>
       <div class="btn-group">
-        <button onclick="exportAll()"${hasAnyData ? '' : ' disabled style="opacity:0.5;cursor:not-allowed;"'}>Export All (JSON)</button>
+        <button data-action="export-all"${hasAnyData ? '' : ' disabled style="opacity:0.5;cursor:not-allowed;"'}>Export All (JSON)</button>
       </div>
     </div>
   `;
 }
 
-// ---- Global functions for onclick handlers ----
+// ---- Actions invoked by the delegated click handler ----
 
-window.toggleExpand = function(id) {
+function toggleExpand(id) {
   const el = document.getElementById(id);
   if (el) el.classList.toggle('open');
-};
+}
 
-window.exportStore = async function(storeName, format) {
+async function exportStore(storeName, format) {
   if (!allData[storeName] || allData[storeName].length === 0) {
     alert(`No data available in "${storeName}" to export.`);
     return;
@@ -355,9 +367,9 @@ window.exportStore = async function(storeName, format) {
   } catch (e) {
     alert('Export error: ' + e.message);
   }
-};
+}
 
-window.exportAll = async function() {
+async function exportAll() {
   const hasAnyData = Object.values(allData).some(arr => Array.isArray(arr) && arr.length > 0);
   if (!hasAnyData) {
     alert('No research data available to export.');
@@ -384,4 +396,4 @@ window.exportAll = async function() {
   } catch (e) {
     alert('Export error: ' + e.message);
   }
-};
+}

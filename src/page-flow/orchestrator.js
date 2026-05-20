@@ -1,78 +1,21 @@
 import { extractPageKnowledge } from './extract-page.js';
 import { renarratePage } from './renarrate-page.js';
-import { buildStaticSiteHTML, collectImageDataURIs, siteFilename } from './build-static-site.js';
+import {
+  buildStaticSiteHTML,
+  buildRenarratedSiteHTML,
+  collectImageDataURIs,
+  siteFilename,
+} from './build-static-site.js';
 
 let pageRunInProgress = false;
-const CONTENT_READY_ACTION = 'renarration-content-ready';
+
+const RENARRATED_VIEWER_PATH = 'viewers/renarrated-page.html';
 
 async function activeTabFromRequest(request, sender) {
   if (request?.tabId) return chrome.tabs.get(request.tabId);
   if (sender?.tab?.id) return sender.tab;
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   return tab;
-}
-
-function sendToTabOptional(tabId, message) {
-  if (!tabId) return Promise.resolve();
-  return chrome.tabs.sendMessage(tabId, message).catch(() => {});
-}
-
-async function sendToTabRequired(tabId, message) {
-  if (!tabId) throw new Error('No active tab');
-  const response = await chrome.tabs.sendMessage(tabId, message);
-  if (response?.success === false) {
-    throw new Error(response.error || `Page panel action failed: ${message.action}`);
-  }
-  return response;
-}
-
-async function isContentScriptReady(tabId) {
-  try {
-    const response = await chrome.tabs.sendMessage(tabId, { action: CONTENT_READY_ACTION });
-    return response?.success === true;
-  } catch {
-    return false;
-  }
-}
-
-async function injectContentScript(tab) {
-  if (!tab?.id) throw new Error('No active tab');
-  if (!/^https?:/i.test(tab.url || '')) {
-    throw new Error('Could not open the page panel on this page. Open a normal webpage and try again.');
-  }
-
-  try {
-    await chrome.scripting.insertCSS({
-      target: { tabId: tab.id },
-      files: ['content.css'],
-    });
-  } catch (e) {
-    console.warn('[PageFlow] Content CSS injection skipped:', e?.message || e);
-  }
-
-  await chrome.scripting.executeScript({
-    target: { tabId: tab.id },
-    files: ['content.js'],
-  });
-}
-
-async function ensureContentScript(tab) {
-  if (await isContentScriptReady(tab.id)) return;
-
-  try {
-    await injectContentScript(tab);
-  } catch (e) {
-    throw new Error(e?.message || 'Could not open the page panel. Reload the page and try again.');
-  }
-
-  if (!(await isContentScriptReady(tab.id))) {
-    throw new Error('Could not connect to the page panel. Reload the page and try again.');
-  }
-}
-
-async function openRenarrationPanel(tab) {
-  await ensureContentScript(tab);
-  await sendToTabRequired(tab.id, { action: 'show-renarration-panel' });
 }
 
 function notifyExtraction(status, extraction = null, error = null) {
@@ -117,6 +60,9 @@ export const pageFlowHandlers = {
     }
   },
 
+  // Renarrates the page from its saved extraction, builds a standalone reading
+  // page from the renarrated text plus the original page's images, and opens
+  // that page in a new browser tab next to the source page.
   'run-page-renarration-from-extraction': async (request, sender) => {
     if (pageRunInProgress) {
       return { success: false, error: 'Page renarration already in progress' };
@@ -126,10 +72,7 @@ export const pageFlowHandlers = {
     if (!tab?.id) return { success: false, error: 'No active tab' };
 
     const { lastExtraction } = await chrome.storage.local.get(['lastExtraction']);
-    if (!lastExtraction) {
-      return { success: false, error: 'First extract the page' };
-    }
-    if (!hasExtractionContent(lastExtraction)) {
+    if (!lastExtraction || !hasExtractionContent(lastExtraction)) {
       return { success: false, error: 'First extract the page' };
     }
     if (!lastExtraction.url || !tab.url || lastExtraction.url !== tab.url) {
@@ -140,16 +83,15 @@ export const pageFlowHandlers = {
     const runId = crypto.randomUUID ? crypto.randomUUID() : String(Date.now());
 
     try {
-      await openRenarrationPanel(tab);
-      await sendToTabRequired(tab.id, {
-        action: 'update-renarration-progress',
-        text: 'Writing renarration with saved reading goal...',
-      });
-
       const renarration = await renarratePage({
         extraction: lastExtraction,
         taskName: request?.task,
       });
+
+      // Images keep their remote URLs (no data-URI embedding) so the document
+      // stays small enough to pass through chrome.storage.local.
+      const html = buildRenarratedSiteHTML(lastExtraction, renarration.text);
+      const at = new Date().toISOString();
 
       await chrome.storage.local.set({
         lastPageRenarration: {
@@ -157,31 +99,35 @@ export const pageFlowHandlers = {
           renarration: renarration.text.slice(0, 30000),
           model: renarration.model,
           runId,
-          at: new Date().toISOString(),
+          at,
           url: tab.url,
           title: tab.title || '',
         },
+        lastRenarratedSite: {
+          html,
+          title: lastExtraction.title || tab.title || 'Renarrated page',
+          url: tab.url,
+          runId,
+          at,
+        },
       });
 
-      await sendToTabRequired(tab.id, {
-        action: 'render-renarration-text',
-        text: renarration.text,
-      });
+      const createOptions = {
+        url: chrome.runtime.getURL(RENARRATED_VIEWER_PATH),
+        active: true,
+      };
+      if (typeof tab.index === 'number') createOptions.index = tab.index + 1;
+      if (typeof tab.windowId === 'number') createOptions.windowId = tab.windowId;
+      const newTab = await chrome.tabs.create(createOptions);
 
       return {
         success: true,
         runId,
-        extraction: lastExtraction,
+        tabId: newTab?.id,
         renarration: renarration.text,
       };
     } catch (e) {
-      const error = e?.message || String(e);
-      await sendToTabOptional(tab.id, {
-        action: 'update-renarration-progress',
-        text: `Error: ${error}`,
-        isError: true,
-      });
-      return { success: false, error };
+      return { success: false, error: e?.message || String(e) };
     } finally {
       pageRunInProgress = false;
     }
