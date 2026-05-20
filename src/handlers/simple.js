@@ -32,11 +32,6 @@ export const simpleHandlers = {
     ]);
   },
 
-  'get-user-id': async (_request, _sender) => {
-    const userId = await getOrCreateUserId();
-    return { success: true, userId };
-  },
-
   'open-extracted-content-viewer': async (_request, sender) => {
     const sourceTabId = sender?.tab?.id ? `?tabId=${encodeURIComponent(sender.tab.id)}` : '';
     await chrome.tabs.create({ url: chrome.runtime.getURL(`viewers/extracted-content.html${sourceTabId}`) });
@@ -111,10 +106,6 @@ export const simpleHandlers = {
     const storeNames = Object.keys(RESEARCH_STORES);
     await Promise.all(storeNames.map(name => researchClearStore(name)));
     return { success: true };
-  },
-
-  'get-research-settings': async (_request, _sender) => {
-    return chrome.storage.local.get(['enableResearchLogging', 'studyUserId']);
   },
 
 };

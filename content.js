@@ -1,6 +1,5 @@
 let isEnabled = false;
 let currentTask = 'simple';
-let lastRunId = null;
 let selectionHandler = null;
 let selectionPopup = null;
 let extensionContextDead = false;
@@ -221,7 +220,6 @@ async function processSelectionRenarration(text, popup) {
     if (!body) return;
 
     if (response?.success) {
-      lastRunId = response.runId || null;
       body.textContent = response.result;
       if (actions) actions.style.display = 'flex';
     } else {
@@ -249,7 +247,6 @@ function sendFeedback(feedbackType, correctedText) {
 
   safeSendMessage({
     action: 'submit-feedback',
-    runId: lastRunId,
     feedbackType,
     correctedText: correctedText || null,
   }, (res, error) => {
@@ -785,13 +782,8 @@ function extractPageImages(sectionContext) {
 if (hasExtensionContext()) {
   try {
     chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
-      if (request.action === 'renarration-content-ready') {
-        sendResponse({ success: true });
-        return false;
-      }
       if (request.action === 'extract-visible-page-text') {
         sendResponse(extractVisiblePageText());
-        return false;
       }
       return false;
     });

@@ -342,7 +342,7 @@
   collapsedEl.innerHTML = `
     <div class="ov-cmark">C</div>
     <div class="ov-cinfo">
-      <div>3 insights ready</div>
+      <div>Reading assistant</div>
       <div>TAP TO EXPAND</div>
     </div>
     <span class="ov-cchev">${I.chevron}</span>
