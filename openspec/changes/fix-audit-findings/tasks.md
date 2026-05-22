@@ -8,12 +8,12 @@
 
 ## 2. Pipeline reliability (issues #10, #11, #14, #15, #16, #24)
 
-- [ ] 2.1 Replace the `pageRunInProgress` boolean in `src/page-flow/orchestrator.js` with an in-flight-promise lock so renarration runs are serialized (#10)
-- [ ] 2.2 Wrap the final `chrome.storage.local.set({ lastExtraction })` in `src/page-flow/extract-page.js` in try/catch with a clear error (#14)
-- [ ] 2.3 Add a pre-write size check before storing `lastPageRenarration` / `lastRenarratedSite` in `orchestrator.js`; trim or report a quota error if oversized (#15)
-- [ ] 2.4 Add an overall deadline (and/or total-bytes budget) to the image-embedding loop in `src/page-flow/build-static-site.js`; fall back to remote URLs past the deadline (#24)
-- [ ] 2.5 Add shape validation to `getLocalChatSessions()` / `getLocalUserPreferences()` in `src/handlers/chatbot.js` and to `normalizeFact()` in `extract-page.js` (#16)
-- [ ] 2.6 Use `crypto.randomUUID()` for the study user ID in `src/utils/storage-helpers.js` and make `getOrCreateUserId()` atomic; harden the `id.js` UUID fallback to use `crypto.getRandomValues` (#11)
+- [x] 2.1 Replace the `pageRunInProgress` boolean in `src/page-flow/orchestrator.js` with an in-flight-promise lock so renarration runs are serialized (#10)
+- [x] 2.2 Wrap the final `chrome.storage.local.set({ lastExtraction })` in `src/page-flow/extract-page.js` in try/catch with a clear error (#14)
+- [x] 2.3 Add a pre-write size check before storing `lastPageRenarration` / `lastRenarratedSite` in `orchestrator.js`; trim or report a quota error if oversized (#15)
+- [x] 2.4 Add an overall deadline (and/or total-bytes budget) to the image-embedding loop in `src/page-flow/build-static-site.js`; fall back to remote URLs past the deadline (#24)
+- [x] 2.5 Add shape validation to `getLocalChatSessions()` / `getLocalUserPreferences()` in `src/handlers/chatbot.js` and to `normalizeFact()` in `extract-page.js` (#16) — container checks and primitive handling were already present; added per-element guarding in `getLocalUserPreferences()`
+- [x] 2.6 Use `crypto.randomUUID()` for the study user ID in `src/utils/storage-helpers.js` and make `getOrCreateUserId()` atomic; harden the `id.js` UUID fallback to use `crypto.getRandomValues` (#11)
 
 ## 3. Research-data resilience (issues #12, #13)
 

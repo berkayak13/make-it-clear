@@ -7,6 +7,10 @@
 const MAX_IMAGE_BYTES = 1_800_000; // skip embedding any single image larger than this
 const MAX_TOTAL_EMBED_BYTES = 14_000_000; // overall embedded-image budget
 const IMAGE_FETCH_TIMEOUT_MS = 15000;
+// Overall wall-clock budget for the whole embedding loop. Without this, a page
+// with many slow images could take (per-image timeout × image count) minutes
+// and risk the MV3 service worker being killed for unresponsiveness.
+const MAX_TOTAL_EMBED_MS = 90_000;
 
 function escapeHtml(value) {
   return String(value ?? '')
@@ -57,8 +61,14 @@ export async function collectImageDataURIs(images = [], onProgress) {
   const map = {};
   let totalBytes = 0;
   const list = Array.isArray(images) ? images : [];
+  const deadline = Date.now() + MAX_TOTAL_EMBED_MS;
 
   for (let i = 0; i < list.length; i += 1) {
+    if (Date.now() > deadline) {
+      // Out of time budget — remaining images keep their remote URLs.
+      onProgress?.('Image embedding time limit reached; remaining images keep their links.');
+      break;
+    }
     const image = list[i];
     const url = String(image?.url || '').trim();
     if (!/^https?:\/\//i.test(url)) continue;

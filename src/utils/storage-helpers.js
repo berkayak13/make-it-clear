@@ -1,3 +1,5 @@
+import { generateId } from './id.js';
+
 export const DEFAULT_TASKS = {
   'simple': {
     name: 'Simple Language',
@@ -63,13 +65,29 @@ export async function getSettingsWithTaskMigration(extraKeys = []) {
   return { ...settings, tasks, currentTask };
 }
 
+// Caches the in-flight get-or-create so concurrent callers share one result
+// instead of each racing to mint and store a different ID.
+let userIdPromise = null;
+
 /**
  * Get or create a stable user ID for research tracking.
+ *
+ * The ID uses a cryptographic UUID — the previous `'P' + last 4 digits of
+ * Date.now()` scheme had only 10k possible values and collided across users.
  */
 export async function getOrCreateUserId() {
-  const { studyUserId } = await chrome.storage.local.get(['studyUserId']);
-  if (studyUserId) return studyUserId;
-  const newId = 'P' + String(Date.now()).slice(-4);
-  await chrome.storage.local.set({ studyUserId: newId });
-  return newId;
+  if (userIdPromise) return userIdPromise;
+  userIdPromise = (async () => {
+    const { studyUserId } = await chrome.storage.local.get(['studyUserId']);
+    if (studyUserId) return studyUserId;
+    const newId = 'P-' + generateId();
+    await chrome.storage.local.set({ studyUserId: newId });
+    return newId;
+  })();
+  try {
+    return await userIdPromise;
+  } catch (e) {
+    userIdPromise = null; // allow a retry on transient storage failure
+    throw e;
+  }
 }

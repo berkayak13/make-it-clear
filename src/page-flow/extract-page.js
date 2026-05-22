@@ -877,6 +877,14 @@ export async function extractPageKnowledge({ tabId, pageMetadata = {}, onProgres
   if (orchestratorError) extraction.orchestratorError = orchestratorError;
 
   logExtraction('final extraction stored', extraction);
-  await chrome.storage.local.set({ lastExtraction: extraction });
+  // The extraction is complete here; a storage failure (quota, etc.) must not
+  // surface as an opaque uncaught rejection that discards all the work done.
+  try {
+    await chrome.storage.local.set({ lastExtraction: extraction });
+  } catch (e) {
+    throw new Error(
+      `Extraction succeeded but could not be saved to local storage (it may be too large): ${e?.message || String(e)}`
+    );
+  }
   return extraction;
 }

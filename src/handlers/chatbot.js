@@ -57,7 +57,9 @@ async function bestEffortResearchPut(storeName, record) {
 async function getLocalUserPreferences(userId) {
   const data = await chrome.storage.local.get([LOCAL_USER_PREFERENCES_KEY]);
   const prefs = Array.isArray(data[LOCAL_USER_PREFERENCES_KEY]) ? data[LOCAL_USER_PREFERENCES_KEY] : [];
-  return prefs.filter(pref => pref.userId === userId);
+  // Guard individual entries: a malformed (null/non-object) element from
+  // corrupted storage would otherwise throw when reading `.userId`.
+  return prefs.filter(pref => pref && typeof pref === 'object' && pref.userId === userId);
 }
 
 async function saveLocalUserPreference(record) {
