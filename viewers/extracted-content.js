@@ -87,7 +87,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         `;
         factsTable.appendChild(row);
       });
-    } else if (text && !staleLocalExtraction) {
+    } else if (text) {
       emptyState.style.display = 'none';
       rawSection.style.display = 'block';
       rawEl.textContent = text;
@@ -164,6 +164,55 @@ document.addEventListener('DOMContentLoaded', async () => {
       await navigator.clipboard.writeText(JSON.stringify(lastExtraction, null, 2));
     }
   });
+
+  const staticSiteBtn = document.getElementById('staticSiteBtn');
+  staticSiteBtn?.addEventListener('click', async () => {
+    const defaultLabel = staticSiteBtn.textContent;
+    staticSiteBtn.disabled = true;
+    staticSiteBtn.textContent = 'Building...';
+
+    const onProgress = (msg) => {
+      if (msg?.action === 'static-site-progress' && msg.text) {
+        staticSiteBtn.textContent = msg.text;
+      }
+    };
+    chrome.runtime.onMessage.addListener(onProgress);
+
+    try {
+      const tabId = await resolveSourceTabId(loadedExtraction);
+      const res = await chrome.runtime.sendMessage({ action: 'generate-static-site', tabId });
+      if (!res?.success) {
+        summaryEl.textContent = res?.error || 'Could not build the static site.';
+        return;
+      }
+      const blob = new Blob([res.html], { type: 'text/html' });
+      const blobUrl = URL.createObjectURL(blob);
+
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = res.filename || 'clear-static-site.html';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+
+      // Open a live preview so the result can be verified immediately.
+      window.open(blobUrl, '_blank');
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+
+      summaryEl.textContent = `Static site saved (${res.filename}) — ${res.embeddedImages}/${res.totalImages} photos embedded.`;
+    } catch (e) {
+      summaryEl.textContent = 'Could not build the static site: ' + (e?.message || 'unknown error');
+    } finally {
+      chrome.runtime.onMessage.removeListener(onProgress);
+      staticSiteBtn.disabled = false;
+      staticSiteBtn.textContent = defaultLabel;
+    }
+  });
+
+  // Auto-trigger when opened from the popup's "Save static site" action.
+  if (new URLSearchParams(location.search).get('action') === 'site') {
+    staticSiteBtn?.click();
+  }
 
   document.getElementById('renarrateBtn')?.addEventListener('click', async () => {
     const tabId = await resolveSourceTabId(loadedExtraction);

@@ -3,15 +3,6 @@ import { generateId } from '../utils/id.js';
 import { researchPut, researchGetByIndex, researchGetAll, researchClearStore, researchExportCSV, RESEARCH_STORES } from '../utils/firestore-client.js';
 import { renarrateText, setUserId } from '../utils/renarration.js';
 
-const RESEARCH_STORES_KEYS = ['chatSessions', 'researchLogs', 'feedbackEvents', 'userPreferences'];
-
-function getResearchStoreNames() {
-  if (RESEARCH_STORES && typeof RESEARCH_STORES === 'object') {
-    return Object.keys(RESEARCH_STORES);
-  }
-  return RESEARCH_STORES_KEYS;
-}
-
 export const simpleHandlers = {
   'renarrate-text': async (request, _sender) => {
     const result = await renarrateText(request.text, request.task);
@@ -39,11 +30,6 @@ export const simpleHandlers = {
       'tasks',
       'systemPromptTemplate'
     ]);
-  },
-
-  'get-user-id': async (_request, _sender) => {
-    const userId = await getOrCreateUserId();
-    return { success: true, userId };
   },
 
   'open-extracted-content-viewer': async (_request, sender) => {
@@ -103,7 +89,7 @@ export const simpleHandlers = {
       return { success: true, data: records, format: 'json', storeName };
     }
 
-    const storeNames = getResearchStoreNames();
+    const storeNames = Object.keys(RESEARCH_STORES);
     const entries = await Promise.all(
       storeNames.map(async name => [
         name,
@@ -117,13 +103,9 @@ export const simpleHandlers = {
   },
 
   'clear-research-data': async (_request, _sender) => {
-    const storeNames = getResearchStoreNames();
+    const storeNames = Object.keys(RESEARCH_STORES);
     await Promise.all(storeNames.map(name => researchClearStore(name)));
     return { success: true };
-  },
-
-  'get-research-settings': async (_request, _sender) => {
-    return chrome.storage.local.get(['enableResearchLogging', 'studyUserId']);
   },
 
 };

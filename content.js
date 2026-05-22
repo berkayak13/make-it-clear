@@ -1,6 +1,5 @@
 let isEnabled = false;
 let currentTask = 'simple';
-let lastRunId = null;
 let selectionHandler = null;
 let selectionPopup = null;
 let extensionContextDead = false;
@@ -109,8 +108,6 @@ async function init() {
 const ClearIcons = {
   check: '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="m2.5 6.5 2.5 2.5 4.5-5.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   close: '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="m3 3 6 6m0-6-6 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
-  plus: '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 2v8M2 6h8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
-  sparkle: '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1.5v3M7 9.5v3M1.5 7h3M9.5 7h3M3.5 3.5l2 2M8.5 8.5l2 2M3.5 10.5l2-2M8.5 5.5l2-2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>',
 };
 
 /* ═══════════════════════════════════════════════════════════
@@ -223,11 +220,10 @@ async function processSelectionRenarration(text, popup) {
     if (!body) return;
 
     if (response?.success) {
-      lastRunId = response.runId || null;
       body.textContent = response.result;
       if (actions) actions.style.display = 'flex';
     } else {
-      body.innerHTML = `<div style="color: var(--neg); font-family: var(--font-sans); font-size: 12px;">${escapeHtml(response.error || 'Unknown error')}</div>`;
+      body.innerHTML = `<div style="color: var(--neg); font-family: var(--font-sans); font-size: 12px;">${escapeHtml(response?.error || 'Unknown error')}</div>`;
     }
   } catch (error) {
     const body = popup.querySelector('#clear-selection-body');
@@ -251,7 +247,6 @@ function sendFeedback(feedbackType, correctedText) {
 
   safeSendMessage({
     action: 'submit-feedback',
-    runId: lastRunId,
     feedbackType,
     correctedText: correctedText || null,
   }, (res, error) => {
@@ -279,10 +274,9 @@ function removeEventListeners() {
   selectionHandler = null;
 }
 
-async function handleTextSelection(e) {
+function handleTextSelection(e) {
   if (!isEnabled) return;
   if (e.target.closest('#clear-selection-popup')) return;
-  if (e.target.closest('#renarration-split-panel')) return;
 
   const selection = window.getSelection();
   const text = selection.toString().trim();
@@ -293,118 +287,11 @@ async function handleTextSelection(e) {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   SPLIT RENARRATION PANEL
-═══════════════════════════════════════════════════════════ */
-
-function showRenarrationPanel() {
-  let panel = document.getElementById('renarration-split-panel');
-  if (!panel) {
-    document.body.classList.add('renarration-split-active');
-    panel = document.createElement('div');
-    panel.id = 'renarration-split-panel';
-    panel.innerHTML = `
-      <div class="split-drag-handle"></div>
-      <div class="split-panel-header">
-        <div class="split-header-info">
-          <div class="split-header-top">
-            <span class="split-header-wordmark">Clear</span>
-            <span class="split-header-meta">RENARRATED</span>
-          </div>
-          <div class="split-header-lens"></div>
-        </div>
-        <span class="split-header-spacer"></span>
-        <button class="split-panel-close" data-action="close">${ClearIcons.close}</button>
-      </div>
-      <div class="split-panel-body" id="renarration-panel-body">
-        <div class="split-panel-loading">
-          <div class="split-panel-spinner"></div>
-          <span class="renarration-progress-text">Preparing…</span>
-        </div>
-      </div>
-      <div class="split-panel-footer">
-        <span class="clear-eyebrow" id="split-footer-meta"></span>
-      </div>
-    `;
-    document.documentElement.appendChild(panel);
-
-    panel.querySelector('[data-action="close"]')?.addEventListener('click', hideRenarrationPanel);
-    setupPanelResize(panel);
-  }
-  updateRenarrationProgress('Preparing…');
-}
-
-function setupPanelResize(panel) {
-  const handle = panel.querySelector('.split-drag-handle');
-  handle?.addEventListener('mousedown', (e) => {
-    e.preventDefault();
-    handle.classList.add('dragging');
-    const overlay = document.createElement('div');
-    overlay.className = 'split-drag-overlay';
-    document.documentElement.appendChild(overlay);
-
-    const onMove = (ev) => {
-      const pct = Math.min(80, Math.max(20, (ev.clientX / window.innerWidth) * 100));
-      document.body.style.width = pct + '%';
-      panel.style.width = (100 - pct) + '%';
-    };
-    const onUp = () => {
-      handle.classList.remove('dragging');
-      overlay.remove();
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
-    };
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
-  });
-}
-
-function updateRenarrationProgress(text, isError = false) {
-  const body = document.getElementById('renarration-panel-body');
-  if (!body) return;
-  body.innerHTML = '';
-  const wrap = document.createElement('div');
-  wrap.className = 'split-panel-loading';
-  if (!isError) {
-    const spinner = document.createElement('div');
-    spinner.className = 'split-panel-spinner';
-    wrap.appendChild(spinner);
-  }
-  const status = document.createElement('span');
-  status.className = isError ? 'renarration-progress-text is-error' : 'renarration-progress-text';
-  status.textContent = text || '';
-  wrap.appendChild(status);
-  body.appendChild(wrap);
-}
-
-function renderRenarrationText(text) {
-  const body = document.getElementById('renarration-panel-body');
-  if (!body) return;
-  body.innerHTML = '';
-  const content = document.createElement('div');
-  content.className = 'renarration-final-text';
-  content.textContent = text || '';
-  body.appendChild(content);
-
-  const meta = document.getElementById('split-footer-meta');
-  if (meta) {
-    const wordCount = (text || '').split(/\s+/).filter(Boolean).length;
-    const readMin = Math.max(1, Math.round(wordCount / 250));
-    meta.textContent = `${readMin} MIN READ`;
-  }
-}
-
-function hideRenarrationPanel() {
-  document.getElementById('renarration-split-panel')?.remove();
-  document.body.classList.remove('renarration-split-active');
-  document.body.style.width = '';
-}
-
-/* ═══════════════════════════════════════════════════════════
    PAGE EXTRACTION
 ═══════════════════════════════════════════════════════════ */
 
 const SKIP_TAGS = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'SVG', 'CANVAS', 'INPUT', 'TEXTAREA', 'SELECT', 'BUTTON', 'IFRAME', 'OBJECT', 'EMBED']);
-const EXTENSION_UI_SELECTOR = '#clear-selection-popup, #renarration-split-panel';
+const EXTENSION_UI_SELECTOR = '#clear-selection-popup';
 const IMAGE_MAX_RESULTS = 40;
 const IMAGE_MIN_RENDERED_WIDTH = 120;
 const IMAGE_MIN_RENDERED_HEIGHT = 80;
@@ -416,6 +303,10 @@ const SECTION_MAX_RESULTS = 160;
 const DECORATIVE_IMAGE_RE = /(^|[\s/_-])(adchoices|avatar|badge|blank|button|favicon|icon|logo|pixel|placeholder|share|social|spacer|spinner|sprite|tracking|transparent)([\s/_\-.]|$)/i;
 const CONTENT_CLASS_RE = /(^|[\s_-])(article|content|entry|main|post|story)([\s_-]|$)/i;
 const NON_CONTENT_CLASS_RE = /(^|[\s_-])(ad|ads|advert|banner|cookie|footer|header|nav|navbar|promo|share|sidebar|social|sponsor)([\s_-]|$)/i;
+// Attributes that lazy-loading libraries use to hold the real image URL while
+// src/currentSrc stay on a placeholder until the image scrolls into view.
+const LAZY_SRC_ATTRS = ['data-src', 'data-original', 'data-lazy-src', 'data-lazy', 'data-hi-res-src', 'data-image-src', 'data-full-src', 'data-echo'];
+const LAZY_SRCSET_ATTRS = ['data-srcset', 'data-lazy-srcset', 'data-original-set'];
 
 function logContentExtraction(label, details) {
   try {
@@ -592,6 +483,14 @@ function parseSrcset(srcset) {
 function bestSrcsetUrl(srcset) {
   return parseSrcset(srcset)
     .sort((a, b) => b.score - a.score)[0]?.url || '';
+}
+
+function firstAttrValue(el, attrs) {
+  for (const attr of attrs) {
+    const value = el?.getAttribute?.(attr);
+    if (value && value.trim()) return value.trim();
+  }
+  return '';
 }
 
 function bestPictureSourceUrl(img) {
@@ -821,12 +720,18 @@ function extractPageImages(sectionContext) {
   for (const img of document.images || []) {
     if (img.closest(EXTENSION_UI_SELECTOR)) continue;
     const imageIndex = index++;
+    const lazyUrl = firstAttrValue(img, LAZY_SRC_ATTRS);
+    const lazySrcset = bestSrcsetUrl(firstAttrValue(img, LAZY_SRCSET_ATTRS));
+    const hasLazy = !!(lazyUrl || lazySrcset);
     const sources = [
       ['img-current-src', img.currentSrc],
-      ['img-src', img.getAttribute('src') || img.src],
+      ['img-data-srcset', lazySrcset],
+      ['img-data-src', lazyUrl],
       ['img-srcset', bestSrcsetUrl(img.getAttribute('srcset'))],
       ['picture-source', bestPictureSourceUrl(img)],
     ];
+    // When the page lazy-loads, the plain src attribute is just a placeholder.
+    if (!hasLazy) sources.push(['img-src', img.getAttribute('src') || img.src]);
     for (const [source, rawUrl] of sources) {
       const item = makeImageMeta(rawUrl, img, source, imageIndex, sectionContext);
       if (item) candidates.push(item);
@@ -877,33 +782,8 @@ function extractPageImages(sectionContext) {
 if (hasExtensionContext()) {
   try {
     chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
-      if (request.action === 'renarration-content-ready') {
-        sendResponse({ success: true });
-        return false;
-      }
       if (request.action === 'extract-visible-page-text') {
         sendResponse(extractVisiblePageText());
-        return false;
-      }
-      if (request.action === 'show-renarration-panel') {
-        showRenarrationPanel();
-        sendResponse({ success: true });
-        return false;
-      }
-      if (request.action === 'update-renarration-progress') {
-        updateRenarrationProgress(request.text || '', !!request.isError);
-        sendResponse({ success: true });
-        return false;
-      }
-      if (request.action === 'render-renarration-text') {
-        renderRenarrationText(request.text || '');
-        sendResponse({ success: true });
-        return false;
-      }
-      if (request.action === 'hide-renarration-panel') {
-        hideRenarrationPanel();
-        sendResponse({ success: true });
-        return false;
       }
       return false;
     });

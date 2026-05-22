@@ -34,6 +34,12 @@ function supportsTemperature(model) {
   );
 }
 
+// Reasoning models (gpt-5+, gpt-oss, o-series) accept `reasoning` but reject
+// `temperature`; classic models are the reverse. They are exact opposites.
+function isReasoningModel(model) {
+  return !supportsTemperature(model);
+}
+
 function buildResponseBody(payload) {
   const body = {
     store: false,
@@ -42,6 +48,10 @@ function buildResponseBody(payload) {
 
   if (body.temperature !== undefined && !supportsTemperature(body.model)) {
     delete body.temperature;
+  }
+  // `reasoning` is only valid for reasoning models — classic models reject it.
+  if (body.reasoning !== undefined && !isReasoningModel(body.model)) {
+    delete body.reasoning;
   }
 
   return body;
@@ -54,43 +64,36 @@ async function createResponse(payload, timeoutMs = OPENAI_TIMEOUT_MS) {
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   const body = buildResponseBody(payload);
 
+  const post = (requestBody) => fetch('https://api.openai.com/v1/responses', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${OPENAI_API_KEY}`,
+    },
+    body: JSON.stringify(requestBody),
+    signal: controller.signal,
+  });
+
   try {
-    const res = await fetch('https://api.openai.com/v1/responses', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
-      },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
+    let res = await post(body);
+
+    // Some models reject optional tuning params outright — drop whichever the
+    // API names as unsupported and retry once.
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      const unsupported = ['temperature', 'reasoning'].filter(
+        (param) => body[param] !== undefined && errText.includes(`Unsupported parameter: '${param}'`),
+      );
+      if (!unsupported.length) {
+        throw new Error(`OpenAI API error ${res.status}: ${errText || res.statusText}`);
+      }
+      const retryBody = { ...body };
+      for (const param of unsupported) delete retryBody[param];
+      res = await post(retryBody);
+    }
 
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
-      if (body.temperature !== undefined && errText.includes("Unsupported parameter: 'temperature'")) {
-        const retryBody = { ...body };
-        delete retryBody.temperature;
-        const retryRes = await fetch('https://api.openai.com/v1/responses', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${OPENAI_API_KEY}`,
-          },
-          body: JSON.stringify(retryBody),
-          signal: controller.signal,
-        });
-
-        if (retryRes.ok) {
-          const retryData = await retryRes.json();
-          if (retryData?.error) {
-            throw new Error(retryData.error.message || 'OpenAI returned an error');
-          }
-          return retryData;
-        }
-
-        const retryErrText = await retryRes.text().catch(() => '');
-        throw new Error(`OpenAI API error ${retryRes.status}: ${retryErrText || retryRes.statusText}`);
-      }
       throw new Error(`OpenAI API error ${res.status}: ${errText || res.statusText}`);
     }
 
@@ -109,12 +112,13 @@ async function createResponse(payload, timeoutMs = OPENAI_TIMEOUT_MS) {
   }
 }
 
-export async function callOpenAIText({ systemPrompt = '', userText = '', model, temperature, maxOutputTokens, timeoutMs } = {}) {
+export async function callOpenAIText({ systemPrompt = '', userText = '', model, temperature, maxOutputTokens, timeoutMs, reasoningEffort } = {}) {
   const data = await createResponse({
     model: model || OPENAI_TEXT_MODEL,
     instructions: systemPrompt || undefined,
     input: String(userText || ''),
     temperature,
+    reasoning: reasoningEffort ? { effort: reasoningEffort } : undefined,
     max_output_tokens: maxOutputTokens,
     text: { format: { type: 'text' } },
   }, timeoutMs);
@@ -124,7 +128,14 @@ export async function callOpenAIText({ systemPrompt = '', userText = '', model, 
   return { text, response: data };
 }
 
-export async function callOpenAIJson({ systemPrompt = '', prompt = '', images = [], imageDetail, schema, schemaName = 'structured_output', model, maxOutputTokens, timeoutMs } = {}) {
+// A response that hits `max_output_tokens` comes back with status "incomplete"
+// and truncated (invalid) JSON — parsing it would throw a cryptic SyntaxError.
+function isResponseTruncated(data) {
+  return data?.status === 'incomplete'
+    && data?.incomplete_details?.reason === 'max_output_tokens';
+}
+
+export async function callOpenAIJson({ prompt = '', images = [], imageDetail, schema, schemaName = 'structured_output', model, maxOutputTokens, timeoutMs, reasoningEffort } = {}) {
   const content = [{ type: 'input_text', text: String(prompt || '') }];
   let hasImageInputs = false;
   for (const image of images) {
@@ -138,11 +149,12 @@ export async function callOpenAIJson({ systemPrompt = '', prompt = '', images = 
     });
   }
 
-  const data = await createResponse({
-    model: model || (hasImageInputs ? OPENAI_VISION_MODEL : OPENAI_TEXT_MODEL),
-    instructions: systemPrompt || undefined,
+  const resolvedModel = model || (hasImageInputs ? OPENAI_VISION_MODEL : OPENAI_TEXT_MODEL);
+  const requestJson = (tokenLimit) => createResponse({
+    model: resolvedModel,
     input: [{ role: 'user', content }],
-    max_output_tokens: maxOutputTokens,
+    max_output_tokens: tokenLimit,
+    reasoning: reasoningEffort ? { effort: reasoningEffort } : undefined,
     text: {
       format: {
         type: 'json_schema',
@@ -153,14 +165,30 @@ export async function callOpenAIJson({ systemPrompt = '', prompt = '', images = 
     },
   }, timeoutMs);
 
+  let data = await requestJson(maxOutputTokens);
+
+  // Long/complex pages can overflow the token budget and truncate the JSON.
+  // Retry once with double the budget before treating it as a failure.
+  if (isResponseTruncated(data) && Number(maxOutputTokens) > 0) {
+    data = await requestJson(Number(maxOutputTokens) * 2);
+  }
+
+  if (isResponseTruncated(data)) {
+    throw new Error('OpenAI response exceeded the output token limit before completing the JSON. Try a smaller page section.');
+  }
+
   const text = getResponseText(data);
   if (!text) throw new Error('OpenAI returned no JSON output');
-  return { json: JSON.parse(text), text, response: data };
+
+  try {
+    return { json: JSON.parse(text), text, response: data };
+  } catch (e) {
+    throw new Error(`OpenAI returned malformed JSON output: ${e?.message || e}`);
+  }
 }
 
 export const OPENAI_CONFIG = {
   textModel: OPENAI_TEXT_MODEL,
   visionModel: OPENAI_VISION_MODEL,
-  imageDetail: OPENAI_IMAGE_DETAIL,
   timeoutMs: OPENAI_TIMEOUT_MS,
 };

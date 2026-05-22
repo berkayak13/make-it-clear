@@ -1,9 +1,5 @@
 const promptCache = new Map();
 
-function joined(parts) {
-  return parts.join('');
-}
-
 /**
  * Generic cached loader for prompt markdown files.
  * Fetches src/prompts/{name}.md via chrome.runtime.getURL.
@@ -42,11 +38,13 @@ function buildDefaultPromptTemplate(boilerplate) {
   return parts.join('\n\n');
 }
 
+// Strips the retired "Persona:" section and {persona} token from saved
+// prompt templates created before that feature was removed.
 function sanitizePromptTemplate(template) {
   const lines = String(template || '').replace(/\r\n/g, '\n').split('\n');
   const cleaned = [];
-  const retiredLabelRe = new RegExp(joined(['^\\s*Per(?:', 's', 'o', 'n', 'a', ')\\s*:?\\s*$']), 'i');
-  const retiredTokenRe = new RegExp(joined(['\\{', 'p', 'e', 'r', 's', 'o', 'n', 'a', '\\}']), 'i');
+  const retiredLabelRe = /^\s*Persona\s*:?\s*$/i;
+  const retiredTokenRe = /\{persona\}/i;
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i];
     if (retiredLabelRe.test(line)) {
@@ -74,4 +72,14 @@ export function applyPromptTemplate(template, taskText, boilerplate, readingGoal
     .replace(/\{task\}/gi, () => taskText || '')
     .replace(/\{readingGoal\}/gi, () => readingGoalText || '')
     .trim();
+}
+
+export async function getChatbotSystemPrompt() {
+  return (await loadPrompt('chatbot-system'))
+    || 'You are a friendly assistant helping users define their reading goals. Ask one question at a time about what they want from web content.';
+}
+
+export async function getGoalExtractionPrompt() {
+  return (await loadPrompt('goal-extraction'))
+    || 'Extract a reading goal JSON from this conversation. Return only JSON with fields: readingGoal, desiredDepth, focusAreas, outputStyle, additionalInstructions.';
 }
