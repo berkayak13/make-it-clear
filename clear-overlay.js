@@ -182,7 +182,7 @@
     .ov-panel.ov-hidden { display: none; }
     @keyframes ov-in { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
 
-    .ov-scroll { overflow-y: auto; flex: 1; overscroll-behavior: contain; }
+    .ov-scroll { display: flex; flex-direction: column; flex: 1 1 0; min-height: 0; }
 
     /* ── Collapsed pill ── */
     .ov-collapsed {
@@ -244,10 +244,10 @@
     .ov-eye { font-family: var(--font-mono); font-size: 10px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
 
     /* ── Hairline ── */
-    .ov-hr { height: 1px; background: var(--hairline-soft); border: 0; }
+    .ov-hr { height: 1px; background: var(--hairline-soft); border: 0; flex-shrink: 0; }
 
     /* ── Goal block ── */
-    .ov-goal { padding: 14px 16px 12px; }
+    .ov-goal { padding: 14px 16px 12px; flex-shrink: 0; }
     .ov-goal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
     .ov-goal-text { font-size: 13.5px; line-height: 1.5; margin-bottom: 10px; color: var(--ink); }
     .ov-goal-meta { display: flex; gap: 12px; font-size: 11.5px; color: var(--muted-2); }
@@ -258,7 +258,7 @@
     .ov-goal-empty { font-size: 12.5px; line-height: 1.5; color: var(--muted-2); font-style: italic; }
 
     /* ── Page knowledge ── */
-    .ov-knowledge { padding: 14px 16px 12px; }
+    .ov-knowledge { padding: 14px 16px 12px; flex-shrink: 0; }
     .ov-knowledge-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
     .ov-head-actions { display: flex; align-items: center; gap: 4px; }
     .ov-knowledge-status { font-family: var(--font-mono); font-size: 10px; color: var(--muted); display: flex; align-items: center; gap: 4px; }
@@ -276,7 +276,12 @@
     .ov-retry { background:transparent; border:0; cursor:pointer; font-family:var(--font-sans); font-size:11px; font-weight:500; color:var(--accent); text-decoration:underline; margin-left:6px; }
 
     /* ── Conversation ── */
-    .ov-chat { padding: 14px 16px 12px; display: flex; flex-direction: column; gap: 8px; }
+    .ov-chat-wrap { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; }
+    .ov-chat-eye { flex-shrink: 0; padding: 14px 16px 4px; }
+    .ov-chat {
+      padding: 4px 16px 12px; display: flex; flex-direction: column; gap: 8px;
+      flex: 1 1 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+    }
     .ov-chat-empty { font-size: 12px; color: var(--muted-2); font-style: italic; }
     .ov-msg-user {
       align-self: flex-end; max-width: 88%;
@@ -388,9 +393,11 @@
         </div>
       </div>
       <hr class="ov-hr"/>
-      <div class="ov-chat" id="ov-chat">
-        <span class="ov-eye">Conversation</span>
-        <div class="ov-chat-empty" id="ov-chat-empty">Ask anything about this page.</div>
+      <div class="ov-chat-wrap">
+        <span class="ov-eye ov-chat-eye">Conversation</span>
+        <div class="ov-chat" id="ov-chat">
+          <div class="ov-chat-empty" id="ov-chat-empty">Ask anything about this page.</div>
+        </div>
       </div>
     </div>
     <div class="ov-footer">
@@ -567,7 +574,7 @@
       .trim();
   }
 
-  function revealWords(el, text, onDone) {
+  function revealWords(el, text, onDone, onTick) {
     if (revealTimer) {
       clearInterval(revealTimer);
       revealTimer = null;
@@ -576,6 +583,7 @@
     const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
     if (!chunks.length || reduceMotion) {
       el.textContent = text || '';
+      onTick?.();
       onDone?.();
       return;
     }
@@ -584,12 +592,20 @@
     revealTimer = setInterval(() => {
       el.textContent += chunks[index];
       index += 1;
+      onTick?.();
       if (index >= chunks.length) {
         clearInterval(revealTimer);
         revealTimer = null;
         onDone?.();
       }
     }, 35);
+  }
+
+  // #ov-chat is the only scrolling region in the panel — keep it pinned to the
+  // latest message as content is appended or streamed in.
+  function scrollChatToBottom(chatEl) {
+    const el = chatEl || shadow.getElementById('ov-chat');
+    if (el) el.scrollTop = el.scrollHeight;
   }
 
   function appendChatMessage(chatEl, message, { animate = false } = {}) {
@@ -605,7 +621,7 @@
     const text = normalizeAssistantMessage(message.content);
     chatEl.appendChild(div);
     if (animate) {
-      revealWords(div, text);
+      revealWords(div, text, null, () => scrollChatToBottom(chatEl));
     } else {
       div.textContent = text;
     }
@@ -641,6 +657,7 @@
         animate: animateLastModel && m === chatMessages[chatMessages.length - 1] && m.role !== 'user',
       });
     });
+    requestAnimationFrame(() => scrollChatToBottom(chatEl));
   }
 
   /* ── Actions ── */
