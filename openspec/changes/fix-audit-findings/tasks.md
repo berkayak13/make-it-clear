@@ -23,12 +23,12 @@
 
 ## 4. UI robustness (issues #17, #18, #19, #20, #21, #22)
 
-- [ ] 4.1 Register the selection-popup `click` / `selectionchange` document listeners once (or remove them in `hideSelectionPopup()`) in `content.js` (#17)
-- [ ] 4.2 Clear `revealTimer` when the overlay panel closes in `clear-overlay.js` (#18)
-- [ ] 4.3 Revoke the blob URL in a `finally` block in `viewers/extracted-content.js` (#19)
-- [ ] 4.4 Add a held disabled state + progress indicator to the "Renarrate this page" and "Build static site" buttons (`clear-overlay.js`, `viewers/extracted-content.js`) (#20)
-- [ ] 4.5 Add `role` + `aria-live` to the selection popup in `content.js`; restore focus to the trigger on task-modal close in `options.js` (#21)
-- [ ] 4.6 Replace `document.open()` / `document.write()` in `viewers/renarrated-page.js` with DOM-builder APIs (#22)
+- [x] 4.1 Register the selection-popup `click` / `selectionchange` document listeners once (or remove them in `hideSelectionPopup()`) in `content.js` (#17) — already correct: `showSelectionPopup()` calls `hideSelectionPopup()` first (which `removeEventListener`s both), and re-adding an identical listener triple is a DOM no-op, so no accumulation occurs
+- [x] 4.2 Clear `revealTimer` when the overlay panel closes in `clear-overlay.js` (#18)
+- [x] 4.3 Revoke the blob URL in a `finally` block in `viewers/extracted-content.js` (#19)
+- [x] 4.4 Add a held disabled state + progress indicator to the "Renarrate this page" and "Build static site" buttons (`clear-overlay.js`, `viewers/extracted-content.js`) (#20) — added a spinner to the renarrate button; the static-site button already held disabled + streamed progress text + re-enabled in `finally`
+- [x] 4.5 Add `role` + `aria-live` to the selection popup in `content.js`; restore focus to the trigger on task-modal close in `options.js` (#21)
+- [x] 4.6 Replace `document.open()` / `document.write()` in `viewers/renarrated-page.js` with DOM-builder APIs (#22)
 
 ## 5. Extension permissions (issues #8, #9)
 

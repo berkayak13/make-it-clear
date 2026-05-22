@@ -329,8 +329,13 @@ function setupEventListeners() {
   }
 }
 
+// Remembers the control that opened the modal so focus can return to it on
+// close — keyboard and screen-reader users are otherwise stranded.
+let taskModalTrigger = null;
+
 function openTaskModal(taskKey) {
   editingTaskKey = taskKey;
+  taskModalTrigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   const modal = document.getElementById('taskModal');
   const modalTitle = document.getElementById('modalTitle');
   const nameInput = document.getElementById('taskNameInput');
@@ -347,11 +352,17 @@ function openTaskModal(taskKey) {
   }
 
   modal.style.display = 'flex';
+  nameInput.focus();
 }
 
 function closeTaskModal() {
   document.getElementById('taskModal').style.display = 'none';
   editingTaskKey = null;
+  // Return focus to the control that opened the modal.
+  if (taskModalTrigger && document.contains(taskModalTrigger)) {
+    taskModalTrigger.focus();
+  }
+  taskModalTrigger = null;
 }
 
 async function saveTask() {

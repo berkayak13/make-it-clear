@@ -272,6 +272,7 @@
     .ov-knowledge-loading { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
     .ov-knowledge-loading .ov-minispin { width:14px; height:14px; border:2px solid var(--hairline); border-top-color:var(--accent); border-radius:50%; animation: ov-spin 0.8s linear infinite; }
     @keyframes ov-spin { to { transform: rotate(360deg); } }
+    .ov-cta .ov-minispin { display:inline-block; vertical-align:middle; width:13px; height:13px; border:2px solid rgba(255,255,255,0.35); border-top-color:#fff; border-radius:50%; animation: ov-spin 0.8s linear infinite; }
     .ov-knowledge-error { font-size: 12px; color: var(--neg); }
     .ov-retry { background:transparent; border:0; cursor:pointer; font-family:var(--font-sans); font-size:11px; font-weight:500; color:var(--accent); text-decoration:underline; margin-left:6px; }
 
@@ -490,6 +491,12 @@
     overlayVisible = false;
     panel.classList.add('ov-hidden');
     collapsedEl.classList.add('ov-hidden');
+    // Stop any in-progress word reveal so its interval does not keep firing
+    // (and writing to now-hidden nodes) after the panel is closed.
+    if (revealTimer) {
+      clearInterval(revealTimer);
+      revealTimer = null;
+    }
     safeLocalSet({ 'clear.overlay.visible': false });
   }
 
@@ -768,7 +775,7 @@
     };
     if (btn) {
       btn.disabled = true;
-      btn.textContent = 'Renarrating this page…';
+      btn.innerHTML = `<span class="ov-minispin"></span> Renarrating this page…`;
     }
     try {
       const res = await safeSendMessage({
