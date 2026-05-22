@@ -8,3 +8,7 @@ dist/
 .idea/
 *.zip
 .github/copilot-instructions.md
+
+# This project uses npm; ignore other package managers' lockfiles
+pnpm-lock.yaml
+yarn.lock
