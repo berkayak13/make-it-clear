@@ -1,0 +1,48 @@
+## 1. Dev tooling (issue #23)
+
+- [x] 1.1 Add ESLint flat config and Prettier config; add `lint` and `format` scripts to `package.json`
+- [x] 1.2 Add Vitest as a dev dependency with a `test` script
+- [x] 1.3 Write smoke tests for `src/utils` pure functions (e.g. `id.js`, `normalizeFact`)
+- [x] 1.4 Add a `.github/workflows/ci.yml` running install → build → lint → test on push/PR
+- [x] 1.5 Reconcile `VITE_OPENAI_IMAGE_DETAIL` between `.env` and `.env.example`; document each var in `.env.example`
+
+## 2. Pipeline reliability (issues #10, #11, #14, #15, #16, #24)
+
+- [ ] 2.1 Replace the `pageRunInProgress` boolean in `src/page-flow/orchestrator.js` with an in-flight-promise lock so renarration runs are serialized (#10)
+- [ ] 2.2 Wrap the final `chrome.storage.local.set({ lastExtraction })` in `src/page-flow/extract-page.js` in try/catch with a clear error (#14)
+- [ ] 2.3 Add a pre-write size check before storing `lastPageRenarration` / `lastRenarratedSite` in `orchestrator.js`; trim or report a quota error if oversized (#15)
+- [ ] 2.4 Add an overall deadline (and/or total-bytes budget) to the image-embedding loop in `src/page-flow/build-static-site.js`; fall back to remote URLs past the deadline (#24)
+- [ ] 2.5 Add shape validation to `getLocalChatSessions()` / `getLocalUserPreferences()` in `src/handlers/chatbot.js` and to `normalizeFact()` in `extract-page.js` (#16)
+- [ ] 2.6 Use `crypto.randomUUID()` for the study user ID in `src/utils/storage-helpers.js` and make `getOrCreateUserId()` atomic; harden the `id.js` UUID fallback to use `crypto.getRandomValues` (#11)
+
+## 3. Research-data resilience (issues #12, #13)
+
+- [ ] 3.1 In `src/utils/firestore-client.js`, detect a missing/empty `firebaseApiKey` before requesting and emit a clear visible error plus a stored status flag (#12)
+- [ ] 3.2 Stop silently swallowing `bestEffortResearchPut()` / `logResearch()` failures in `src/handlers/chatbot.js` — log them with diagnostic detail (#12)
+- [ ] 3.3 Add a `withRetry` helper in `firestore-client.js` and wrap `researchPut` / `researchGet` / `researchGetByIndex` with exponential backoff on transient errors (#13)
+
+## 4. UI robustness (issues #17, #18, #19, #20, #21, #22)
+
+- [ ] 4.1 Register the selection-popup `click` / `selectionchange` document listeners once (or remove them in `hideSelectionPopup()`) in `content.js` (#17)
+- [ ] 4.2 Clear `revealTimer` when the overlay panel closes in `clear-overlay.js` (#18)
+- [ ] 4.3 Revoke the blob URL in a `finally` block in `viewers/extracted-content.js` (#19)
+- [ ] 4.4 Add a held disabled state + progress indicator to the "Renarrate this page" and "Build static site" buttons (`clear-overlay.js`, `viewers/extracted-content.js`) (#20)
+- [ ] 4.5 Add `role` + `aria-live` to the selection popup in `content.js`; restore focus to the trigger on task-modal close in `options.js` (#21)
+- [ ] 4.6 Replace `document.open()` / `document.write()` in `viewers/renarrated-page.js` with DOM-builder APIs (#22)
+
+## 5. Extension permissions (issues #8, #9)
+
+- [ ] 5.1 Replace `<all_urls>` in `manifest.json` with `activeTab` + the `scripting` permission; move content-script injection to on-demand `chrome.scripting.executeScript` (#8)
+- [ ] 5.2 Audit every `innerHTML` sink in `content.js` / `clear-overlay.js`; replace with `textContent`/DOM APIs where input is dynamic, and document the content-script CSP posture (#9)
+
+## 6. Secret management (issue #7 — document risk only)
+
+- [ ] 6.1 Rotate/revoke the leaked `sk-proj-…` key (operational task — confirm done)
+- [ ] 6.2 Document the build-time key exposure (README/SECURITY note): the bundled key is extractable, and the mitigation is key rotation + usage limits until a runtime-credential flow is built
+- [ ] 6.3 File a follow-up note that the `secret-management` spec's runtime-credential requirement remains open for a future change
+
+## 7. Verification
+
+- [ ] 7.1 Run `lint` and `test` — all pass
+- [ ] 7.2 Load the unpacked extension and exercise extract → renarrate → static-site end to end
+- [ ] 7.3 Confirm each of issues #7–#24 is addressed; reference them when closing
