@@ -17,9 +17,9 @@
 
 ## 3. Research-data resilience (issues #12, #13)
 
-- [ ] 3.1 In `src/utils/firestore-client.js`, detect a missing/empty `firebaseApiKey` before requesting and emit a clear visible error plus a stored status flag (#12)
-- [ ] 3.2 Stop silently swallowing `bestEffortResearchPut()` / `logResearch()` failures in `src/handlers/chatbot.js` — log them with diagnostic detail (#12)
-- [ ] 3.3 Add a `withRetry` helper in `firestore-client.js` and wrap `researchPut` / `researchGet` / `researchGetByIndex` with exponential backoff on transient errors (#13)
+- [x] 3.1 In `src/utils/firestore-client.js`, detect a missing/empty `firebaseApiKey` before requesting and emit a clear visible error plus a stored status flag (#12)
+- [x] 3.2 Stop silently swallowing `bestEffortResearchPut()` / `logResearch()` failures in `src/handlers/chatbot.js` — log them with diagnostic detail (#12) — both already `console.warn` failures; the new missing-key error now surfaces through that logging
+- [x] 3.3 Add a `withRetry` helper in `firestore-client.js` and wrap `researchPut` / `researchGet` / `researchGetByIndex` with exponential backoff on transient errors (#13)
 
 ## 4. UI robustness (issues #17, #18, #19, #20, #21, #22)
 
