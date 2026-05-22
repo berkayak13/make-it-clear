@@ -1,0 +1,6 @@
+build/
+node_modules/
+assets/
+icons/
+package-lock.json
+*.woff2
