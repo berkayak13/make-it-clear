@@ -32,17 +32,17 @@
 
 ## 5. Extension permissions (issues #8, #9)
 
-- [ ] 5.1 Replace `<all_urls>` in `manifest.json` with `activeTab` + the `scripting` permission; move content-script injection to on-demand `chrome.scripting.executeScript` (#8)
-- [ ] 5.2 Audit every `innerHTML` sink in `content.js` / `clear-overlay.js`; replace with `textContent`/DOM APIs where input is dynamic, and document the content-script CSP posture (#9)
+- [x] 5.1 Document the `<all_urls>` justification in `SECURITY.md` + README (#8) — superseded the "narrow + activeTab" plan: `host_permissions: <all_urls>` is required for the background to fetch third-party images for static-site embedding, which `activeTab` cannot cover
+- [x] 5.2 Audit every `innerHTML` sink in `content.js` / `clear-overlay.js`; document the content-script CSP posture (#9) — all sinks take static markup or `escapeHtml()`/`esc()`-escaped input; documented in `SECURITY.md`
 
 ## 6. Secret management (issue #7 — document risk only)
 
-- [ ] 6.1 Rotate/revoke the leaked `sk-proj-…` key (operational task — confirm done)
-- [ ] 6.2 Document the build-time key exposure (README/SECURITY note): the bundled key is extractable, and the mitigation is key rotation + usage limits until a runtime-credential flow is built
-- [ ] 6.3 File a follow-up note that the `secret-management` spec's runtime-credential requirement remains open for a future change
+- [ ] 6.1 Rotate/revoke the leaked `sk-proj-…` key — **REQUIRES PROJECT OWNER ACTION**: the agent cannot access the OpenAI account. Revoke the old key and issue a new one in the OpenAI dashboard.
+- [x] 6.2 Document the build-time key exposure (README/SECURITY note): the bundled key is extractable, and the mitigation is key rotation + usage limits until a runtime-credential flow is built
+- [x] 6.3 File a follow-up note that the `secret-management` spec's runtime-credential requirement remains open for a future change
 
 ## 7. Verification
 
-- [ ] 7.1 Run `lint` and `test` — all pass
-- [ ] 7.2 Load the unpacked extension and exercise extract → renarrate → static-site end to end
-- [ ] 7.3 Confirm each of issues #7–#24 is addressed; reference them when closing
+- [x] 7.1 Run `lint` and `test` — all pass (build OK, lint 0 errors / 12 pre-existing warnings, 3/3 tests, knip clean)
+- [ ] 7.2 Load the unpacked extension and exercise extract → renarrate → static-site end to end — **REQUIRES MANUAL VERIFICATION**: needs a real Chrome with a configured OpenAI key; cannot be run by the agent
+- [x] 7.3 Confirm each of issues #7–#24 is addressed (see the change PR description for the issue-by-issue mapping)
