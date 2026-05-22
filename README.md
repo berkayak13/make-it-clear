@@ -43,13 +43,20 @@ Tasks, the system prompt template, and research settings are managed in the opti
 - `content.js`: selected-text overlay plus the plain split panel. Final page output is rendered with `textContent`.
 - `src/handlers/chatbot.js`: chat sessions and reading-goal extraction.
 
+## Security
+
+The OpenAI API key is inlined into the build and is extractable from the shipped
+extension; the manifest requests `<all_urls>`. See [SECURITY.md](SECURITY.md) for
+the full rationale, known limitations, and required key rotation.
+
 ## Verification
 
 Run:
 
 ```sh
 npm run build
+npm run lint
+npm test
 npm run knip
 git diff --check
-rg "[retired provider/action terms]" .
 ```

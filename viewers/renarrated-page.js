@@ -14,11 +14,15 @@
       return;
     }
 
-    // Replace the whole document with the renarrated page. document.open()
-    // clears the current DOM; the running script keeps executing.
-    document.open();
-    document.write(html);
-    document.close();
+    // Replace the whole document with the renarrated page. The HTML is parsed
+    // with DOMParser (which does not execute scripts — the renarrated document
+    // contains none) and its <html> element is adopted in place of the current
+    // one, avoiding the deprecated document.write(). This script keeps running.
+    const parsed = new DOMParser().parseFromString(html, 'text/html');
+    document.replaceChild(
+      document.adoptNode(parsed.documentElement),
+      document.documentElement
+    );
 
     // Drop any inline figure whose image fails to load (dead URL, expired
     // CDN token, host that blocks the request) so the page stays clean.

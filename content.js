@@ -121,6 +121,10 @@ function showSelectionPopup(text, range) {
 
   const popup = document.createElement('div');
   popup.id = 'clear-selection-popup';
+  // Announce the popup to assistive technology. The body is an aria-live
+  // region (below) so the renarrated result is read out when it loads.
+  popup.setAttribute('role', 'dialog');
+  popup.setAttribute('aria-label', 'Renarrated selection');
 
   const spaceAbove = rect.top;
   const spaceBelow = window.innerHeight - rect.bottom;
@@ -148,7 +152,7 @@ function showSelectionPopup(text, range) {
         <span class="clear-selection-eyebrow-text">RENARRATE SELECTION · ${wordCount} words</span>
         <span class="clear-selection-lens">${escapeHtml(taskLabel)} lens</span>
       </div>
-      <div class="clear-selection-body" id="clear-selection-body">
+      <div class="clear-selection-body" id="clear-selection-body" role="status" aria-live="polite">
         <div style="font-family: var(--font-sans); font-style: italic; font-size: 12px; color: var(--muted);">Processing…</div>
       </div>
       <div class="clear-selection-actions" id="clear-selection-actions" style="display: none;">

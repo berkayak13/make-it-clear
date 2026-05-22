@@ -94,6 +94,9 @@ install → build → lint → test.
   user-supplied-key flow or proxy. Still rotate the leaked `sk-proj-…` key and document the
   exposure clearly. This supersedes D1; the `secret-management` spec's runtime-credential
   requirement is deferred — only the rotation + documentation scenarios apply for now.
-- **Host permissions (#8) — narrow + `activeTab`.** Replace `<all_urls>` with `activeTab`
-  plus the `scripting` API for user-triggered injection, accepting the change to how/when the
-  content script loads.
+- **Host permissions (#8) — document justification (revised at apply time).** The initial
+  "narrow + `activeTab`" plan was dropped during implementation: `host_permissions:
+  <all_urls>` is required for the background worker to fetch third-party images for
+  static-site embedding (`collectImageDataURIs`), which `activeTab` cannot provide.
+  `<all_urls>` is retained and its rationale documented in `SECURITY.md` — which the
+  `extension-permissions` spec explicitly permits.

@@ -178,6 +178,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     };
     chrome.runtime.onMessage.addListener(onProgress);
 
+    // Tracked across try/finally so an error thrown after createObjectURL
+    // still revokes the blob URL instead of leaking it.
+    let blobUrl = null;
     try {
       const tabId = await resolveSourceTabId(loadedExtraction);
       const res = await chrome.runtime.sendMessage({ action: 'generate-static-site', tabId });
@@ -186,7 +189,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         return;
       }
       const blob = new Blob([res.html], { type: 'text/html' });
-      const blobUrl = URL.createObjectURL(blob);
+      blobUrl = URL.createObjectURL(blob);
 
       const a = document.createElement('a');
       a.href = blobUrl;
@@ -197,12 +200,18 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       // Open a live preview so the result can be verified immediately.
       window.open(blobUrl, '_blank');
-      setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+      // Ownership of the URL passes to this timeout (the preview tab needs it
+      // alive); clearing the local handle stops the finally from revoking it.
+      const ownedUrl = blobUrl;
+      blobUrl = null;
+      setTimeout(() => URL.revokeObjectURL(ownedUrl), 60000);
 
       summaryEl.textContent = `Static site saved (${res.filename}) — ${res.embeddedImages}/${res.totalImages} photos embedded.`;
     } catch (e) {
       summaryEl.textContent = 'Could not build the static site: ' + (e?.message || 'unknown error');
     } finally {
+      // Only set if an error interrupted the flow before the 60s revoke above.
+      if (blobUrl) URL.revokeObjectURL(blobUrl);
       chrome.runtime.onMessage.removeListener(onProgress);
       staticSiteBtn.disabled = false;
       staticSiteBtn.textContent = defaultLabel;

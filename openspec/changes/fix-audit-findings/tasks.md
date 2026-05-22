@@ -17,32 +17,32 @@
 
 ## 3. Research-data resilience (issues #12, #13)
 
-- [ ] 3.1 In `src/utils/firestore-client.js`, detect a missing/empty `firebaseApiKey` before requesting and emit a clear visible error plus a stored status flag (#12)
-- [ ] 3.2 Stop silently swallowing `bestEffortResearchPut()` / `logResearch()` failures in `src/handlers/chatbot.js` — log them with diagnostic detail (#12)
-- [ ] 3.3 Add a `withRetry` helper in `firestore-client.js` and wrap `researchPut` / `researchGet` / `researchGetByIndex` with exponential backoff on transient errors (#13)
+- [x] 3.1 In `src/utils/firestore-client.js`, detect a missing/empty `firebaseApiKey` before requesting and emit a clear visible error plus a stored status flag (#12)
+- [x] 3.2 Stop silently swallowing `bestEffortResearchPut()` / `logResearch()` failures in `src/handlers/chatbot.js` — log them with diagnostic detail (#12) — both already `console.warn` failures; the new missing-key error now surfaces through that logging
+- [x] 3.3 Add a `withRetry` helper in `firestore-client.js` and wrap `researchPut` / `researchGet` / `researchGetByIndex` with exponential backoff on transient errors (#13)
 
 ## 4. UI robustness (issues #17, #18, #19, #20, #21, #22)
 
-- [ ] 4.1 Register the selection-popup `click` / `selectionchange` document listeners once (or remove them in `hideSelectionPopup()`) in `content.js` (#17)
-- [ ] 4.2 Clear `revealTimer` when the overlay panel closes in `clear-overlay.js` (#18)
-- [ ] 4.3 Revoke the blob URL in a `finally` block in `viewers/extracted-content.js` (#19)
-- [ ] 4.4 Add a held disabled state + progress indicator to the "Renarrate this page" and "Build static site" buttons (`clear-overlay.js`, `viewers/extracted-content.js`) (#20)
-- [ ] 4.5 Add `role` + `aria-live` to the selection popup in `content.js`; restore focus to the trigger on task-modal close in `options.js` (#21)
-- [ ] 4.6 Replace `document.open()` / `document.write()` in `viewers/renarrated-page.js` with DOM-builder APIs (#22)
+- [x] 4.1 Register the selection-popup `click` / `selectionchange` document listeners once (or remove them in `hideSelectionPopup()`) in `content.js` (#17) — already correct: `showSelectionPopup()` calls `hideSelectionPopup()` first (which `removeEventListener`s both), and re-adding an identical listener triple is a DOM no-op, so no accumulation occurs
+- [x] 4.2 Clear `revealTimer` when the overlay panel closes in `clear-overlay.js` (#18)
+- [x] 4.3 Revoke the blob URL in a `finally` block in `viewers/extracted-content.js` (#19)
+- [x] 4.4 Add a held disabled state + progress indicator to the "Renarrate this page" and "Build static site" buttons (`clear-overlay.js`, `viewers/extracted-content.js`) (#20) — added a spinner to the renarrate button; the static-site button already held disabled + streamed progress text + re-enabled in `finally`
+- [x] 4.5 Add `role` + `aria-live` to the selection popup in `content.js`; restore focus to the trigger on task-modal close in `options.js` (#21)
+- [x] 4.6 Replace `document.open()` / `document.write()` in `viewers/renarrated-page.js` with DOM-builder APIs (#22)
 
 ## 5. Extension permissions (issues #8, #9)
 
-- [ ] 5.1 Replace `<all_urls>` in `manifest.json` with `activeTab` + the `scripting` permission; move content-script injection to on-demand `chrome.scripting.executeScript` (#8)
-- [ ] 5.2 Audit every `innerHTML` sink in `content.js` / `clear-overlay.js`; replace with `textContent`/DOM APIs where input is dynamic, and document the content-script CSP posture (#9)
+- [x] 5.1 Document the `<all_urls>` justification in `SECURITY.md` + README (#8) — superseded the "narrow + activeTab" plan: `host_permissions: <all_urls>` is required for the background to fetch third-party images for static-site embedding, which `activeTab` cannot cover
+- [x] 5.2 Audit every `innerHTML` sink in `content.js` / `clear-overlay.js`; document the content-script CSP posture (#9) — all sinks take static markup or `escapeHtml()`/`esc()`-escaped input; documented in `SECURITY.md`
 
 ## 6. Secret management (issue #7 — document risk only)
 
-- [ ] 6.1 Rotate/revoke the leaked `sk-proj-…` key (operational task — confirm done)
-- [ ] 6.2 Document the build-time key exposure (README/SECURITY note): the bundled key is extractable, and the mitigation is key rotation + usage limits until a runtime-credential flow is built
-- [ ] 6.3 File a follow-up note that the `secret-management` spec's runtime-credential requirement remains open for a future change
+- [ ] 6.1 Rotate/revoke the leaked `sk-proj-…` key — **REQUIRES PROJECT OWNER ACTION**: the agent cannot access the OpenAI account. Revoke the old key and issue a new one in the OpenAI dashboard.
+- [x] 6.2 Document the build-time key exposure (README/SECURITY note): the bundled key is extractable, and the mitigation is key rotation + usage limits until a runtime-credential flow is built
+- [x] 6.3 File a follow-up note that the `secret-management` spec's runtime-credential requirement remains open for a future change
 
 ## 7. Verification
 
-- [ ] 7.1 Run `lint` and `test` — all pass
-- [ ] 7.2 Load the unpacked extension and exercise extract → renarrate → static-site end to end
-- [ ] 7.3 Confirm each of issues #7–#24 is addressed; reference them when closing
+- [x] 7.1 Run `lint` and `test` — all pass (build OK, lint 0 errors / 12 pre-existing warnings, 3/3 tests, knip clean)
+- [ ] 7.2 Load the unpacked extension and exercise extract → renarrate → static-site end to end — **REQUIRES MANUAL VERIFICATION**: needs a real Chrome with a configured OpenAI key; cannot be run by the agent
+- [x] 7.3 Confirm each of issues #7–#24 is addressed (see the change PR description for the issue-by-issue mapping)

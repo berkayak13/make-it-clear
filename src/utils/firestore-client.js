@@ -4,6 +4,15 @@ const FIRESTORE_DEFAULT_PROJECT_ID = 'renarration-research';
 // API key must be configured via options page — no hardcoded default
 const FIRESTORE_DEFAULT_API_KEY = '';
 
+// Stored under chrome.storage.local so the UI can surface a configuration
+// problem instead of research data failing silently.
+const FIRESTORE_STATUS_KEY = 'firestoreStatus';
+
+// HTTP statuses worth retrying — rate limiting and transient server errors.
+const TRANSIENT_STATUS = new Set([429, 500, 502, 503, 504]);
+const RETRY_ATTEMPTS = 3;
+const RETRY_BASE_DELAY_MS = 400;
+
 export const RESEARCH_STORES = {
   chatSessions: { keyPath: 'sessionId' },
   researchLogs: { keyPath: 'logId' },
@@ -30,6 +39,69 @@ if (typeof chrome !== 'undefined' && chrome.storage?.onChanged) {
       _firestoreConfig = null;
     }
   });
+}
+
+async function setFirestoreStatus(status) {
+  try {
+    await chrome.storage.local.set({ [FIRESTORE_STATUS_KEY]: { ...status, at: new Date().toISOString() } });
+  } catch {
+    // A status write failure must never mask the real operation result.
+  }
+}
+
+// Fails fast with a clear, user-actionable error when no API key is set —
+// otherwise every request 401s with an opaque message and data is lost.
+async function ensureConfigured(config) {
+  if (!config.apiKey) {
+    const message =
+      'Firestore API key is not configured — research data will not be saved. ' +
+      'Set the Firebase API key in the extension options.';
+    console.error('[Firestore]', message);
+    await setFirestoreStatus({ ok: false, error: 'missing-api-key' });
+    throw new Error(message);
+  }
+}
+
+function isTransient(err) {
+  return Boolean(err && err.transient);
+}
+
+// Retries a request-producing function on transient failures with exponential
+// backoff. Non-transient errors (and the final attempt) are rethrown as-is.
+async function withRetry(fn, { attempts = RETRY_ATTEMPTS, baseDelay = RETRY_BASE_DELAY_MS } = {}) {
+  let lastErr;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      if (!isTransient(err) || attempt === attempts - 1) throw err;
+      const delay = baseDelay * 2 ** attempt;
+      console.warn(`[Firestore] transient error, retrying in ${delay}ms:`, err?.message || err);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+  throw lastErr;
+}
+
+// Performs one fetch, classifying failures so withRetry knows what is transient.
+async function firestoreFetch(operation, url, init) {
+  let resp;
+  try {
+    resp = await fetch(url, init);
+  } catch (networkErr) {
+    const err = new Error(`Firestore ${operation} network error: ${networkErr?.message || networkErr}`);
+    err.transient = true;
+    throw err;
+  }
+  if (!resp.ok && resp.status !== 404) {
+    const detail = await resp.text();
+    const err = new Error(`Firestore ${operation} failed (${resp.status}): ${detail}`);
+    err.status = resp.status;
+    err.transient = TRANSIENT_STATUS.has(resp.status);
+    throw err;
+  }
+  return resp;
 }
 
 function firestoreBasePath(projectId) {
@@ -91,6 +163,7 @@ function fromFirestoreFields(fields) {
 
 export async function researchPut(storeName, record) {
   const config = await getFirestoreConfig();
+  await ensureConfigured(config);
   const base = firestoreBasePath(config.projectId);
   const storeConfig = RESEARCH_STORES[storeName];
   if (!storeConfig) throw new Error('Unknown store: ' + storeName);
@@ -105,40 +178,32 @@ export async function researchPut(storeName, record) {
   const url = `${base}/${storeName}/${docId}?key=${config.apiKey}`;
   const body = { fields: toFirestoreFields(record) };
 
-  let resp;
-  try {
-    resp = await fetch(url, {
+  // PATCH by document ID is idempotent, so retrying it is safe.
+  await withRetry(() =>
+    firestoreFetch('PUT', url, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
-    });
-  } catch (networkErr) {
-    throw new Error(`Firestore PUT network error: ${networkErr?.message || networkErr}`);
-  }
-  if (!resp.ok) {
-    const err = await resp.text();
-    throw new Error(`Firestore PUT failed (${resp.status}): ${err}`);
-  }
+    })
+  );
   return record;
 }
 
 export async function researchGet(storeName, key) {
   const config = await getFirestoreConfig();
+  await ensureConfigured(config);
   const base = firestoreBasePath(config.projectId);
   const url = `${base}/${storeName}/${key}?key=${config.apiKey}`;
 
-  const resp = await fetch(url);
+  const resp = await withRetry(() => firestoreFetch('GET', url));
   if (resp.status === 404) return null;
-  if (!resp.ok) {
-    const err = await resp.text();
-    throw new Error(`Firestore GET failed (${resp.status}): ${err}`);
-  }
   const doc = await resp.json();
   return doc.fields ? fromFirestoreFields(doc.fields) : null;
 }
 
 export async function researchGetAll(storeName, options = {}) {
   const config = await getFirestoreConfig();
+  await ensureConfigured(config);
   const base = firestoreBasePath(config.projectId);
   const results = [];
   let pageToken = '';
@@ -147,11 +212,7 @@ export async function researchGetAll(storeName, options = {}) {
     let url = `${base}/${storeName}?key=${config.apiKey}&pageSize=300`;
     if (pageToken) url += `&pageToken=${pageToken}`;
 
-    const resp = await fetch(url);
-    if (!resp.ok) {
-      const err = await resp.text();
-      throw new Error(`Firestore LIST failed (${resp.status}): ${err}`);
-    }
+    const resp = await withRetry(() => firestoreFetch('LIST', url));
     const data = await resp.json();
     if (data.documents) {
       for (const doc of data.documents) {
@@ -166,6 +227,7 @@ export async function researchGetAll(storeName, options = {}) {
 
 export async function researchGetByIndex(storeName, indexField, value) {
   const config = await getFirestoreConfig();
+  await ensureConfigured(config);
   const base = firestoreBasePath(config.projectId);
   const url = `${base}:runQuery?key=${config.apiKey}`;
 
@@ -182,15 +244,13 @@ export async function researchGetByIndex(storeName, indexField, value) {
     }
   };
 
-  const resp = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  });
-  if (!resp.ok) {
-    const err = await resp.text();
-    throw new Error(`Firestore QUERY failed (${resp.status}): ${err}`);
-  }
+  const resp = await withRetry(() =>
+    firestoreFetch('QUERY', url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    })
+  );
   const results = await resp.json();
   return (results || [])
     .filter(r => r.document && r.document.fields)
@@ -199,6 +259,7 @@ export async function researchGetByIndex(storeName, indexField, value) {
 
 export async function researchClearStore(storeName) {
   const config = await getFirestoreConfig();
+  await ensureConfigured(config);
   const base = firestoreBasePath(config.projectId);
 
   let pageToken = '';
