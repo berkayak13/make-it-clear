@@ -2,7 +2,10 @@ import { callOpenAIJson, OPENAI_CONFIG } from '../utils/openai-client.js';
 
 const MAX_RAW_TEXT_CHARS = 120000;
 const MAX_EXTRACTED_NOTES_CHARS = 30000;
-const TEXT_SEGMENT_CHARS = 9000;
+// Smaller segments keep each (exhaustive) subagent call fast enough to finish
+// well under the per-call timeout — large segments + a reasoning model + a big
+// exhaustive output were blowing the timeout on dense pages (e.g. HN threads).
+const TEXT_SEGMENT_CHARS = 6000;
 const IMAGE_BATCH_SIZE = 2;
 const TEXT_CONCURRENCY = 4;
 const IMAGE_CONCURRENCY = 2;
@@ -14,7 +17,7 @@ const IMAGE_CONCURRENCY = 2;
 //     "unresponsive" kill tolerance.
 //   - maxTokens: soft ceiling on estimated total subagent token spend (cost).
 //   - maxStorageBytes: guards the ~10MB chrome.storage.local quota.
-const DEFAULT_BUDGET_WALL_CLOCK_MS = 100000;
+const DEFAULT_BUDGET_WALL_CLOCK_MS = 220000;
 const DEFAULT_BUDGET_MAX_TOKENS = 350000;
 const DEFAULT_BUDGET_MAX_STORAGE_BYTES = 8_500_000;
 const CHARS_PER_TOKEN = 4; // rough chars→tokens estimate for budgeting
@@ -69,6 +72,29 @@ function recordSpend(budget, tokens) {
   if (budget) budget.spentTokens += Math.max(0, Number(tokens) || 0);
 }
 
+// Transient failures (timeouts, rate limits, 5xx, network blips) are worth one
+// retry — a single slow/flaky call should not lose a whole segment's content.
+function isTransientError(error) {
+  const message = errorMessage(error).toLowerCase();
+  return /timed out|timeout|rate limit|429|temporarily|server error|bad gateway|gateway timeout|\b5\d\d\b|network|fetch failed|connection|socket|econn/.test(message);
+}
+
+async function callWithRetry(fn, { retries = 1, budget } = {}) {
+  let lastError;
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      return await fn(attempt);
+    } catch (error) {
+      lastError = error;
+      // Stop if out of retries, the error is not transient, or the wall-clock
+      // budget is already spent (don't burn the budget retrying a dead page).
+      if (attempt >= retries || !isTransientError(error)) throw error;
+      if (budget && budgetElapsed(budget) >= budget.wallClockMs) throw error;
+    }
+  }
+  throw lastError;
+}
+
 const FACT_KINDS = new Set(['FACT', 'CLAIM', 'QUOTE', 'FIGURE', 'COUNTER', 'VISUAL']);
 const FACT_SOURCES = new Set(['text', 'image', 'mixed']);
 
@@ -83,9 +109,9 @@ function boundedTimeout(maxMs) {
   return Number.isFinite(configured) && configured > 0 ? Math.min(configured, maxMs) : maxMs;
 }
 
-const TEXT_STAGE_TIMEOUT_MS = boundedTimeout(60000);
-const IMAGE_STAGE_TIMEOUT_MS = boundedTimeout(60000);
-const ORCHESTRATOR_TIMEOUT_MS = boundedTimeout(110000);
+const TEXT_STAGE_TIMEOUT_MS = boundedTimeout(95000);
+const IMAGE_STAGE_TIMEOUT_MS = boundedTimeout(95000);
+const ORCHESTRATOR_TIMEOUT_MS = boundedTimeout(120000);
 
 const factSchema = {
   type: 'object',
@@ -629,7 +655,7 @@ async function runTextSubagents({ segments, pageMetadata, visible, budget, onPro
     });
     try {
       if (segments.length > 1) onProgress?.(`Extracting text segment ${index + 1}/${segments.length}...`);
-      const result = await callOpenAIJson({
+      const result = await callWithRetry(() => callOpenAIJson({
         schema: extractionStageSchema,
         schemaName: 'page_text_segment',
         prompt,
@@ -637,7 +663,7 @@ async function runTextSubagents({ segments, pageMetadata, visible, budget, onPro
         maxOutputTokens: MAX_TEXT_OUTPUT_TOKENS,
         timeoutMs: TEXT_STAGE_TIMEOUT_MS,
         reasoningEffort: EXTRACTION_REASONING_EFFORT,
-      });
+      }), { retries: 1, budget });
       logExtraction(`${agentId} response`, {
         agentId,
         sourceType: 'text',
@@ -752,7 +778,7 @@ async function runVisionSubagents({ batches, pageMetadata, visible, budget, onPr
       prompt,
     });
     try {
-      const result = await callOpenAIJson({
+      const result = await callWithRetry(() => callOpenAIJson({
         schema: visionStageSchema,
         schemaName: 'page_image_curation',
         prompt,
@@ -762,7 +788,7 @@ async function runVisionSubagents({ batches, pageMetadata, visible, budget, onPr
         maxOutputTokens: MAX_IMAGE_OUTPUT_TOKENS,
         timeoutMs: IMAGE_STAGE_TIMEOUT_MS,
         reasoningEffort: EXTRACTION_REASONING_EFFORT,
-      });
+      }), { retries: 1, budget });
       const verdicts = normalizeVisionVerdicts(result.json?.images || [], images);
       logExtraction(`${agentId} response`, {
         agentId,
