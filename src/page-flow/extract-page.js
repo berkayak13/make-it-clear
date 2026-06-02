@@ -3,23 +3,68 @@ import { callOpenAIJson, OPENAI_CONFIG } from '../utils/openai-client.js';
 const MAX_RAW_TEXT_CHARS = 120000;
 const MAX_EXTRACTED_NOTES_CHARS = 30000;
 const TEXT_SEGMENT_CHARS = 9000;
-const MAX_TEXT_SEGMENTS = 48;
-const BASE_DIRECT_IMAGES = 8;
-const MAX_DIRECT_IMAGES = 24;
-const CHARS_PER_EXTRA_IMAGE = 45000;
 const IMAGE_BATCH_SIZE = 2;
 const TEXT_CONCURRENCY = 4;
 const IMAGE_CONCURRENCY = 2;
+
+// Coverage is bounded by a per-run BUDGET, never by a fixed segment/image count.
+// The number of LLM/VLM calls scales with the page; dispatch stops only when the
+// run would exceed one of these ceilings, and every skip is logged to warnings[].
+//   - wallClockMs: hard master — kept under the MV3 service-worker
+//     "unresponsive" kill tolerance.
+//   - maxTokens: soft ceiling on estimated total subagent token spend (cost).
+//   - maxStorageBytes: guards the ~10MB chrome.storage.local quota.
+const DEFAULT_BUDGET_WALL_CLOCK_MS = 100000;
+const DEFAULT_BUDGET_MAX_TOKENS = 220000;
+const DEFAULT_BUDGET_MAX_STORAGE_BYTES = 8_500_000;
+const CHARS_PER_TOKEN = 4; // rough chars→tokens estimate for budgeting
+const VISION_TOKENS_PER_IMAGE = 1200; // est. cost of one low-detail image (in+out)
+
 // Reasoning models (e.g. gpt-5.5) count reasoning tokens against this budget,
 // so it must leave room for the chain of thought plus the JSON output.
-// Caps are generous because extraction now aims for comprehensive coverage —
-// the fact set is the sole content source for renarration.
-const MAX_TEXT_OUTPUT_TOKENS = 9000;
-const MAX_IMAGE_OUTPUT_TOKENS = 7000;
-const MAX_ORCHESTRATOR_OUTPUT_TOKENS = 16000;
+const MAX_TEXT_OUTPUT_TOKENS = 5000;
+const MAX_IMAGE_OUTPUT_TOKENS = 3500;
+const MAX_ORCHESTRATOR_OUTPUT_TOKENS = 10000;
+// When candidate facts would overflow one orchestrator call, merge them in
+// batches up a tree until the set fits — never silently drop the overflow.
+const REDUCE_FACT_BATCH = 40;
 // Extraction is structured fact-finding, not open-ended problem solving — low
 // reasoning effort keeps the subagents fast and cheap without losing accuracy.
 const EXTRACTION_REASONING_EFFORT = 'low';
+
+// ── Budget helpers ────────────────────────────────────────────────────────
+// A budget is the SOLE coverage ceiling. canDispatch() is checked before each
+// subagent call; recordSpend() reserves the projected cost so concurrent
+// workers see it. Wall-clock is a hard stop (MV3 kill risk); tokens are soft.
+function buildBudget(overrides = {}) {
+  return {
+    wallClockMs: boundedTimeout(DEFAULT_BUDGET_WALL_CLOCK_MS),
+    maxTokens: DEFAULT_BUDGET_MAX_TOKENS,
+    maxStorageBytes: DEFAULT_BUDGET_MAX_STORAGE_BYTES,
+    startedAt: Date.now(),
+    spentTokens: 0,
+    ...overrides,
+  };
+}
+
+function estimateTokens(chars) {
+  return Math.ceil(Math.max(0, Number(chars) || 0) / CHARS_PER_TOKEN);
+}
+
+function budgetElapsed(budget) {
+  return Date.now() - (budget?.startedAt || Date.now());
+}
+
+function canDispatch(budget, projectedTokens) {
+  if (!budget) return true;
+  if (budgetElapsed(budget) >= budget.wallClockMs) return false;
+  if (budget.spentTokens + Math.max(0, projectedTokens || 0) > budget.maxTokens) return false;
+  return true;
+}
+
+function recordSpend(budget, tokens) {
+  if (budget) budget.spentTokens += Math.max(0, Number(tokens) || 0);
+}
 
 const FACT_KINDS = new Set(['FACT', 'CLAIM', 'QUOTE', 'FIGURE', 'COUNTER', 'VISUAL']);
 const FACT_SOURCES = new Set(['text', 'image', 'mixed']);
@@ -86,6 +131,41 @@ const finalExtractionSchema = {
   },
 };
 
+// Vision is a CURATOR + CAPTIONER, decoupled from fact extraction. Each image
+// gets a keep/drop verdict and a caption; `fact` is an OPTIONAL bonus carried as
+// an empty string when absent (OpenAI strict mode requires every key present).
+const visionImageVerdictSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['imageId', 'keep', 'reason', 'caption', 'fact'],
+  properties: {
+    imageId: { type: 'string' },
+    keep: { type: 'boolean' },
+    reason: { type: 'string' },
+    caption: { type: 'string' },
+    fact: { type: 'string' },
+  },
+};
+
+const visionStageSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['images'],
+  properties: {
+    images: { type: 'array', items: visionImageVerdictSchema },
+  },
+};
+
+// Merge-only schema for the hierarchical fact reducer.
+const factMergeSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['facts'],
+  properties: {
+    facts: { type: 'array', items: factSchema },
+  },
+};
+
 function trimText(text, maxChars = Number.POSITIVE_INFINITY) {
   const value = String(text || '').replace(/\n{3,}/g, '\n\n').trim();
   return value.length > maxChars ? value.slice(0, maxChars) + '\n...(truncated)' : value;
@@ -148,6 +228,7 @@ function normalizeFact(raw, index, fallback = {}) {
   const rawImageIds = typeof raw === 'object' && Array.isArray(raw.imageIds) ? raw.imageIds : fallback.imageIds;
   const imageIds = normalizeIdList(rawImageIds);
   const source = FACT_SOURCES.has(rawSource) ? rawSource : (fallback.source || (imageIds.length ? 'image' : 'text'));
+  const rawProvenance = typeof raw === 'object' ? String(raw.provenance || '').toLowerCase() : '';
 
   return {
     id: String(typeof raw === 'object' && raw.id ? raw.id : `fact-${index + 1}`),
@@ -158,6 +239,9 @@ function normalizeFact(raw, index, fallback = {}) {
     source,
     sectionIds: normalizeIdList(rawSectionIds),
     imageIds,
+    // Provenance is code-assigned (not LLM-generated): extraction is always
+    // page-faithful. A future enrichment stage may set 'enrichment'.
+    provenance: rawProvenance === 'enrichment' ? 'enrichment' : (fallback.provenance || 'page'),
   };
 }
 
@@ -221,12 +305,12 @@ function plannedTextCharCount(sections, pageText) {
   return sectionChars || String(pageText || '').length;
 }
 
-function plannedImageLimit(textChars) {
-  const extraImages = Math.floor(Math.max(0, textChars - TEXT_SEGMENT_CHARS) / CHARS_PER_EXTRA_IMAGE) * 2;
-  return Math.min(MAX_DIRECT_IMAGES, BASE_DIRECT_IMAGES + extraImages);
-}
-
-function selectWebsiteImages(images = [], limit = BASE_DIRECT_IMAGES) {
+// Returns ALL usable candidate images (deduped by URL), ordered by score so the
+// vision step evaluates the strongest first — if the budget runs out mid-page,
+// the lowest-signal images are the ones left unevaluated. No fixed count cap:
+// the run budget decides how many reach the VLM. Render order is restored to
+// page order downstream.
+function selectWebsiteImages(images = []) {
   const seen = new Set();
   const selected = [];
   for (const image of images) {
@@ -252,10 +336,7 @@ function selectWebsiteImages(images = [], limit = BASE_DIRECT_IMAGES) {
     });
   }
 
-  return selected
-    .sort((a, b) => b.score - a.score || a.index - b.index)
-    .slice(0, limit)
-    .sort((a, b) => a.index - b.index);
+  return selected.sort((a, b) => b.score - a.score || a.index - b.index);
 }
 
 function filterSectionImageIds(sections, images) {
@@ -326,12 +407,6 @@ function planTextSegments(sections, images, pageText) {
   return segments;
 }
 
-function limitTextSegments(segments, warnings) {
-  if (segments.length <= MAX_TEXT_SEGMENTS) return segments;
-  warnings.push(`Text content produced ${segments.length} segments; extraction limited to ${MAX_TEXT_SEGMENTS} text subagents.`);
-  return segments.slice(0, MAX_TEXT_SEGMENTS);
-}
-
 function chunkArray(items, size) {
   const chunks = [];
   for (let i = 0; i < items.length; i += size) chunks.push(items.slice(i, i + size));
@@ -369,12 +444,12 @@ function formatImageMetadata(images) {
 
 function buildTextPrompt({ segment, index, total, pageMetadata, visible }) {
   return [
-    'Extract structured page knowledge from this visible DOM text segment for a renarration system.',
+    'Extract the key facts from this page-text segment for a renarration system.',
     'Use only this segment. Do not infer facts from missing segments.',
-    'Be exhaustive: capture every substantive piece of content in this segment — all facts, claims, quotes, statistics and figures, named entities in context, definitions, examples, caveats, and supporting detail. This is a complete-coverage extraction, not a highlight reel.',
-    'Emit each point as its own atomic item. Do not summarize, compress, or merge multiple points into one fact — nothing substantive should be lost.',
-    'Omit only true non-content: navigation, ads, cookie banners, repeated boilerplate, and unrelated sidebar text.',
-    'Link each item to the provided section IDs and relevant image IDs when text refers to a nearby image.',
+    'Focus on the page\'s main topic. Be selective, not exhaustive — prefer fewer high-quality facts over many shallow ones. Combine closely related points into a single fact rather than splitting them.',
+    'Hard-skip anything that is not part of the main article body: site navigation, breadcrumbs, menus, search bars, login/signup prompts, newsletter signups, cookie/GDPR banners, ads, sponsored content, social-share buttons, related-article or "recommended for you" lists, comment threads, author bios, footer text, legal/copyright notices, "trending now" widgets, and any sidebar promo.',
+    'If the segment is entirely boilerplate or chrome (nav, footer, ad slot, etc.), return an empty facts array rather than fabricating filler.',
+    'Link each fact to the provided section IDs. Only attach an image ID when the surrounding text directly discusses that specific image.',
     'Use FACT for established facts, CLAIM for author/source claims, QUOTE for direct quoted material, FIGURE for numbers/statistics, COUNTER for caveats or opposing points, and VISUAL only when text describes a visual element.',
     '',
     `URL: ${pageMetadata.url || visible.url || ''}`,
@@ -391,10 +466,15 @@ function buildTextPrompt({ segment, index, total, pageMetadata, visible }) {
 
 function buildVisionPrompt({ batch, index, total, pageMetadata, visible }) {
   return [
-    'Extract structured visual knowledge from these direct website images for a renarration system.',
-    'Use image pixels plus metadata. Ignore decorative, branding, ad, social, and layout-only images.',
-    'Be thorough: capture all meaningful visual content — every figure, chart, screenshot, diagram, labeled element, data point, person, place, object, piece of evidence, and caption-image relationship that contributes to page meaning.',
-    'Every visual fact must include the relevant imageIds. Include sectionIds when metadata supplies them.',
+    'You are curating webpage images for a clean reading / static-site rebuild.',
+    'For EACH image provided below, return exactly one verdict object keyed by its given image ID.',
+    'Decide keep vs drop by STRICT relevance to the page\'s MAIN topic (title + metadata above).',
+    'Set keep=true ONLY for images that directly illustrate the subject: figures, charts, diagrams, screenshots, data visualizations, photos of the actual person/place/thing/event, or labeled illustrations.',
+    'Set keep=false for advertisements, sponsored content, logos, brand marks, social-share icons, navigation controls, author or profile avatars, decorative patterns, generic stock-photo filler, unrelated illustrations, or anything off-topic.',
+    'caption: a brief one-sentence factual description of what the image actually shows. Required for kept images.',
+    'reason: a few words on why kept or dropped (e.g. "revenue chart", "ad banner", "author avatar").',
+    'fact: OPTIONAL bonus. If the image conveys a concrete fact supporting the topic (e.g. a value read off a chart), put it here; otherwise return an empty string "". Never invent a fact to justify keeping an image.',
+    'Return one entry per input image, using the exact provided image IDs. Do not invent images that were not provided.',
     '',
     `URL: ${pageMetadata.url || visible.url || ''}`,
     `Title: ${pageMetadata.title || visible.title || ''}`,
@@ -404,7 +484,24 @@ function buildVisionPrompt({ batch, index, total, pageMetadata, visible }) {
   ].join('\n');
 }
 
-function buildOrchestratorPrompt({ stageResults, sections, images, pageMetadata, visible }) {
+function normalizeVisionVerdicts(rawVerdicts, batchImages) {
+  const validIds = new Set((batchImages || []).map((image) => image.id));
+  const byId = new Map();
+  for (const raw of rawVerdicts || []) {
+    const imageId = String(raw?.imageId || '').trim();
+    if (!imageId || !validIds.has(imageId) || byId.has(imageId)) continue;
+    byId.set(imageId, {
+      imageId,
+      keep: raw?.keep === true,
+      reason: String(raw?.reason || '').trim(),
+      caption: String(raw?.caption || '').trim(),
+      fact: String(raw?.fact || '').trim(),
+    });
+  }
+  return Array.from(byId.values());
+}
+
+function buildOrchestratorPrompt({ facts, meta, sections, images, pageMetadata, visible }) {
   const sectionOutline = sections.slice(0, 40).map((section) => ({
     id: section.id,
     index: section.index,
@@ -420,28 +517,21 @@ function buildOrchestratorPrompt({ stageResults, sections, images, pageMetadata,
     caption: image.caption,
     nearbyText: image.nearbyText,
   }));
-  const candidates = stageResults.map((result) => ({
-    sourceAgent: result.agentId,
-    sourceType: result.sourceType,
-    title: result.json.title,
-    topic: result.json.topic,
-    summary: result.json.summary,
-    facts: result.json.facts,
-    entities: result.json.entities,
-    keyTerms: result.json.keyTerms,
-    warnings: result.json.warnings,
-  }));
 
   return [
     'You are the final extraction orchestrator for a webpage renarration system.',
-    'Merge and deduplicate candidate facts from text and vision extraction subagents.',
-    'Retain every distinct substantive fact, claim, quote, figure, and detail — your job is consolidation, not curation. Do not drop content for being minor; only collapse genuine duplicates and near-duplicates.',
-    'When two candidates overlap, merge them into the most complete single fact rather than discarding either. Preserve uncertainty by lowering confidence instead of inventing details.',
-    'Link facts to sectionIds and imageIds when supported. Use source "mixed" when both text and image evidence support a fact.',
-    'Produce compactText as dense plain text notes suitable for a later renarration prompt. Do not use Markdown tables or HTML.',
+    'Merge the candidate facts (already extracted from page text and images) into a curated knowledge set for the page\'s MAIN TOPIC.',
+    'Curate aggressively. Drop facts that came from page chrome: navigation, breadcrumbs, search bars, login/signup prompts, cookie/GDPR banners, ads or sponsored slots, social-share widgets, "recommended for you" / "related" / "trending" lists, comments, author bios, newsletter signups, footer text, legal/copyright notices, site-section promos.',
+    'When facts overlap, merge them into the most complete single fact rather than emitting both. Preserve uncertainty by lowering confidence instead of inventing details.',
+    'Prefer a focused set of high-signal facts over a long list of shallow ones. When in doubt about whether a fact supports the main topic, drop it.',
+    'Stay page-faithful: do not add related or outside information that is not in the candidate facts.',
+    'Link kept facts to sectionIds and imageIds when supported by the evidence. Use source "mixed" only when both text and image evidence support the same fact.',
+    'Produce compactText as dense plain-text notes suitable for a later renarration prompt — only the curated facts, no boilerplate. No Markdown tables, no HTML.',
     '',
     `URL: ${pageMetadata.url || visible.url || ''}`,
     `Title: ${pageMetadata.title || visible.title || ''}`,
+    meta?.topics?.length ? `Candidate topics: ${meta.topics.join(' | ')}` : '',
+    meta?.summaries?.length ? `Candidate summaries: ${meta.summaries.join(' | ')}` : '',
     '',
     'Page sections JSON:',
     JSON.stringify(sectionOutline),
@@ -449,16 +539,83 @@ function buildOrchestratorPrompt({ stageResults, sections, images, pageMetadata,
     'Selected image metadata JSON:',
     JSON.stringify(imageOutline),
     '',
-    'Subagent outputs JSON:',
-    JSON.stringify(candidates),
+    'Candidate facts JSON:',
+    JSON.stringify(facts),
+  ].filter((line) => line !== '').join('\n');
+}
+
+function buildFactMergePrompt({ facts, pageMetadata, visible }) {
+  return [
+    'Merge and deduplicate this batch of candidate facts from a webpage for the page\'s MAIN TOPIC.',
+    'Collapse overlapping facts into the most complete single fact; drop page-chrome facts (nav, ads, cookie banners, related/trending lists, comments, footers).',
+    'Stay page-faithful: do not invent or add outside information. Preserve sectionIds and imageIds. Keep the strongest source.',
+    '',
+    `URL: ${pageMetadata.url || visible.url || ''}`,
+    `Title: ${pageMetadata.title || visible.title || ''}`,
+    '',
+    'Candidate facts JSON:',
+    JSON.stringify(facts),
   ].join('\n');
 }
 
-async function runTextSubagents({ segments, pageMetadata, visible, onProgress }) {
+function estimateFactsTokens(facts) {
+  return estimateTokens(JSON.stringify(facts || []).length);
+}
+
+async function mergeFactBatch({ facts, pageMetadata, visible }) {
+  const prompt = buildFactMergePrompt({ facts, pageMetadata, visible });
+  const result = await callOpenAIJson({
+    schema: factMergeSchema,
+    schemaName: 'page_fact_merge_batch',
+    prompt,
+    model: OPENAI_CONFIG.textModel,
+    maxOutputTokens: MAX_ORCHESTRATOR_OUTPUT_TOKENS,
+    timeoutMs: ORCHESTRATOR_TIMEOUT_MS,
+    reasoningEffort: EXTRACTION_REASONING_EFFORT,
+  });
+  return normalizeFacts(result.json?.facts || []);
+}
+
+// Hierarchical reduce: when the candidate fact set would overflow a single
+// orchestrator call's output budget, merge it in batches up a tree until it
+// fits — so no distinct fact is silently dropped at the token ceiling. Batch
+// failures fall back to the (deduped) input for that batch and are warned.
+async function reduceFactsHierarchically({ facts, pageMetadata, visible, warnings, onProgress }) {
+  const threshold = Math.floor(MAX_ORCHESTRATOR_OUTPUT_TOKENS * 0.6);
+  let current = normalizeFacts(facts);
+  let round = 0;
+  while (estimateFactsTokens(current) > threshold && current.length > REDUCE_FACT_BATCH && round < 4) {
+    round += 1;
+    const batches = chunkArray(current, REDUCE_FACT_BATCH);
+    onProgress?.(`Reducing ${plural(current.length, 'fact')} in ${plural(batches.length, 'batch', 'batches')}...`);
+    const merged = await mapWithConcurrency(batches, TEXT_CONCURRENCY, async (batch, index) => {
+      try {
+        return await mergeFactBatch({ facts: batch, pageMetadata, visible });
+      } catch (error) {
+        warnings.push(`Fact-merge batch ${round}.${index + 1} failed: ${errorMessage(error)}`);
+        return batch; // keep the un-merged (but deduped) batch rather than lose it
+      }
+    });
+    const next = normalizeFacts(merged.flat());
+    if (next.length >= current.length) break; // no further reduction possible
+    current = next;
+  }
+  return current;
+}
+
+async function runTextSubagents({ segments, pageMetadata, visible, budget, onProgress }) {
   if (!segments.length) return [];
   onProgress?.(`Extracting text knowledge from ${plural(segments.length, 'segment')}...`);
   return mapWithConcurrency(segments, TEXT_CONCURRENCY, async (segment, index) => {
     const agentId = `text-${index + 1}`;
+    // Budget gate: reserve the projected cost before dispatching so concurrent
+    // workers see the reservation. Skipped segments are reported, never silent.
+    const projected = estimateTokens(String(segment.text || '').length) + MAX_TEXT_OUTPUT_TOKENS;
+    if (!canDispatch(budget, projected)) {
+      logExtraction(`${agentId} skipped (budget)`, { agentId, sourceType: 'text', sectionIds: segment.sectionIds });
+      return { ok: true, skipped: true, agentId, sourceType: 'text' };
+    }
+    recordSpend(budget, projected);
     const prompt = buildTextPrompt({ segment, index, total: segments.length, pageMetadata, visible });
     logExtraction(`${agentId} request`, {
       agentId,
@@ -546,22 +703,28 @@ async function fetchImageAsDataUrl(url) {
   }
 }
 
-async function runVisionSubagents({ batches, pageMetadata, visible, onProgress }) {
+async function runVisionSubagents({ batches, pageMetadata, visible, budget, onProgress }) {
   if (!batches.length) return [];
-  onProgress?.(`Extracting visual knowledge from ${plural(batches.flat().length, 'image')}...`);
+  onProgress?.(`Curating ${plural(batches.flat().length, 'image')}...`);
   return mapWithConcurrency(batches, IMAGE_CONCURRENCY, async (batch, index) => {
     const agentId = `vision-${index + 1}`;
+    const batchImageIds = batch.map((image) => image.id);
+
+    // Budget gate: reserve the projected cost before dispatching. Strongest
+    // images batch first (selectWebsiteImages sorts by score), so any
+    // budget-skipped images are the lowest-signal ones — and they are reported.
+    const projected = batch.length * VISION_TOKENS_PER_IMAGE + MAX_IMAGE_OUTPUT_TOKENS;
+    if (!canDispatch(budget, projected)) {
+      logExtraction(`${agentId} skipped (budget)`, { agentId, sourceType: 'image', imageIds: batchImageIds });
+      return { ok: true, skipped: true, agentId, sourceType: 'image', imageIds: batchImageIds, verdicts: [] };
+    }
+    recordSpend(budget, projected);
+
     // Embed each image as a data URI so OpenAI never has to download the URL.
     const images = (await Promise.all(batch.map(async (image) => {
       const dataUrl = await fetchImageAsDataUrl(image.url);
       return dataUrl ? { ...image, detail: 'low', dataUrl } : null;
     }))).filter(Boolean);
-
-    const fallback = {
-      sectionIds: normalizeIdList(images.flatMap((image) => image.sectionIds || [])),
-      imageIds: normalizeIdList(images.map((image) => image.id)),
-      source: 'image',
-    };
 
     // A single dead URL would fail the whole request — if none of the batch's
     // images could be fetched, skip the call instead of sending dead URLs.
@@ -572,7 +735,7 @@ async function runVisionSubagents({ batches, pageMetadata, visible, onProgress }
         reason: 'no fetchable images in batch',
         requestedImageCount: batch.length,
       });
-      return { ok: true, agentId, sourceType: 'image', fallback, json: {} };
+      return { ok: true, agentId, sourceType: 'image', imageIds: batchImageIds, verdicts: [], unfetchable: true };
     }
 
     const prompt = buildVisionPrompt({ batch: images, index, total: batches.length, pageMetadata, visible });
@@ -589,8 +752,8 @@ async function runVisionSubagents({ batches, pageMetadata, visible, onProgress }
     });
     try {
       const result = await callOpenAIJson({
-        schema: extractionStageSchema,
-        schemaName: 'page_image_batch',
+        schema: visionStageSchema,
+        schemaName: 'page_image_curation',
         prompt,
         images,
         imageDetail: 'low',
@@ -599,33 +762,126 @@ async function runVisionSubagents({ batches, pageMetadata, visible, onProgress }
         timeoutMs: IMAGE_STAGE_TIMEOUT_MS,
         reasoningEffort: EXTRACTION_REASONING_EFFORT,
       });
+      const verdicts = normalizeVisionVerdicts(result.json?.images || [], images);
       logExtraction(`${agentId} response`, {
         agentId,
         sourceType: 'image',
-        json: result.json || {},
+        verdicts,
         response: result.response,
       });
-      return {
-        ok: true,
-        agentId,
-        sourceType: 'image',
-        fallback,
-        json: result.json || {},
-      };
+      return { ok: true, agentId, sourceType: 'image', imageIds: batchImageIds, verdicts };
     } catch (error) {
       logExtraction(`${agentId} error`, {
         agentId,
         sourceType: 'image',
         error: errorMessage(error),
       });
-      return {
-        ok: false,
-        agentId,
-        sourceType: 'image',
-        error: errorMessage(error),
-      };
+      return { ok: false, agentId, sourceType: 'image', imageIds: batchImageIds, verdicts: [], error: errorMessage(error) };
     }
   });
+}
+
+// Converts vision verdicts into (a) a per-image curation map keyed by imageId
+// and (b) image-sourced facts from the optional `fact` field. Retention is the
+// VLM's keep flag — decoupled from whether a fact was produced.
+function collectImageCuration(visionResults) {
+  const curation = new Map();
+  const facts = [];
+  for (const result of visionResults || []) {
+    for (const verdict of result.verdicts || []) {
+      if (!verdict?.imageId || curation.has(verdict.imageId)) continue;
+      curation.set(verdict.imageId, {
+        keep: verdict.keep === true,
+        reason: verdict.reason || '',
+        caption: verdict.caption || '',
+      });
+      if (verdict.keep === true && verdict.fact) {
+        facts.push({
+          kind: 'VISUAL',
+          text: verdict.fact,
+          evidence: verdict.caption || '',
+          source: 'image',
+          imageIds: [verdict.imageId],
+          provenance: 'page',
+        });
+      }
+    }
+  }
+  return { curation, facts: normalizeFacts(facts) };
+}
+
+// Collapses a URL to a stable identity, ignoring the variants that make one
+// photo look like many: query strings, responsive size tokens, retina markers,
+// and WordPress's -scaled suffix.
+function curatedImageDedupeKey(image) {
+  const url = String(image?.url || '').trim();
+  let path = url.toLowerCase().split(/[?#]/)[0];
+  try {
+    const parsed = new URL(url);
+    path = `${parsed.origin}${parsed.pathname}`.toLowerCase();
+  } catch {
+    /* keep the query-stripped raw string */
+  }
+  return path
+    .replace(/[-_]\d{2,4}x\d{2,4}(?=(\.[a-z0-9]+)?$)/, '')
+    .replace(/@\d+x(?=(\.[a-z0-9]+)?$)/, '')
+    .replace(/-scaled(?=(\.[a-z0-9]+)?$)/, '');
+}
+
+function altTokenSet(text) {
+  return new Set(String(text || '').toLowerCase().split(/[^a-z0-9]+/).filter((token) => token.length > 2));
+}
+
+function jaccardOverlap(a, b) {
+  if (!a.size || !b.size) return 0;
+  let intersection = 0;
+  for (const token of a) if (b.has(token)) intersection += 1;
+  return intersection / (a.size + b.size - intersection);
+}
+
+// Applies vision verdicts to the candidate images: keeps only the relevant ones
+// (keep === true), attaches the VLM caption, dedupes so each photo renders once,
+// and logs (never silently drops) both budget-skipped and possible-duplicate
+// images. Returns kept images in page (reading) order.
+function applyCurationToImages(candidateImages, curation, warnings) {
+  let unevaluated = 0;
+  const kept = [];
+  const seenUrl = new Set();
+  const seenAlt = new Set();
+  for (const image of candidateImages) {
+    const verdict = curation.get(image.id);
+    if (!verdict) { unevaluated += 1; continue; } // never reached the VLM (budget / unreachable)
+    if (!verdict.keep) continue; // dropped: not relevant to the topic
+    const enriched = {
+      ...image,
+      keep: true,
+      keepReason: verdict.reason || '',
+      caption: verdict.caption || image.caption || '',
+    };
+    const urlKey = curatedImageDedupeKey(enriched);
+    const altKey = String(enriched.alt || '').trim().toLowerCase();
+    if (urlKey && seenUrl.has(urlKey)) continue; // same photo at a size/retina/scaled variant
+    if (altKey && seenAlt.has(altKey)) continue; // identical alt text => same picture
+    if (urlKey) seenUrl.add(urlKey);
+    if (altKey) seenAlt.add(altKey);
+    kept.push(enriched);
+  }
+  if (unevaluated) {
+    warnings.push(`${unevaluated} image(s) were not curated (budget reached or unreachable) and were left out.`);
+  }
+  // Residual-duplicate detection: images that survived URL/alt dedup but whose
+  // alt text overlaps heavily are probably the same photo at a different URL.
+  // URL+alt heuristics cannot confirm this, so we LOG it as a known limitation
+  // rather than silently rendering both.
+  const tokenSets = kept.map((image) => altTokenSet(image.alt));
+  for (let i = 0; i < kept.length; i += 1) {
+    for (let j = i + 1; j < kept.length; j += 1) {
+      if (tokenSets[i].size >= 3 && tokenSets[j].size >= 3 && jaccardOverlap(tokenSets[i], tokenSets[j]) >= 0.8) {
+        warnings.push(`Possible duplicate images kept (${kept[i].id}, ${kept[j].id}); heuristic dedup cannot confirm (known limitation).`);
+      }
+    }
+  }
+  return kept.sort((a, b) => a.index - b.index);
 }
 
 function normalizeStageResult(result) {
@@ -661,39 +917,40 @@ function compactTextFromKnowledge({ title, topic, summary, facts }) {
   return trimText(lines.join('\n'), MAX_EXTRACTED_NOTES_CHARS);
 }
 
-function localAssembly({ stageResults, pageMetadata, visible, warnings }) {
-  const facts = normalizeFacts(stageResults.flatMap((result) => result.json.facts || []));
-  const title = firstString(...stageResults.map((result) => result.json.title), pageMetadata.title, visible.title);
-  const topic = firstString(...stageResults.map((result) => result.json.topic));
-  const summary = uniqueStrings(stageResults.map((result) => result.json.summary), 6).join('\n');
+function localAssembly({ facts, meta = {}, pageMetadata, visible, warnings }) {
+  const normFacts = normalizeFacts(facts);
+  const title = firstString(...(meta.titles || []), pageMetadata.title, visible.title);
+  const topic = firstString(...(meta.topics || []));
+  const summary = uniqueStrings(meta.summaries || [], 6).join('\n');
   const knowledge = {
     title,
     topic,
     summary,
-    facts,
-    entities: uniqueStrings(stageResults.flatMap((result) => result.json.entities || []), 80),
-    keyTerms: uniqueStrings(stageResults.flatMap((result) => result.json.keyTerms || []), 80),
+    facts: normFacts,
+    entities: uniqueStrings(meta.entities || [], 80),
+    keyTerms: uniqueStrings(meta.keyTerms || [], 80),
   };
   return {
     ...knowledge,
     compactText: compactTextFromKnowledge(knowledge),
-    warnings: uniqueStrings([
-      ...warnings,
-      ...stageResults.flatMap((result) => result.json.warnings || []),
-    ], 40),
+    warnings: uniqueStrings([...warnings, ...(meta.warnings || [])], 40),
   };
 }
 
-async function runFinalOrchestrator({ stageResults, sections, images, pageMetadata, visible, onProgress }) {
+async function runFinalOrchestrator({ facts, meta = {}, sections, images, pageMetadata, visible, warnings, onProgress }) {
   onProgress?.('Merging text and visual knowledge...');
-  const prompt = buildOrchestratorPrompt({ stageResults, sections, images, pageMetadata, visible });
+  // Reduce first so the single merge call below can never overflow its output
+  // budget and silently drop facts.
+  const reducedFacts = await reduceFactsHierarchically({ facts, pageMetadata, visible, warnings, onProgress });
+  const prompt = buildOrchestratorPrompt({ facts: reducedFacts, meta, sections, images, pageMetadata, visible });
   logExtraction('orchestrator request', {
     model: OPENAI_CONFIG.textModel,
     maxOutputTokens: MAX_ORCHESTRATOR_OUTPUT_TOKENS,
     timeoutMs: ORCHESTRATOR_TIMEOUT_MS,
+    candidateFactCount: facts.length,
+    reducedFactCount: reducedFacts.length,
     sections,
     images,
-    stageResults,
     prompt,
   });
   const result = await callOpenAIJson({
@@ -710,14 +967,14 @@ async function runFinalOrchestrator({ stageResults, sections, images, pageMetada
     response: result.response,
   });
   const json = result.json || {};
-  const facts = normalizeFacts(json.facts || []);
+  const outFacts = normalizeFacts(json.facts || []);
   const knowledge = {
-    title: firstString(json.title, pageMetadata.title, visible.title),
-    topic: String(json.topic || '').trim(),
-    summary: String(json.summary || '').trim(),
-    facts,
-    entities: uniqueStrings(json.entities || [], 80),
-    keyTerms: uniqueStrings(json.keyTerms || [], 80),
+    title: firstString(json.title, ...(meta.titles || []), pageMetadata.title, visible.title),
+    topic: firstString(json.topic, ...(meta.topics || [])),
+    summary: String(json.summary || '').trim() || uniqueStrings(meta.summaries || [], 6).join('\n'),
+    facts: outFacts,
+    entities: uniqueStrings([...(json.entities || []), ...(meta.entities || [])], 80),
+    keyTerms: uniqueStrings([...(json.keyTerms || []), ...(meta.keyTerms || [])], 80),
   };
   return {
     ...knowledge,
@@ -742,27 +999,28 @@ export async function extractPageKnowledge({ tabId, pageMetadata = {}, onProgres
     sections: visible.sections || [],
     images: visible.images || [],
   });
+  const budget = buildBudget();
   const pageText = trimText(visible.text || '');
   const rawSections = normalizeSections(visible, pageText);
   const textCharCount = plannedTextCharCount(rawSections, pageText);
-  const imageLimit = plannedImageLimit(textCharCount);
-  const websiteImages = selectWebsiteImages(visible.images || [], imageLimit);
-  const sections = filterSectionImageIds(rawSections, websiteImages);
+  // ALL usable images are candidates (ordered by score); the budget — not a
+  // fixed count — decides how many reach the vision step.
+  const candidateImages = selectWebsiteImages(visible.images || []);
+  const planSections = filterSectionImageIds(rawSections, candidateImages);
   const warnings = [];
-  const textSegments = limitTextSegments(planTextSegments(sections, websiteImages, pageText), warnings);
-  const imageBatches = chunkArray(websiteImages, IMAGE_BATCH_SIZE);
+  // No fixed segment cap: dispatch all planned segments, gated by the budget.
+  const textSegments = planTextSegments(planSections, candidateImages, pageText);
+  const imageBatches = chunkArray(candidateImages, IMAGE_BATCH_SIZE);
   logExtraction('planner output', {
     pageTextCharCount: pageText.length,
     plannedTextCharCount: textCharCount,
-    plannedImageLimit: imageLimit,
     rawSectionCount: rawSections.length,
-    selectedSectionCount: sections.length,
-    selectedImageCount: websiteImages.length,
+    candidateImageCount: candidateImages.length,
     textSegmentCount: textSegments.length,
     imageBatchCount: imageBatches.length,
+    budget,
     rawSections,
-    sections,
-    selectedImages: websiteImages,
+    candidateImages,
     textSegments,
     imageBatches,
     warnings,
@@ -770,9 +1028,21 @@ export async function extractPageKnowledge({ tabId, pageMetadata = {}, onProgres
   onProgress?.(`Planned ${plural(textSegments.length, 'text agent')} and ${plural(imageBatches.length, 'image agent')}.`);
 
   const [textResults, imageResults] = await Promise.all([
-    runTextSubagents({ segments: textSegments, pageMetadata, visible, onProgress }),
-    runVisionSubagents({ batches: imageBatches, pageMetadata, visible, onProgress }),
+    runTextSubagents({ segments: textSegments, pageMetadata, visible, budget, onProgress }),
+    runVisionSubagents({ batches: imageBatches, pageMetadata, visible, budget, onProgress }),
   ]);
+
+  // Surface budget-skipped work — coverage is bounded, never silently truncated.
+  const skippedTextCount = textResults.filter((result) => result.skipped).length;
+  if (skippedTextCount) {
+    warnings.push(`Budget reached: ${skippedTextCount} of ${textSegments.length} text segment(s) were not extracted.`);
+  }
+  const skippedImageCount = imageResults
+    .filter((result) => result.skipped)
+    .reduce((sum, result) => sum + (result.imageIds?.length || 0), 0);
+  if (skippedImageCount) {
+    warnings.push(`Budget reached: ${skippedImageCount} image(s) were not evaluated by the vision step.`);
+  }
 
   const failedResults = [...textResults, ...imageResults].filter((result) => !result.ok);
   for (const result of failedResults) {
@@ -780,61 +1050,68 @@ export async function extractPageKnowledge({ tabId, pageMetadata = {}, onProgres
     warnings.push(`${label} subagent ${result.agentId} failed: ${result.error}`);
   }
 
-  const successfulStageResults = [...textResults, ...imageResults]
-    .filter((result) => result.ok)
+  // Text knowledge: stage results carry title/topic/summary/entities + facts.
+  const textStageResults = textResults
+    .filter((result) => result.ok && !result.skipped)
     .map(normalizeStageResult);
+  const textFacts = textStageResults.flatMap((result) => result.json.facts || []);
+
+  // Image curation: keep/drop verdicts + captions + OPTIONAL facts (decoupled).
+  const { curation, facts: imageFacts } = collectImageCuration(imageResults.filter((result) => result.ok));
+  const keptImages = applyCurationToImages(candidateImages, curation, warnings);
+  const sections = filterSectionImageIds(rawSections, keptImages);
+
   logExtraction('subagent settled results', {
     textResults,
     imageResults,
+    textStageResults,
+    curation: Array.from(curation.entries()),
+    keptImageCount: keptImages.length,
     failedResults,
-    successfulStageResults,
     warnings,
   });
-  const textFacts = successfulStageResults
-    .filter((result) => result.sourceType === 'text')
-    .flatMap((result) => result.json.facts || []);
-  const imageFacts = successfulStageResults
-    .filter((result) => result.sourceType === 'image')
-    .flatMap((result) => result.json.facts || []);
-
-  if (textSegments.length && !textFacts.length && !imageFacts.length && failedResults.some((result) => result.sourceType === 'text')) {
-    const firstTextFailure = failedResults.find((result) => result.sourceType === 'text');
-    throw new Error(firstTextFailure?.error || 'Could not extract text or images from this page');
-  }
 
   if (!textFacts.length && !imageFacts.length) {
+    if (failedResults.some((result) => result.sourceType === 'text')) {
+      const firstTextFailure = failedResults.find((result) => result.sourceType === 'text');
+      throw new Error(firstTextFailure?.error || 'Could not extract text or images from this page');
+    }
     throw new Error('Could not extract text or images from this page');
   }
+
+  const candidateFacts = normalizeFacts([...textFacts, ...imageFacts]);
+  const meta = {
+    titles: textStageResults.map((result) => result.json.title).filter(Boolean),
+    topics: uniqueStrings(textStageResults.map((result) => result.json.topic), 6),
+    summaries: uniqueStrings(textStageResults.map((result) => result.json.summary), 6),
+    entities: uniqueStrings(textStageResults.flatMap((result) => result.json.entities || []), 80),
+    keyTerms: uniqueStrings(textStageResults.flatMap((result) => result.json.keyTerms || []), 80),
+    warnings: textStageResults.flatMap((result) => result.json.warnings || []),
+  };
 
   let finalKnowledge;
   let orchestratorError = '';
   try {
     finalKnowledge = await runFinalOrchestrator({
-      stageResults: successfulStageResults,
+      facts: candidateFacts,
+      meta,
       sections,
-      images: websiteImages,
+      images: keptImages,
       pageMetadata,
       visible,
+      warnings,
       onProgress,
     });
   } catch (error) {
     orchestratorError = errorMessage(error);
     warnings.push(`Final orchestrator failed: ${orchestratorError}`);
-    logExtraction('orchestrator error; using local assembly', {
-      orchestratorError,
-      successfulStageResults,
-      warnings,
-    });
-    finalKnowledge = localAssembly({ stageResults: successfulStageResults, pageMetadata, visible, warnings });
+    logExtraction('orchestrator error; using local assembly', { orchestratorError, warnings });
+    finalKnowledge = localAssembly({ facts: candidateFacts, meta, pageMetadata, visible, warnings });
   }
 
   if (!finalKnowledge.facts?.length) {
-    logExtraction('orchestrator returned no facts; using local assembly', {
-      finalKnowledge,
-      successfulStageResults,
-      warnings,
-    });
-    finalKnowledge = localAssembly({ stageResults: successfulStageResults, pageMetadata, visible, warnings });
+    logExtraction('orchestrator returned no facts; using local assembly', { finalKnowledge, warnings });
+    finalKnowledge = localAssembly({ facts: candidateFacts, meta, pageMetadata, visible, warnings });
   }
   if (!finalKnowledge.facts?.length) {
     throw new Error('Could not extract text or images from this page');
@@ -858,17 +1135,22 @@ export async function extractPageKnowledge({ tabId, pageMetadata = {}, onProgres
     rawCharCount: pageText.length,
     rawTextTruncated: pageText.length > MAX_RAW_TEXT_CHARS,
     sections,
-    images: websiteImages,
-    imageCount: websiteImages.length,
+    images: keptImages,
+    imageCount: keptImages.length,
     plannedTextCharCount: textCharCount,
-    plannedImageLimit: imageLimit,
     textSegmentCount: textSegments.length,
     imageBatchCount: imageBatches.length,
+    budget: {
+      wallClockMs: budget.wallClockMs,
+      maxTokens: budget.maxTokens,
+      spentTokens: budget.spentTokens,
+      elapsedMs: Date.now() - started,
+    },
     agentCount: textResults.length + imageResults.length + 1,
     failedAgentCount: failedResults.length + (orchestratorError ? 1 : 0),
     warnings: uniqueStrings([...warnings, ...(finalKnowledge.warnings || [])], 60),
     model: OPENAI_CONFIG.textModel,
-    visionModel: websiteImages.length ? OPENAI_CONFIG.visionModel : null,
+    visionModel: imageBatches.length ? OPENAI_CONFIG.visionModel : null,
     at: new Date().toISOString(),
     durationMs: Date.now() - started,
     url: pageMetadata.url || visible.url || '',

@@ -207,7 +207,11 @@ export function buildStaticSiteHTML(extraction = {}, imageMap = {}) {
   const summary = String(extraction.summary || knowledge.summary || '').trim();
   const sourceUrl = String(extraction.url || '').trim();
   const host = hostnameOf(sourceUrl);
-  const images = Array.isArray(extraction.images) ? extraction.images.filter((image) => image && image.id) : [];
+  // Exclude any image the vision curator marked keep === false (defensive: the
+  // extraction already stores only kept images, but old/hand-edited data may not).
+  const images = Array.isArray(extraction.images)
+    ? extraction.images.filter((image) => image && image.id && image.keep !== false)
+    : [];
   const sections = Array.isArray(extraction.sections) ? extraction.sections.slice() : [];
   sections.sort((a, b) => (Number(a?.index) || 0) - (Number(b?.index) || 0));
   const facts = extraction.facts || knowledge.facts || [];
@@ -337,25 +341,35 @@ function imageDedupeKey(image) {
     .replace(/-scaled(?=(\.[a-z0-9]+)?$)/, '');
 }
 
-// Picks the images worth showing on a renarrated reading page: only the ones
-// the extraction tied to actual facts, with ads and duplicates removed.
+// Picks the images worth showing on a renarrated reading page. Modern
+// extractions carry a per-image `keep` verdict from the vision curator, so
+// retention is decoupled from facts — a relevant photo survives even with no
+// fact attached. Older extractions (no verdicts) fall back to fact-gating.
 function selectRelevantImages(extraction) {
   const images = Array.isArray(extraction?.images)
     ? extraction.images.filter((image) => image && image.id)
     : [];
   if (!images.length) return [];
 
-  const facts = extraction?.facts || extraction?.knowledge?.facts || [];
-  const relevantIds = new Set();
-  for (const fact of facts) {
-    for (const id of (fact && fact.imageIds) || []) {
-      if (id) relevantIds.add(String(id));
+  const hasVerdicts = images.some((image) => typeof image.keep === 'boolean');
+  let pool;
+  if (hasVerdicts) {
+    // Decoupled curation: keep what the vision step marked relevant.
+    pool = images.filter((image) => image.keep === true && !isAdImage(image));
+  } else {
+    // Legacy fact-gated path for extractions made before image curation.
+    const facts = extraction?.facts || extraction?.knowledge?.facts || [];
+    const relevantIds = new Set();
+    for (const fact of facts) {
+      for (const id of (fact && fact.imageIds) || []) {
+        if (id) relevantIds.add(String(id));
+      }
     }
+    if (!relevantIds.size) return [];
+    pool = images.filter((image) => relevantIds.has(String(image.id)) && !isAdImage(image));
   }
-  // No fact references an image -> nothing is relevant enough to show.
-  if (!relevantIds.size) return [];
 
-  let pool = images.filter((image) => relevantIds.has(String(image.id)) && !isAdImage(image));
+  if (!pool.length) return [];
 
   // The og:image is the social-share card — almost always a duplicate of an
   // in-content hero shot. Drop it whenever real in-content images exist.

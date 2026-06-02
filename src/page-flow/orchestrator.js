@@ -35,6 +35,19 @@ function notifyExtraction(status, extraction = null, error = null) {
   } catch {}
 }
 
+// Pulls the user-relevant coverage notes (budget skips, uncurated images,
+// possible duplicates) out of the extraction so the UI can show "N items
+// skipped" instead of silently implying full coverage.
+function coverageNotes(extraction) {
+  const warnings = Array.isArray(extraction?.warnings) ? extraction.warnings : [];
+  return warnings.filter((w) => /budget reached|not curated|possible duplicate/i.test(String(w)));
+}
+
+function notifyCoverage(extraction, notify) {
+  const notes = coverageNotes(extraction);
+  if (notes.length) notify(`Coverage notes: ${notes.join(' ')}`);
+}
+
 function hasExtractionContent(extraction) {
   if (String(extraction?.compactText || '').trim()) return true;
   const facts = extraction?.facts || extraction?.knowledge?.facts || [];
@@ -47,16 +60,18 @@ export const pageFlowHandlers = {
     if (!tab?.id) return { success: false, error: 'No active tab' };
 
     notifyExtraction('running');
+    const sendProgress = (text) => {
+      try {
+        chrome.runtime.sendMessage({ action: 'extraction-progress', text }).catch(() => {});
+      } catch {}
+    };
     try {
       const extraction = await extractPageKnowledge({
         tabId: tab.id,
         pageMetadata: request?.pageMetadata || { url: tab.url, title: tab.title || '' },
-        onProgress: (text) => {
-          try {
-            chrome.runtime.sendMessage({ action: 'extraction-progress', text }).catch(() => {});
-          } catch {}
-        },
+        onProgress: sendProgress,
       });
+      notifyCoverage(extraction, sendProgress);
       notifyExtraction('done', extraction);
       return { success: true, extraction };
     } catch (e) {
@@ -190,6 +205,7 @@ export const pageFlowHandlers = {
           pageMetadata: { url: tabUrl, title: tab.title || '' },
           onProgress: notifyProgress,
         });
+        notifyCoverage(extraction, notifyProgress);
         notifyExtraction('done', extraction);
       } catch (e) {
         const error = e?.message || String(e);
