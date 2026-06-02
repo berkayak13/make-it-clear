@@ -26,16 +26,35 @@ The system SHALL record every coverage cut (skipped text chunk, skipped image, o
 - **WHEN** no chunk, image, or fact is skipped
 - **THEN** no truncation warning is added
 
-### Requirement: Page-faithful fact extraction
-The system SHALL extract only knowledge present on the page as FACT/CLAIM/QUOTE/FIGURE/COUNTER/VISUAL items and SHALL NOT add related or outside information during extraction.
+### Requirement: Exhaustive, page-faithful fact extraction
+The system SHALL extract ALL substantive knowledge present on the page as discrete FACT/CLAIM/QUOTE/FIGURE/COUNTER/VISUAL items — emitting each distinct point as its own atomic item rather than summarizing or merging — and SHALL NOT add related or outside information during extraction. The only content excluded is non-content page chrome (navigation, ads, cookie banners, related/trending lists, comments, footers, legal notices).
+
+#### Scenario: Exhaustive capture
+- **WHEN** a content-rich text chunk is extracted
+- **THEN** every substantive fact, claim, statistic, quote, definition, example, and caveat in that chunk is emitted as its own item, not collapsed into a short highlight list
 
 #### Scenario: No invented content
 - **WHEN** a text chunk is extracted
 - **THEN** every emitted fact is supported by that chunk's content and no external/related facts are introduced
 
+#### Scenario: Consolidation preserves coverage
+- **WHEN** the orchestrator merges candidate facts
+- **THEN** it only collapses genuine duplicates and SHALL retain every distinct substantive fact (consolidation, not curation)
+
 #### Scenario: Provenance tagging
 - **WHEN** a fact is produced by extraction
 - **THEN** it carries `provenance: "page"`
+
+### Requirement: Knowledge stored as facts and claims, no summary
+The system SHALL store the page's knowledge solely as the structured facts/claims set (plus a derived `compactText` over those facts) and SHALL NOT produce or store a separate prose summary. Renarration SHALL be driven from the facts/claims, not a summary.
+
+#### Scenario: No summary field
+- **WHEN** an extraction completes
+- **THEN** the stored extraction contains no `summary` field, and the static site renders no summary block
+
+#### Scenario: Renarration from facts
+- **WHEN** the page is renarrated
+- **THEN** the renarration input is the structured facts/claims list, covering every fact
 
 ### Requirement: Hierarchical reduce in the merge
 The system SHALL merge candidate facts without silent loss when the combined set exceeds a single orchestrator call's output budget, by merging in batches up a tree until one set fits.

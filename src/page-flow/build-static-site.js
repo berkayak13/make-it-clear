@@ -178,7 +178,6 @@ h1{font-size:2.45rem;line-height:1.18;letter-spacing:-.02em;margin:14px 0 12px;}
 h2{font-size:1.4rem;letter-spacing:-.01em;margin:2.4em 0 .5em;}
 .cl-meta{font:13px/1.5 ui-sans-serif,system-ui,sans-serif;color:var(--muted);display:flex;flex-wrap:wrap;gap:6px 10px;}
 .cl-meta a{color:var(--muted);}
-.cl-summary{font-size:1.18rem;line-height:1.6;color:var(--ink);border-left:3px solid var(--accent);padding:4px 0 4px 20px;margin:28px 0;}
 .cl-section p{margin:0 0 1.1em;}
 .cl-figure{margin:28px auto;text-align:center;}
 .cl-figure img{display:block;width:auto;max-width:min(100%,440px);max-height:360px;height:auto;margin:0 auto;border-radius:8px;background:var(--card);}
@@ -204,7 +203,6 @@ export function buildStaticSiteHTML(extraction = {}, imageMap = {}) {
   const knowledge = extraction.knowledge || {};
   const title = String(extraction.title || knowledge.title || 'Captured page').trim();
   const topic = String(extraction.topic || knowledge.topic || '').trim();
-  const summary = String(extraction.summary || knowledge.summary || '').trim();
   const sourceUrl = String(extraction.url || '').trim();
   const host = hostnameOf(sourceUrl);
   // Exclude any image the vision curator marked keep === false (defensive: the
@@ -293,7 +291,6 @@ ${sourceUrl ? `<link rel="canonical" href="${escapeHtml(sourceUrl)}">` : ''}
 <h1>${escapeHtml(title)}</h1>
 ${metaBits.length ? `<div class="cl-meta">${metaBits.join('<span aria-hidden="true">·</span>')}</div>` : ''}
 </header>
-${summary ? `<p class="cl-summary">${escapeHtml(summary)}</p>` : ''}
 ${mainHtml}
 ${renderFacts(facts)}
 ${galleryHtml}

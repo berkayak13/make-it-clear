@@ -45,3 +45,12 @@
 - [ ] 8.2 Run on an image-heavy page — confirm relevant images survive without facts, ads/avatars dropped, no duplicate figures
 - [ ] 8.3 Run on a huge page — confirm budget stops dispatch gracefully, warnings list the skips, no MV3 worker kill
 - [x] 8.4 `npm run lint` (and any existing tests) pass
+
+## 9. Exhaustive extraction + remove summary
+
+- [x] 9.1 Rewrite `buildTextPrompt` to be EXHAUSTIVE — every substantive point as its own atomic fact/claim, skip only chrome, add nothing
+- [x] 9.2 Rewrite the orchestrator prompt to CONSOLIDATE (merge true duplicates only), not curate down to a focused set
+- [x] 9.3 Raise output-token caps (`MAX_TEXT_OUTPUT_TOKENS`, `MAX_ORCHESTRATOR_OUTPUT_TOKENS`) and run token budget so comprehensive output isn't truncated
+- [x] 9.4 Remove `summary` from the stage + final schemas, normalization, assembly, orchestrator output, `meta`, and the stored extraction object
+- [x] 9.5 Remove the summary block + unused `.cl-summary` CSS from the static-site builder
+- [x] 9.6 Confirm renarration is driven from facts/claims only (no summary dependency)

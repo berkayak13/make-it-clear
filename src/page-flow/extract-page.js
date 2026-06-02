@@ -15,16 +15,19 @@ const IMAGE_CONCURRENCY = 2;
 //   - maxTokens: soft ceiling on estimated total subagent token spend (cost).
 //   - maxStorageBytes: guards the ~10MB chrome.storage.local quota.
 const DEFAULT_BUDGET_WALL_CLOCK_MS = 100000;
-const DEFAULT_BUDGET_MAX_TOKENS = 220000;
+const DEFAULT_BUDGET_MAX_TOKENS = 350000;
 const DEFAULT_BUDGET_MAX_STORAGE_BYTES = 8_500_000;
 const CHARS_PER_TOKEN = 4; // rough chars→tokens estimate for budgeting
 const VISION_TOKENS_PER_IMAGE = 1200; // est. cost of one low-detail image (in+out)
 
 // Reasoning models (e.g. gpt-5.5) count reasoning tokens against this budget,
 // so it must leave room for the chain of thought plus the JSON output.
-const MAX_TEXT_OUTPUT_TOKENS = 5000;
+// Extraction is EXHAUSTIVE (every fact/claim becomes its own item), so output
+// can be large — generous caps avoid truncating real content. The hierarchical
+// reducer below handles any overflow at merge time without dropping facts.
+const MAX_TEXT_OUTPUT_TOKENS = 9000;
 const MAX_IMAGE_OUTPUT_TOKENS = 3500;
-const MAX_ORCHESTRATOR_OUTPUT_TOKENS = 10000;
+const MAX_ORCHESTRATOR_OUTPUT_TOKENS = 16000;
 // When candidate facts would overflow one orchestrator call, merge them in
 // batches up a tree until the set fits — never silently drop the overflow.
 const REDUCE_FACT_BATCH = 40;
@@ -103,11 +106,10 @@ const factSchema = {
 const extractionStageSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['title', 'topic', 'summary', 'facts', 'entities', 'keyTerms', 'warnings'],
+  required: ['title', 'topic', 'facts', 'entities', 'keyTerms', 'warnings'],
   properties: {
     title: { type: 'string' },
     topic: { type: 'string' },
-    summary: { type: 'string' },
     facts: { type: 'array', items: factSchema },
     entities: { type: 'array', items: { type: 'string' } },
     keyTerms: { type: 'array', items: { type: 'string' } },
@@ -118,11 +120,10 @@ const extractionStageSchema = {
 const finalExtractionSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['title', 'topic', 'summary', 'facts', 'entities', 'keyTerms', 'compactText', 'warnings'],
+  required: ['title', 'topic', 'facts', 'entities', 'keyTerms', 'compactText', 'warnings'],
   properties: {
     title: { type: 'string' },
     topic: { type: 'string' },
-    summary: { type: 'string' },
     facts: { type: 'array', items: factSchema },
     entities: { type: 'array', items: { type: 'string' } },
     keyTerms: { type: 'array', items: { type: 'string' } },
@@ -444,10 +445,11 @@ function formatImageMetadata(images) {
 
 function buildTextPrompt({ segment, index, total, pageMetadata, visible }) {
   return [
-    'Extract the key facts from this page-text segment for a renarration system.',
+    'Extract ALL the knowledge present in this page-text segment as discrete facts and claims, for a renarration system.',
     'Use only this segment. Do not infer facts from missing segments.',
-    'Focus on the page\'s main topic. Be selective, not exhaustive — prefer fewer high-quality facts over many shallow ones. Combine closely related points into a single fact rather than splitting them.',
-    'Hard-skip anything that is not part of the main article body: site navigation, breadcrumbs, menus, search bars, login/signup prompts, newsletter signups, cookie/GDPR banners, ads, sponsored content, social-share buttons, related-article or "recommended for you" lists, comment threads, author bios, footer text, legal/copyright notices, "trending now" widgets, and any sidebar promo.',
+    'Be EXHAUSTIVE about real content: capture every substantive fact, claim, statement, statistic or figure, quoted line, definition, example, cause/effect, comparison, caveat, and conclusion. Emit each distinct point as its own atomic item — do NOT summarize, compress, or merge separate points. Nothing substantive should be lost.',
+    'Do NOT add related or outside information — only what is literally in this segment.',
+    'The ONLY things to skip are non-content page chrome: site navigation, breadcrumbs, menus, search bars, login/signup prompts, newsletter signups, cookie/GDPR banners, ads, sponsored content, social-share buttons, related-article or "recommended for you" lists, comment threads, author bios, footer text, legal/copyright notices, "trending now" widgets, and sidebar promos.',
     'If the segment is entirely boilerplate or chrome (nav, footer, ad slot, etc.), return an empty facts array rather than fabricating filler.',
     'Link each fact to the provided section IDs. Only attach an image ID when the surrounding text directly discusses that specific image.',
     'Use FACT for established facts, CLAIM for author/source claims, QUOTE for direct quoted material, FIGURE for numbers/statistics, COUNTER for caveats or opposing points, and VISUAL only when text describes a visual element.',
@@ -520,18 +522,17 @@ function buildOrchestratorPrompt({ facts, meta, sections, images, pageMetadata, 
 
   return [
     'You are the final extraction orchestrator for a webpage renarration system.',
-    'Merge the candidate facts (already extracted from page text and images) into a curated knowledge set for the page\'s MAIN TOPIC.',
-    'Curate aggressively. Drop facts that came from page chrome: navigation, breadcrumbs, search bars, login/signup prompts, cookie/GDPR banners, ads or sponsored slots, social-share widgets, "recommended for you" / "related" / "trending" lists, comments, author bios, newsletter signups, footer text, legal/copyright notices, site-section promos.',
-    'When facts overlap, merge them into the most complete single fact rather than emitting both. Preserve uncertainty by lowering confidence instead of inventing details.',
-    'Prefer a focused set of high-signal facts over a long list of shallow ones. When in doubt about whether a fact supports the main topic, drop it.',
+    'Consolidate the candidate facts (already extracted from page text and images) into the COMPLETE knowledge set for the page.',
+    'Your job is CONSOLIDATION, not curation: retain every distinct substantive fact, claim, quote, figure, and detail. Do NOT drop content for being minor or for being a "long list". Only merge genuine duplicates and near-duplicates into the single most complete fact.',
+    'When two candidates overlap, merge them into the most complete single fact rather than discarding either. Preserve uncertainty by lowering confidence instead of inventing details.',
+    'Drop ONLY page chrome that slipped through: navigation, breadcrumbs, search bars, login/signup prompts, cookie/GDPR banners, ads or sponsored slots, social-share widgets, "recommended for you" / "related" / "trending" lists, comments, footer text, legal/copyright notices, site-section promos.',
     'Stay page-faithful: do not add related or outside information that is not in the candidate facts.',
     'Link kept facts to sectionIds and imageIds when supported by the evidence. Use source "mixed" only when both text and image evidence support the same fact.',
-    'Produce compactText as dense plain-text notes suitable for a later renarration prompt — only the curated facts, no boilerplate. No Markdown tables, no HTML.',
+    'Produce compactText as dense plain-text notes covering ALL the facts, suitable for a later renarration prompt — only the facts, no boilerplate. No Markdown tables, no HTML.',
     '',
     `URL: ${pageMetadata.url || visible.url || ''}`,
     `Title: ${pageMetadata.title || visible.title || ''}`,
     meta?.topics?.length ? `Candidate topics: ${meta.topics.join(' | ')}` : '',
-    meta?.summaries?.length ? `Candidate summaries: ${meta.summaries.join(' | ')}` : '',
     '',
     'Page sections JSON:',
     JSON.stringify(sectionOutline),
@@ -891,7 +892,6 @@ function normalizeStageResult(result) {
     json: {
       title: String(json.title || '').trim(),
       topic: String(json.topic || '').trim(),
-      summary: String(json.summary || '').trim(),
       facts: normalizeFacts(json.facts || [], result.fallback),
       entities: uniqueStrings(json.entities || [], 60),
       keyTerms: uniqueStrings(json.keyTerms || [], 60),
@@ -900,11 +900,10 @@ function normalizeStageResult(result) {
   };
 }
 
-function compactTextFromKnowledge({ title, topic, summary, facts }) {
+function compactTextFromKnowledge({ title, topic, facts }) {
   const lines = [
     title ? `Title: ${title}` : '',
     topic ? `Topic: ${topic}` : '',
-    summary ? `Summary: ${summary}` : '',
     facts?.length ? 'Facts and claims:' : '',
     ...(facts || []).map((fact) => {
       const refs = [
@@ -921,11 +920,9 @@ function localAssembly({ facts, meta = {}, pageMetadata, visible, warnings }) {
   const normFacts = normalizeFacts(facts);
   const title = firstString(...(meta.titles || []), pageMetadata.title, visible.title);
   const topic = firstString(...(meta.topics || []));
-  const summary = uniqueStrings(meta.summaries || [], 6).join('\n');
   const knowledge = {
     title,
     topic,
-    summary,
     facts: normFacts,
     entities: uniqueStrings(meta.entities || [], 80),
     keyTerms: uniqueStrings(meta.keyTerms || [], 80),
@@ -971,7 +968,6 @@ async function runFinalOrchestrator({ facts, meta = {}, sections, images, pageMe
   const knowledge = {
     title: firstString(json.title, ...(meta.titles || []), pageMetadata.title, visible.title),
     topic: firstString(json.topic, ...(meta.topics || [])),
-    summary: String(json.summary || '').trim() || uniqueStrings(meta.summaries || [], 6).join('\n'),
     facts: outFacts,
     entities: uniqueStrings([...(json.entities || []), ...(meta.entities || [])], 80),
     keyTerms: uniqueStrings([...(json.keyTerms || []), ...(meta.keyTerms || [])], 80),
@@ -1050,7 +1046,7 @@ export async function extractPageKnowledge({ tabId, pageMetadata = {}, onProgres
     warnings.push(`${label} subagent ${result.agentId} failed: ${result.error}`);
   }
 
-  // Text knowledge: stage results carry title/topic/summary/entities + facts.
+  // Text knowledge: stage results carry title/topic/entities/keyTerms + facts.
   const textStageResults = textResults
     .filter((result) => result.ok && !result.skipped)
     .map(normalizeStageResult);
@@ -1083,7 +1079,6 @@ export async function extractPageKnowledge({ tabId, pageMetadata = {}, onProgres
   const meta = {
     titles: textStageResults.map((result) => result.json.title).filter(Boolean),
     topics: uniqueStrings(textStageResults.map((result) => result.json.topic), 6),
-    summaries: uniqueStrings(textStageResults.map((result) => result.json.summary), 6),
     entities: uniqueStrings(textStageResults.flatMap((result) => result.json.entities || []), 80),
     keyTerms: uniqueStrings(textStageResults.flatMap((result) => result.json.keyTerms || []), 80),
     warnings: textStageResults.flatMap((result) => result.json.warnings || []),
@@ -1123,14 +1118,12 @@ export async function extractPageKnowledge({ tabId, pageMetadata = {}, onProgres
     knowledge: {
       title: finalKnowledge.title,
       topic: finalKnowledge.topic,
-      summary: finalKnowledge.summary,
       facts: finalKnowledge.facts,
       entities: finalKnowledge.entities,
       keyTerms: finalKnowledge.keyTerms,
     },
     entities: finalKnowledge.entities,
     keyTerms: finalKnowledge.keyTerms,
-    summary: finalKnowledge.summary,
     rawText: trimText(pageText, MAX_RAW_TEXT_CHARS),
     rawCharCount: pageText.length,
     rawTextTruncated: pageText.length > MAX_RAW_TEXT_CHARS,
