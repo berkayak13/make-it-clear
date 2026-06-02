@@ -178,7 +178,6 @@ h1{font-size:2.45rem;line-height:1.18;letter-spacing:-.02em;margin:14px 0 12px;}
 h2{font-size:1.4rem;letter-spacing:-.01em;margin:2.4em 0 .5em;}
 .cl-meta{font:13px/1.5 ui-sans-serif,system-ui,sans-serif;color:var(--muted);display:flex;flex-wrap:wrap;gap:6px 10px;}
 .cl-meta a{color:var(--muted);}
-.cl-summary{font-size:1.18rem;line-height:1.6;color:var(--ink);border-left:3px solid var(--accent);padding:4px 0 4px 20px;margin:28px 0;}
 .cl-section p{margin:0 0 1.1em;}
 .cl-figure{margin:28px auto;text-align:center;}
 .cl-figure img{display:block;width:auto;max-width:min(100%,440px);max-height:360px;height:auto;margin:0 auto;border-radius:8px;background:var(--card);}
@@ -204,10 +203,13 @@ export function buildStaticSiteHTML(extraction = {}, imageMap = {}) {
   const knowledge = extraction.knowledge || {};
   const title = String(extraction.title || knowledge.title || 'Captured page').trim();
   const topic = String(extraction.topic || knowledge.topic || '').trim();
-  const summary = String(extraction.summary || knowledge.summary || '').trim();
   const sourceUrl = String(extraction.url || '').trim();
   const host = hostnameOf(sourceUrl);
-  const images = Array.isArray(extraction.images) ? extraction.images.filter((image) => image && image.id) : [];
+  // Exclude any image the vision curator marked keep === false (defensive: the
+  // extraction already stores only kept images, but old/hand-edited data may not).
+  const images = Array.isArray(extraction.images)
+    ? extraction.images.filter((image) => image && image.id && image.keep !== false)
+    : [];
   const sections = Array.isArray(extraction.sections) ? extraction.sections.slice() : [];
   sections.sort((a, b) => (Number(a?.index) || 0) - (Number(b?.index) || 0));
   const facts = extraction.facts || knowledge.facts || [];
@@ -289,7 +291,6 @@ ${sourceUrl ? `<link rel="canonical" href="${escapeHtml(sourceUrl)}">` : ''}
 <h1>${escapeHtml(title)}</h1>
 ${metaBits.length ? `<div class="cl-meta">${metaBits.join('<span aria-hidden="true">·</span>')}</div>` : ''}
 </header>
-${summary ? `<p class="cl-summary">${escapeHtml(summary)}</p>` : ''}
 ${mainHtml}
 ${renderFacts(facts)}
 ${galleryHtml}
@@ -337,25 +338,35 @@ function imageDedupeKey(image) {
     .replace(/-scaled(?=(\.[a-z0-9]+)?$)/, '');
 }
 
-// Picks the images worth showing on a renarrated reading page: only the ones
-// the extraction tied to actual facts, with ads and duplicates removed.
+// Picks the images worth showing on a renarrated reading page. Modern
+// extractions carry a per-image `keep` verdict from the vision curator, so
+// retention is decoupled from facts — a relevant photo survives even with no
+// fact attached. Older extractions (no verdicts) fall back to fact-gating.
 function selectRelevantImages(extraction) {
   const images = Array.isArray(extraction?.images)
     ? extraction.images.filter((image) => image && image.id)
     : [];
   if (!images.length) return [];
 
-  const facts = extraction?.facts || extraction?.knowledge?.facts || [];
-  const relevantIds = new Set();
-  for (const fact of facts) {
-    for (const id of (fact && fact.imageIds) || []) {
-      if (id) relevantIds.add(String(id));
+  const hasVerdicts = images.some((image) => typeof image.keep === 'boolean');
+  let pool;
+  if (hasVerdicts) {
+    // Decoupled curation: keep what the vision step marked relevant.
+    pool = images.filter((image) => image.keep === true && !isAdImage(image));
+  } else {
+    // Legacy fact-gated path for extractions made before image curation.
+    const facts = extraction?.facts || extraction?.knowledge?.facts || [];
+    const relevantIds = new Set();
+    for (const fact of facts) {
+      for (const id of (fact && fact.imageIds) || []) {
+        if (id) relevantIds.add(String(id));
+      }
     }
+    if (!relevantIds.size) return [];
+    pool = images.filter((image) => relevantIds.has(String(image.id)) && !isAdImage(image));
   }
-  // No fact references an image -> nothing is relevant enough to show.
-  if (!relevantIds.size) return [];
 
-  let pool = images.filter((image) => relevantIds.has(String(image.id)) && !isAdImage(image));
+  if (!pool.length) return [];
 
   // The og:image is the social-share card — almost always a duplicate of an
   // in-content hero shot. Drop it whenever real in-content images exist.

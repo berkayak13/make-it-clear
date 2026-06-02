@@ -296,14 +296,18 @@ function handleTextSelection(e) {
 
 const SKIP_TAGS = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'SVG', 'CANVAS', 'INPUT', 'TEXTAREA', 'SELECT', 'BUTTON', 'IFRAME', 'OBJECT', 'EMBED']);
 const EXTENSION_UI_SELECTOR = '#clear-selection-popup';
-const IMAGE_MAX_RESULTS = 40;
+// These are GENEROUS SAFETY BACKSTOPS against pathological DOMs (so the message
+// posted to the background never balloons), NOT coverage caps: the background's
+// run budget is the real ceiling on how much gets extracted. Sized far above any
+// realistic page so normal content is never truncated in the content script.
+const IMAGE_MAX_RESULTS = 200;
 const IMAGE_MIN_RENDERED_WIDTH = 120;
 const IMAGE_MIN_RENDERED_HEIGHT = 80;
 const IMAGE_MIN_RENDERED_AREA = 12000;
 const IMAGE_CONTEXT_CHARS = 300;
-const SECTION_ELEMENT_LIMIT = 1200;
+const SECTION_ELEMENT_LIMIT = 5000;
 const SECTION_TEXT_CHARS = 9000;
-const SECTION_MAX_RESULTS = 160;
+const SECTION_MAX_RESULTS = 800;
 const DECORATIVE_IMAGE_RE = /(^|[\s/_-])(adchoices|avatar|badge|blank|button|favicon|icon|logo|pixel|placeholder|share|social|spacer|spinner|sprite|tracking|transparent)([\s/_\-.]|$)/i;
 const CONTENT_CLASS_RE = /(^|[\s_-])(article|content|entry|main|post|story)([\s_-]|$)/i;
 const NON_CONTENT_CLASS_RE = /(^|[\s_-])(ad|ads|advert|banner|cookie|footer|header|nav|navbar|promo|share|sidebar|social|sponsor)([\s_-]|$)/i;
@@ -615,11 +619,18 @@ function nearbyImageText(el, captionText) {
   return text === captionText ? '' : text;
 }
 
+function isExtremeAspectRatio(meta) {
+  const w = meta.renderedWidth || meta.width;
+  const h = meta.renderedHeight || meta.height;
+  if (!w || !h) return false;
+  return Math.max(w, h) / Math.min(w, h) > 5;
+}
+
 function imageLooksUsable(meta, el) {
   const path = (() => {
     try { return new URL(meta.url).pathname.toLowerCase(); } catch { return ''; }
   })();
-  if (/\.(svg|ico)$/i.test(path)) return false;
+  if (/\.(svg|ico|gif)$/i.test(path)) return false;
   if (meta.source !== 'og:image' && (!el || !isVisibleElement(el))) return false;
 
   const renderedArea = meta.renderedWidth * meta.renderedHeight;
@@ -640,11 +651,22 @@ function imageLooksUsable(meta, el) {
   const inNonContent = el ? isNonContentImageElement(el) : false;
   const descriptor = normalizeText(`${meta.url} ${meta.alt} ${meta.caption} ${elementSignature(el)}`);
 
-  if (meta.source === 'css-background' && (!largeRendered || (!inContent && inNonContent))) return false;
-  if (meta.source !== 'og:image' && !largeRendered && !largeIntrinsicWithoutRenderedSize && !inContent) return false;
+  // Aggressive filter: real article images only. og:image (the page's declared
+  // hero) bypasses container checks because it's content by definition.
+  if (meta.source !== 'og:image') {
+    if (!inContent) return false;
+    if (inNonContent) return false;
+    // Banner/skyscraper shapes are almost always ads, share bars, or layout
+    // dividers. Genuine wide photos live in a <figure>; that exempts them.
+    if (isExtremeAspectRatio(meta) && !el?.closest?.('figure')) return false;
+  }
+
+  if (meta.source === 'css-background' && !largeRendered) return false;
+  if (meta.source !== 'og:image' && !largeRendered && !largeIntrinsicWithoutRenderedSize) return false;
   if (renderedArea > 0 && (meta.renderedWidth <= 2 || meta.renderedHeight <= 2)) return false;
-  if (DECORATIVE_IMAGE_RE.test(descriptor) && (!inContent || renderedArea < 90000)) return false;
-  if (inNonContent && !inContent && renderedArea < 160000) return false;
+  // Decorative descriptor (logo, icon, avatar, badge, sprite, ...) is never
+  // main-topic content — drop unconditionally.
+  if (DECORATIVE_IMAGE_RE.test(descriptor)) return false;
 
   return true;
 }
