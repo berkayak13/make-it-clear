@@ -2,7 +2,34 @@ import { callLLM } from './llm-dispatch.js';
 import { getSettingsWithTaskMigration, DEFAULT_TASKS } from './storage-helpers.js';
 import { getSystemBoilerplate, applyPromptTemplate } from './prompt-loader.js';
 
-const ENGLISH_OUTPUT_RULE = 'Output language requirement: Write the final renarration in English, even if the source page, selected text, task, saved reading goal, or user message uses another language.';
+// ISO 639-1 → display name for the common chat languages, so the output-language
+// instruction can name the language explicitly (more reliable than a bare code).
+const LANGUAGE_NAMES = {
+  en: 'English', tr: 'Turkish', de: 'German', fr: 'French', es: 'Spanish',
+  it: 'Italian', pt: 'Portuguese', nl: 'Dutch', ru: 'Russian', ar: 'Arabic',
+  zh: 'Chinese', ja: 'Japanese', ko: 'Korean', hi: 'Hindi', pl: 'Polish',
+  sv: 'Swedish', uk: 'Ukrainian', el: 'Greek', he: 'Hebrew', fa: 'Persian',
+  id: 'Indonesian', vi: 'Vietnamese', th: 'Thai', cs: 'Czech', ro: 'Romanian',
+  hu: 'Hungarian', fi: 'Finnish', da: 'Danish', no: 'Norwegian', az: 'Azerbaijani',
+};
+
+// The renarration is written in the language the user used in the chat. The goal
+// extractor records that as readingGoal.language (ISO 639-1). When it is missing
+// (e.g. an older goal, or no goal), mirror whatever language the reading goal /
+// user instructions are written in rather than forcing a fixed language.
+function outputLanguageRule(readingGoal) {
+  const code = (readingGoal && typeof readingGoal === 'object' && readingGoal.language)
+    ? String(readingGoal.language).toLowerCase().trim().slice(0, 5)
+    : '';
+  if (code) {
+    if (code === 'en') {
+      return 'Output language requirement: Write the renarration in clear, natural English.';
+    }
+    const name = LANGUAGE_NAMES[code] || `the language with ISO 639-1 code "${code}"`;
+    return `Output language requirement: Write the ENTIRE renarration in ${name} — the language the user used in the conversation — even if the source page, task, or extracted facts are in a different language. Do not mix languages.`;
+  }
+  return 'Output language requirement: Write the renarration in the SAME language the user is using in the saved reading goal and instructions. Mirror the user\'s language; do not translate the content into a different language.';
+}
 
 export function truncateForContext(text, maxChars = 12000) {
   return text.length > maxChars ? text.slice(0, maxChars) + '...(truncated)' : text;
@@ -36,7 +63,7 @@ export async function buildRenarrationPrompt(taskName, overrideTask, options = {
       boilerplate,
       formatReadingGoal(readingGoal)
     ),
-    ENGLISH_OUTPUT_RULE,
+    outputLanguageRule(readingGoal),
   ].filter(Boolean).join('\n\n');
 
   return { systemPrompt, task, readingGoal: formatReadingGoal(readingGoal) };
