@@ -112,10 +112,12 @@ export async function renarratePage({ extraction, taskName } = {}) {
   const systemPrompt = [
     promptInfo.systemPrompt,
     'You are renarrating a full webpage into a plain-text reading panel.',
-    'Your input is a structured list of facts and claims extracted from the page. It is your only content source.',
-    'Renarrate the page by fully covering every fact and claim in the list — do not skip items, and do not invent any content beyond the list.',
+    'Your input is a structured list of facts and claims extracted from the page. It is your only content source — cover every item and do not invent anything beyond the list.',
+    'Write a DIRECT explanation of the subject itself, in clear natural prose, as if you are explaining the topic to the reader.',
+    'Do NOT narrate or describe the source. Never use meta-attribution phrasing such as "the article says", "the author claims", "the page states", "according to the article/author", "the post explains", or "this piece argues". State the information directly as facts about the subject.',
+    'Only attribute to a specific person or source when an item is a direct quotation, or a genuinely contested or opinionated claim that would mislead if stated as plain fact — and then name the actual person/source, never "the article" or "the author".',
     'Use the saved reading goal as important context when present.',
-    'Organize the facts into coherent, natural prose. Return only readable plain text. Do not return HTML or Markdown tables.',
+    'Organize everything into coherent, natural prose. Return only readable plain text. Do not return HTML or Markdown tables.',
   ].filter(Boolean).join('\n\n');
 
   const facts = extraction.facts || extraction.knowledge?.facts || [];
