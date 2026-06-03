@@ -1,4 +1,4 @@
-import { researchGet, researchPut, researchGetByIndex } from '../utils/firestore-client.js';
+import { researchGet, researchPut, researchGetByIndex } from '../utils/research-store.js';
 import { getOrCreateUserId } from '../utils/storage-helpers.js';
 import { generateId } from '../utils/id.js';
 import { callLLM } from '../utils/llm-dispatch.js';
@@ -36,7 +36,7 @@ async function getResearchSession(sessionId) {
   try {
     return await researchGet('chatSessions', sessionId);
   } catch (e) {
-    console.warn('[Chatbot] Firestore session lookup skipped:', e?.message || e);
+    console.warn('[Chatbot] Research-store session lookup skipped:', e?.message || e);
     return null;
   }
 }
@@ -50,7 +50,7 @@ async function bestEffortResearchPut(storeName, record) {
   try {
     await researchPut(storeName, cloneRecord(record));
   } catch (e) {
-    console.warn(`[Chatbot] Firestore ${storeName} write skipped:`, e?.message || e);
+    console.warn(`[Chatbot] Research-store ${storeName} write skipped:`, e?.message || e);
   }
 }
 
@@ -76,7 +76,7 @@ async function getRecentPrefSummary(userId) {
     try {
       prefHistory = await researchGetByIndex('userPreferences', 'userId', userId);
     } catch (e) {
-      console.warn('[Chatbot] Firestore preference lookup skipped:', e?.message || e);
+      console.warn('[Chatbot] Research-store preference lookup skipped:', e?.message || e);
       prefHistory = [];
     }
   }
@@ -120,7 +120,7 @@ async function getSessionOrThrow(sessionId) {
 }
 
 export const chatbotHandlers = {
-  'chatbot-new-session': async (request, sender) => {
+  'chatbot-new-session': async (_request, _sender) => {
     try {
       const userId = await getOrCreateUserId();
       const session = {
@@ -136,7 +136,7 @@ export const chatbotHandlers = {
     }
   },
 
-  'chatbot-get-session': async (request, sender) => {
+  'chatbot-get-session': async (request, _sender) => {
     try {
       let session = await getLocalSession(request.sessionId);
       if (!session) {
@@ -149,7 +149,7 @@ export const chatbotHandlers = {
     }
   },
 
-  'chatbot-delete-session': async (request, sender) => {
+  'chatbot-delete-session': async (request, _sender) => {
     try {
       const sessions = await getLocalChatSessions();
       delete sessions[request.sessionId];
@@ -163,7 +163,7 @@ export const chatbotHandlers = {
     }
   },
 
-  'chatbot-send': async (request, sender) => {
+  'chatbot-send': async (request, _sender) => {
     try {
       const session = await getSessionOrThrow(request.sessionId);
       session.messages = Array.isArray(session.messages) ? session.messages : [];
@@ -196,7 +196,7 @@ export const chatbotHandlers = {
     }
   },
 
-  'chatbot-set-reading-goal': async (request, sender) => {
+  'chatbot-set-reading-goal': async (request, _sender) => {
     try {
       const session = await getSessionOrThrow(request.sessionId);
       const userId = await getOrCreateUserId();

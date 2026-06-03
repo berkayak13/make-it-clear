@@ -47,7 +47,7 @@ function formatReadingGoal(goal) {
   ].filter(Boolean).join('\n');
 }
 
-export async function buildRenarrationPrompt(taskName, overrideTask, options = {}) {
+export async function buildRenarrationPrompt(taskName, overrideTask) {
   const settings = await getSettingsWithTaskMigration([
     'systemPromptTemplate',
   ]);
@@ -56,6 +56,7 @@ export async function buildRenarrationPrompt(taskName, overrideTask, options = {
 
   const boilerplate = await getSystemBoilerplate();
   const { readingGoal } = await chrome.storage.sync.get(['readingGoal']);
+  const languageRule = outputLanguageRule(readingGoal);
   const systemPrompt = [
     applyPromptTemplate(
       settings.systemPromptTemplate,
@@ -63,14 +64,16 @@ export async function buildRenarrationPrompt(taskName, overrideTask, options = {
       boilerplate,
       formatReadingGoal(readingGoal)
     ),
-    outputLanguageRule(readingGoal),
+    languageRule,
   ].filter(Boolean).join('\n\n');
 
-  return { systemPrompt, task, readingGoal: formatReadingGoal(readingGoal) };
+  // languageRule is returned so callers (e.g. caption renarration) can match the
+  // output language WITHOUT waiting on the body renarration as a sample.
+  return { systemPrompt, task, readingGoal: formatReadingGoal(readingGoal), languageRule };
 }
 
 export async function renarrateText(text, taskName, overrideTask, options = {}) {
-  const prompt = await buildRenarrationPrompt(taskName, overrideTask, options);
+  const prompt = await buildRenarrationPrompt(taskName, overrideTask);
   const userText = truncateForContext(String(text || ''));
   const result = await callLLM([{ role: 'user', content: userText }], prompt.systemPrompt, {
     temperature: options.temperature ?? 0.3,

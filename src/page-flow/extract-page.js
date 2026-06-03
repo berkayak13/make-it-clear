@@ -1,4 +1,5 @@
 import { callOpenAIJson, OPENAI_CONFIG } from '../utils/openai-client.js';
+import { arrayBufferToBase64 } from '../utils/binary.js';
 
 const MAX_RAW_TEXT_CHARS = 120000;
 const MAX_EXTRACTED_NOTES_CHARS = 30000;
@@ -7,8 +8,12 @@ const MAX_EXTRACTED_NOTES_CHARS = 30000;
 // exhaustive output were blowing the timeout on dense pages (e.g. HN threads).
 const TEXT_SEGMENT_CHARS = 6000;
 const IMAGE_BATCH_SIZE = 2;
-const TEXT_CONCURRENCY = 4;
-const IMAGE_CONCURRENCY = 2;
+// Concurrency is the number of in-flight subagent calls. Higher = fewer
+// sequential waves (a 20-segment page goes from 5 waves at 4 to ~4 at 6).
+// callWithRetry absorbs the occasional 429 this provokes, and the run budget
+// still caps total spend.
+const TEXT_CONCURRENCY = 6;
+const IMAGE_CONCURRENCY = 3;
 
 // Coverage is bounded by a per-run BUDGET, never by a fixed segment/image count.
 // The number of LLM/VLM calls scales with the page; dispatch stops only when the
@@ -98,7 +103,14 @@ async function callWithRetry(fn, { retries = 1, budget } = {}) {
 const FACT_KINDS = new Set(['FACT', 'CLAIM', 'QUOTE', 'FIGURE', 'COUNTER', 'VISUAL']);
 const FACT_SOURCES = new Set(['text', 'image', 'mixed']);
 
+// Verbose per-call extraction tracing. OFF by default: every call below was
+// handing full prompts, raw responses, the whole page text, and every image
+// object to console.log on each run — pure overhead and noise in production.
+// Flip to true only when actively debugging the pipeline.
+const EXTRACTION_DEBUG = false;
+
 function logExtraction(label, details) {
+  if (!EXTRACTION_DEBUG) return;
   try {
     console.log(`[Clear Extraction][background] ${label}`, details);
   } catch {}
@@ -208,7 +220,10 @@ function plural(count, singular, pluralValue = singular + 's') {
 
 async function getVisibleText(tabId) {
   try {
-    const response = await chrome.tabs.sendMessage(tabId, { action: 'extract-visible-page-text' });
+    // Target the main frame only. With all_frames enabled the content script
+    // runs in every iframe, so without frameId Chrome would broadcast to all
+    // frames and a subframe could answer first with partial content.
+    const response = await chrome.tabs.sendMessage(tabId, { action: 'extract-visible-page-text' }, { frameId: 0 });
     if (response?.success) return response;
   } catch {}
   return { success: false, text: '', images: [], sections: [], title: '', url: '' };
@@ -701,16 +716,6 @@ async function runTextSubagents({ segments, pageMetadata, visible, budget, onPro
 const IMAGE_FETCH_TIMEOUT_MS = 12000;
 const MAX_VISION_IMAGE_BYTES = 3_000_000;
 
-function arrayBufferToBase64(buffer) {
-  const bytes = new Uint8Array(buffer);
-  let binary = '';
-  const chunkSize = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
-  }
-  return btoa(binary);
-}
-
 async function fetchImageAsDataUrl(url) {
   if (!/^https?:\/\//i.test(String(url || ''))) return '';
   const controller = new AbortController();
@@ -1112,22 +1117,36 @@ export async function extractPageKnowledge({ tabId, pageMetadata = {}, onProgres
 
   let finalKnowledge;
   let orchestratorError = '';
-  try {
-    finalKnowledge = await runFinalOrchestrator({
-      facts: candidateFacts,
-      meta,
-      sections,
-      images: keptImages,
-      pageMetadata,
-      visible,
-      warnings,
-      onProgress,
-    });
-  } catch (error) {
-    orchestratorError = errorMessage(error);
-    warnings.push(`Final orchestrator failed: ${orchestratorError}`);
-    logExtraction('orchestrator error; using local assembly', { orchestratorError, warnings });
+  // Fast path: the orchestrator's job is cross-segment consolidation. A single
+  // text segment has no cross-segment duplicates to merge, so when its facts
+  // already fit the orchestrator's output budget (no hierarchical reduce needed)
+  // the second full-page reasoning call adds latency without improving coverage.
+  // Assemble locally instead — page renarration reads facts directly, not the
+  // orchestrator's compactText, so quality is unchanged.
+  const orchestratorThreshold = Math.floor(MAX_ORCHESTRATOR_OUTPUT_TOKENS * 0.6);
+  const canSkipOrchestrator =
+    textStageResults.length <= 1 && estimateFactsTokens(candidateFacts) <= orchestratorThreshold;
+  if (canSkipOrchestrator) {
+    onProgress?.('Assembling knowledge...');
     finalKnowledge = localAssembly({ facts: candidateFacts, meta, pageMetadata, visible, warnings });
+  } else {
+    try {
+      finalKnowledge = await runFinalOrchestrator({
+        facts: candidateFacts,
+        meta,
+        sections,
+        images: keptImages,
+        pageMetadata,
+        visible,
+        warnings,
+        onProgress,
+      });
+    } catch (error) {
+      orchestratorError = errorMessage(error);
+      warnings.push(`Final orchestrator failed: ${orchestratorError}`);
+      logExtraction('orchestrator error; using local assembly', { orchestratorError, warnings });
+      finalKnowledge = localAssembly({ facts: candidateFacts, meta, pageMetadata, visible, warnings });
+    }
   }
 
   if (!finalKnowledge.facts?.length) {

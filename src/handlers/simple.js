@@ -1,6 +1,6 @@
 import { getSettingsWithTaskMigration, getOrCreateUserId } from '../utils/storage-helpers.js';
 import { generateId } from '../utils/id.js';
-import { researchPut, researchGetByIndex, researchGetAll, researchClearStore, researchExportCSV, RESEARCH_STORES } from '../utils/firestore-client.js';
+import { researchPut, researchGetByIndex, researchGetAll, researchClearStore, researchExportCSV, RESEARCH_STORES } from '../utils/research-store.js';
 import { renarrateText, setUserId } from '../utils/renarration.js';
 
 export const simpleHandlers = {
@@ -16,7 +16,7 @@ export const simpleHandlers = {
             task: request.task || ''
           }
         });
-      } catch (e) {
+      } catch {
         // Ignore persistence failures
       }
     }

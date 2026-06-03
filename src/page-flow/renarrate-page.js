@@ -24,10 +24,12 @@ const captionSchema = {
 };
 
 // Renarrates each image caption so figures on the reading page match the body
-// renarration (same language, same goal) instead of staying in the original
-// page language. Returns { [imageId]: renarratedCaption }; never throws — on
-// failure the builder falls back to the original captions.
-async function renarrateImageCaptions({ extraction, readingGoal, renarrationSample }) {
+// renarration's language and reading goal instead of staying in the original
+// page language. Uses the explicit languageRule (derived from readingGoal) so
+// this can run IN PARALLEL with the body renarration rather than after it.
+// Returns { [imageId]: renarratedCaption }; never throws — on failure the
+// builder falls back to the original captions.
+async function renarrateImageCaptions({ extraction, readingGoal, languageRule }) {
   const images = Array.isArray(extraction?.images) ? extraction.images : [];
   const items = images
     .map((image) => ({
@@ -39,16 +41,12 @@ async function renarrateImageCaptions({ extraction, readingGoal, renarrationSamp
 
   const prompt = [
     'Renarrate each webpage image caption below to match the page renarration.',
-    'Match the language and tone of the renarration sample exactly — if it was',
-    'translated to another language, translate the captions to that language too.',
+    languageRule || 'Write each caption in the same language as the saved reading goal.',
     'Keep each caption short. Preserve factual meaning. Do not invent details.',
     'Return exactly one entry per input id, keeping the id unchanged.',
     '',
     'Saved reading goal:',
     readingGoal || 'No saved reading goal.',
-    '',
-    'Renarration sample (match this language and tone):',
-    truncateForContext(String(renarrationSample || ''), 700) || 'No sample available.',
     '',
     'Image captions JSON:',
     JSON.stringify(items),
@@ -61,6 +59,7 @@ async function renarrateImageCaptions({ extraction, readingGoal, renarrationSamp
       prompt,
       model: OPENAI_CONFIG.textModel,
       maxOutputTokens: 1200,
+      reasoningEffort: 'low',
     });
     const map = {};
     for (const entry of result.json?.captions || []) {
@@ -132,19 +131,23 @@ export async function renarratePage({ extraction, taskName } = {}) {
     truncateForContext(formatFactsForRenarration(facts), MAX_EXTRACTED_NOTES_CHARS),
   ].join('\n');
 
-  const result = await callOpenAIText({
-    systemPrompt,
-    userText,
-    model: OPENAI_CONFIG.textModel,
-    temperature: 0.3,
-  });
-
-  // Captions are renarrated after the body so they can match its language.
-  const captions = await renarrateImageCaptions({
-    extraction,
-    readingGoal: promptInfo.readingGoal,
-    renarrationSample: result.text,
-  });
+  // Body and captions run in parallel: captions match the body's output language
+  // through promptInfo.languageRule (derived from the reading goal), so they no
+  // longer need the finished body as a sample. Low reasoning effort keeps the
+  // call fast — renarration is prose generation, not multi-step reasoning.
+  const [result, captions] = await Promise.all([
+    callOpenAIText({
+      systemPrompt,
+      userText,
+      model: OPENAI_CONFIG.textModel,
+      reasoningEffort: 'low',
+    }),
+    renarrateImageCaptions({
+      extraction,
+      readingGoal: promptInfo.readingGoal,
+      languageRule: promptInfo.languageRule,
+    }),
+  ]);
 
   return {
     text: result.text,

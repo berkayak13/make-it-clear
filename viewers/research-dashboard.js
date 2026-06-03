@@ -1,4 +1,4 @@
-// Research Dashboard — reads from Firestore via background.js messages
+// Research Dashboard — reads on-device research data via background messages
 
 let currentUserFilter = '';
 let currentSearchQuery = '';
@@ -279,7 +279,7 @@ function renderLogs() {
     return;
   }
   let html = '<table><tr><th>User</th><th>Time</th><th>Category</th><th>Details</th></tr>';
-  logs.forEach((l, i) => {
+  logs.forEach((l) => {
     const details = Object.entries(l)
       .filter(([k]) => !['logId', 'userId', 'timestamp', 'category'].includes(k))
       .map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v) : v}`)

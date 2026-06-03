@@ -2,68 +2,18 @@ let isEnabled = false;
 let currentTask = 'simple';
 let selectionHandler = null;
 let selectionPopup = null;
-let extensionContextDead = false;
 
-function isExtensionContextError(error) {
-  return /Extension context invalidated/i.test(error?.message || String(error || ''));
-}
+// Extension-context guards and font injection are shared with clear-overlay.js
+// via clear-shared.js (injected first — see manifest content_scripts order).
+const { hasExtensionContext, markExtensionContextDead, safeSendMessage, injectClearFonts, onContextDead } =
+  globalThis.__clearRuntime;
 
-function hasExtensionContext() {
-  if (extensionContextDead) return false;
-  try {
-    return !!chrome?.runtime?.id;
-  } catch (e) {
-    if (isExtensionContextError(e)) extensionContextDead = true;
-    return false;
-  }
-}
-
-function markExtensionContextDead(error) {
-  if (!isExtensionContextError(error)) return false;
-  extensionContextDead = true;
+// When the extension context goes away (reload/update with the page still open),
+// tear down this script's selection listeners and popup.
+onContextDead(() => {
   removeEventListeners();
   hideSelectionPopup();
-  return true;
-}
-
-function safeSendMessage(message, callback) {
-  if (!hasExtensionContext()) {
-    if (callback) callback(null);
-    return Promise.resolve(null);
-  }
-  try {
-    if (callback) {
-      chrome.runtime.sendMessage(message, (res) => {
-        const error = chrome.runtime.lastError;
-        if (error) {
-          markExtensionContextDead(error);
-          callback(null, error);
-          return;
-        }
-        callback(res, null);
-      });
-      return Promise.resolve(null);
-    }
-    return chrome.runtime.sendMessage(message).catch((e) => {
-      markExtensionContextDead(e);
-      return null;
-    });
-  } catch (e) {
-    markExtensionContextDead(e);
-    if (callback) callback(null, e);
-    return Promise.resolve(null);
-  }
-}
-
-function safeRuntimeUrl(path) {
-  if (!hasExtensionContext()) return '';
-  try {
-    return chrome.runtime.getURL(path);
-  } catch (e) {
-    markExtensionContextDead(e);
-    return '';
-  }
-}
+});
 
 init();
 
@@ -185,11 +135,23 @@ function showSelectionPopup(text, range) {
     });
   });
 
-  document.addEventListener('click', onClickOutsidePopup, true);
-  document.addEventListener('selectionchange', onNewSelection);
+  setupSelectionDrag(popup);
+
+  // Register the dismissers on the NEXT tick. Selecting text ends with a
+  // mouseup (which created this popup) immediately followed by a trailing
+  // `click` from the same gesture; registering synchronously let that click
+  // close the popup before it was ever usable — which is why the feature
+  // appeared broken. Dismiss on `mousedown` (the current gesture's mousedown
+  // already fired before the popup existed) so only a genuine new interaction
+  // closes it.
+  setTimeout(() => {
+    if (selectionPopup !== popup) return;
+    document.addEventListener('mousedown', onPointerDownOutsidePopup, true);
+    document.addEventListener('selectionchange', onNewSelection);
+  }, 0);
 }
 
-function onClickOutsidePopup(e) {
+function onPointerDownOutsidePopup(e) {
   if (selectionPopup && !selectionPopup.contains(e.target)) {
     hideSelectionPopup();
   }
@@ -202,12 +164,50 @@ function onNewSelection() {
   }
 }
 
+// Makes the popup draggable by its eyebrow/header row. The body stays
+// selectable (so the renarrated text can be copied), and once moved the pointer
+// triangle is hidden since the card no longer sits against the selection.
+function setupSelectionDrag(popup) {
+  const handle = popup.querySelector('.clear-selection-eyebrow');
+  if (!handle) return;
+  let startX, startY, origLeft, origTop;
+
+  handle.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0 || e.target.closest('button, a')) return;
+    e.preventDefault();
+    try { handle.setPointerCapture(e.pointerId); } catch {}
+    const rect = popup.getBoundingClientRect();
+    origLeft = rect.left;
+    origTop = rect.top;
+    startX = e.clientX;
+    startY = e.clientY;
+    handle.style.cursor = 'grabbing';
+    // Pin to top/left and drop the pointer triangle once the card is moved.
+    popup.style.bottom = 'auto';
+    popup.classList.add('clear-selection-dragged');
+
+    const onMove = (ev) => {
+      const maxLeft = Math.max(8, window.innerWidth - popup.offsetWidth - 8);
+      const maxTop = Math.max(8, window.innerHeight - popup.offsetHeight - 8);
+      popup.style.left = Math.max(8, Math.min(origLeft + (ev.clientX - startX), maxLeft)) + 'px';
+      popup.style.top = Math.max(8, Math.min(origTop + (ev.clientY - startY), maxTop)) + 'px';
+    };
+    const onUp = () => {
+      handle.style.cursor = '';
+      handle.removeEventListener('pointermove', onMove);
+      handle.removeEventListener('pointerup', onUp);
+    };
+    handle.addEventListener('pointermove', onMove);
+    handle.addEventListener('pointerup', onUp);
+  });
+}
+
 function hideSelectionPopup() {
   if (selectionPopup) {
     selectionPopup.remove();
     selectionPopup = null;
   }
-  document.removeEventListener('click', onClickOutsidePopup, true);
+  document.removeEventListener('mousedown', onPointerDownOutsidePopup, true);
   document.removeEventListener('selectionchange', onNewSelection);
 }
 
@@ -316,15 +316,43 @@ const NON_CONTENT_CLASS_RE = /(^|[\s_-])(ad|ads|advert|banner|cookie|footer|head
 const LAZY_SRC_ATTRS = ['data-src', 'data-original', 'data-lazy-src', 'data-lazy', 'data-hi-res-src', 'data-image-src', 'data-full-src', 'data-echo'];
 const LAZY_SRCSET_ATTRS = ['data-srcset', 'data-lazy-srcset', 'data-original-set'];
 
+// OFF by default: this logged the entire extracted text, every section, and
+// every image object to the page console on each extraction — heavy and noisy.
+// Flip to true only when debugging the content-script extraction.
+const EXTRACTION_DEBUG = false;
+
 function logContentExtraction(label, details) {
+  if (!EXTRACTION_DEBUG) return;
   try {
     console.log(`[Clear Extraction][content] ${label}`, details);
   } catch {}
 }
 
+// Visibility check forces a style + layout flush (getComputedStyle +
+// getBoundingClientRect), so cache the verdict per element. The text walker
+// asks about the same parent element once per text node it contains — without
+// the cache a paragraph with N text nodes paid for N identical reflows.
+function makeVisibilityCache() {
+  const cache = new WeakMap();
+  return (el) => {
+    if (!el) return false;
+    const cached = cache.get(el);
+    if (cached !== undefined) return cached;
+    const style = getComputedStyle(el);
+    let visible = !(style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0');
+    if (visible) {
+      const rect = el.getBoundingClientRect();
+      visible = rect.width > 0 && rect.height > 0;
+    }
+    cache.set(el, visible);
+    return visible;
+  };
+}
+
 function extractVisiblePageText() {
   const chunks = [];
   const seen = new Set();
+  const isVisible = makeVisibilityCache();
   const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
     acceptNode(node) {
       const text = node.textContent.trim();
@@ -332,11 +360,7 @@ function extractVisiblePageText() {
       const el = node.parentElement;
       if (!el || SKIP_TAGS.has(el.tagName)) return NodeFilter.FILTER_REJECT;
       if (el.closest(EXTENSION_UI_SELECTOR)) return NodeFilter.FILTER_REJECT;
-      const style = getComputedStyle(el);
-      if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return NodeFilter.FILTER_REJECT;
-      const rect = el.getBoundingClientRect();
-      if (rect.width === 0 || rect.height === 0) return NodeFilter.FILTER_REJECT;
-      return NodeFilter.FILTER_ACCEPT;
+      return isVisible(el) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
     },
   });
 
@@ -703,24 +727,47 @@ function imageSectionIds(el, sectionContext) {
   return before ? [before.id] : [sections[0].id];
 }
 
-function makeImageMeta(rawUrl, el, source, index, sectionContext) {
+// The element-derived parts of an image's metadata (size, caption, heading,
+// nearby text, section) are identical across the several source URLs one <img>
+// exposes (currentSrc, srcset, data-src, picture-source, ...). Computing them
+// once per element — instead of re-running nearestHeading's querySelectorAll +
+// layout reads for every candidate URL — is the bulk of the per-image savings.
+function elImageContext(el, sectionContext) {
+  if (!el) {
+    return {
+      dims: { width: 0, height: 0, renderedWidth: 0, renderedHeight: 0 },
+      alt: '', caption: '', heading: '', nearbyText: '', sectionIds: [],
+    };
+  }
+  const dims = imageDimensions(el);
+  const caption = imageCaption(el);
+  return {
+    dims,
+    alt: truncateText(el.getAttribute?.('alt') || '', 180),
+    caption,
+    heading: nearestHeading(el),
+    nearbyText: nearbyImageText(el, caption),
+    sectionIds: imageSectionIds(el, sectionContext),
+  };
+}
+
+function makeImageMeta(rawUrl, el, source, index, sectionContext, context) {
   const url = normalizeImageUrl(rawUrl);
   if (!url) return null;
-  const dims = el ? imageDimensions(el) : { width: 0, height: 0, renderedWidth: 0, renderedHeight: 0 };
-  const caption = el ? imageCaption(el) : '';
+  const ctx = context || elImageContext(el, sectionContext);
   const meta = {
     id: `image-${index + 1}`,
     url,
     source,
-    alt: truncateText(el?.getAttribute?.('alt') || '', 180),
-    caption,
-    heading: el ? nearestHeading(el) : '',
-    nearbyText: el ? nearbyImageText(el, caption) : '',
-    sectionIds: imageSectionIds(el, sectionContext),
-    width: dims.width,
-    height: dims.height,
-    renderedWidth: dims.renderedWidth,
-    renderedHeight: dims.renderedHeight,
+    alt: ctx.alt,
+    caption: ctx.caption,
+    heading: ctx.heading,
+    nearbyText: ctx.nearbyText,
+    sectionIds: ctx.sectionIds,
+    width: ctx.dims.width,
+    height: ctx.dims.height,
+    renderedWidth: ctx.dims.renderedWidth,
+    renderedHeight: ctx.dims.renderedHeight,
     index,
   };
   if (!imageLooksUsable(meta, el)) return null;
@@ -728,10 +775,30 @@ function makeImageMeta(rawUrl, el, source, index, sectionContext) {
   return meta;
 }
 
+// Elements whose CSS background-image might be real content: content-container
+// descendants plus the handful of hero/banner wrappers that carry a background
+// photo. The previous version unioned the first 800 elements of the WHOLE body
+// and then called getComputedStyle + getBoundingClientRect on every one (up to
+// 1600) — a full style+layout sweep over the page just to find a few
+// backgrounds, almost all discarded. A targeted selector finds the same real
+// images at a fraction of the cost. (<img> and og:image are handled separately,
+// so nothing content-bearing is lost here.)
+const BACKGROUND_IMAGE_SELECTOR = [
+  'article *', 'main *', '[role="main"] *', 'figure', 'figure *',
+  'header', '[style*="background"]',
+  '[class*="hero" i]', '[class*="banner" i]', '[class*="cover" i]',
+  '[class*="masthead" i]', '[class*="featured" i]', '[class*="thumbnail" i]',
+].join(',');
+
 function backgroundImageElements() {
-  const prioritized = Array.from(document.querySelectorAll('article *, main *, figure *, [role="main"] *'));
-  const fallback = Array.from(document.body?.querySelectorAll('*') || []).slice(0, 800);
-  return Array.from(new Set([...prioritized, ...fallback])).slice(0, 1600);
+  let nodes;
+  try {
+    nodes = document.querySelectorAll(BACKGROUND_IMAGE_SELECTOR);
+  } catch {
+    // Older engines may reject the case-insensitive attribute flag.
+    nodes = document.querySelectorAll('article *, main *, figure *, [role="main"] *, header');
+  }
+  return Array.from(new Set(nodes)).slice(0, 500);
 }
 
 function extractPageImages(sectionContext) {
@@ -758,8 +825,9 @@ function extractPageImages(sectionContext) {
     ];
     // When the page lazy-loads, the plain src attribute is just a placeholder.
     if (!hasLazy) sources.push(['img-src', img.getAttribute('src') || img.src]);
+    const ctx = elImageContext(img, sectionContext);
     for (const [source, rawUrl] of sources) {
-      const item = makeImageMeta(rawUrl, img, source, imageIndex, sectionContext);
+      const item = makeImageMeta(rawUrl, img, source, imageIndex, sectionContext, ctx);
       if (item) candidates.push(item);
     }
   }
@@ -773,8 +841,9 @@ function extractPageImages(sectionContext) {
     const rect = el.getBoundingClientRect();
     if (rect.width < 220 || rect.height < 120) continue;
     const imageIndex = index++;
+    const ctx = elImageContext(el, sectionContext);
     for (const rawUrl of urls) {
-      const item = makeImageMeta(rawUrl, el, 'css-background', imageIndex, sectionContext);
+      const item = makeImageMeta(rawUrl, el, 'css-background', imageIndex, sectionContext, ctx);
       if (item) candidates.push(item);
     }
   }
@@ -826,79 +895,4 @@ function escapeHtml(text) {
   const div = document.createElement('div');
   div.textContent = text;
   return div.innerHTML;
-}
-
-function injectClearFonts() {
-  if (document.getElementById('clear-fonts')) return;
-  const fontBase = safeRuntimeUrl('assets/fonts/');
-  if (!fontBase) return;
-  const style = document.createElement('style');
-  style.id = 'clear-fonts';
-  style.textContent = `
-    @font-face {
-      font-family: 'Geist';
-      font-style: normal;
-      font-weight: 100 900;
-      font-display: swap;
-      src: url(${fontBase}geist-latin.woff2) format('woff2');
-      unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-    }
-    @font-face {
-      font-family: 'Geist';
-      font-style: normal;
-      font-weight: 100 900;
-      font-display: swap;
-      src: url(${fontBase}geist-latin-ext.woff2) format('woff2');
-      unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
-    }
-    @font-face {
-      font-family: 'Geist Mono';
-      font-style: normal;
-      font-weight: 100 900;
-      font-display: swap;
-      src: url(${fontBase}geist-mono-latin.woff2) format('woff2');
-      unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-    }
-    @font-face {
-      font-family: 'Geist Mono';
-      font-style: normal;
-      font-weight: 100 900;
-      font-display: swap;
-      src: url(${fontBase}geist-mono-latin-ext.woff2) format('woff2');
-      unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
-    }
-    @font-face {
-      font-family: 'Newsreader';
-      font-style: normal;
-      font-weight: 400;
-      font-display: swap;
-      src: url(${fontBase}newsreader-latin.woff2) format('woff2');
-      unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-    }
-    @font-face {
-      font-family: 'Newsreader';
-      font-style: normal;
-      font-weight: 400;
-      font-display: swap;
-      src: url(${fontBase}newsreader-latin-ext.woff2) format('woff2');
-      unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
-    }
-    @font-face {
-      font-family: 'Newsreader';
-      font-style: italic;
-      font-weight: 400;
-      font-display: swap;
-      src: url(${fontBase}newsreader-italic-latin.woff2) format('woff2');
-      unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-    }
-    @font-face {
-      font-family: 'Newsreader';
-      font-style: italic;
-      font-weight: 400;
-      font-display: swap;
-      src: url(${fontBase}newsreader-italic-latin-ext.woff2) format('woff2');
-      unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
-    }
-  `;
-  (document.head || document.documentElement).appendChild(style);
 }

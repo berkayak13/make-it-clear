@@ -93,25 +93,10 @@
           <input type="checkbox" id="enableResearchLoggingOpt" checked>
           <span>Enable Research Logging</span>
         </label>
-        <p class="settings-hint">Log preference changes, chatbot interactions, feedback events, and renarration runs to Cloud Firestore.</p>
+        <p class="settings-hint">Log preference changes, chatbot interactions, feedback events, and renarration runs to on-device storage. Nothing leaves your browser.</p>
       </div>
 
       <hr class="clear-hr" style="margin:16px 0;">
-
-      <div class="settings-subsection-title">
-        Cloud Firestore <span id="fbSaveStatus" class="settings-saved-flash" style="display:none;">Saved!</span>
-      </div>
-
-      <div class="settings-field">
-        <label class="settings-label" for="firebaseProjectId">Firebase Project ID</label>
-        <input type="text" id="firebaseProjectId" placeholder="e.g., renarration-research" class="settings-input">
-      </div>
-
-      <div class="settings-field">
-        <label class="settings-label" for="firebaseApiKey">Firebase API Key</label>
-        <input type="password" id="firebaseApiKey" placeholder="Enter Firebase API key" class="settings-input">
-        <p class="settings-hint">Stored locally (not synced). Defaults are pre-configured; override only if using a different Firebase project.</p>
-      </div>
 
       <div class="settings-section-actions">
         <button id="openResearchDashboardBtn" class="clear-btn clear-btn--ghost">Open Research Dashboard</button>
