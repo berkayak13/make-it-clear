@@ -29,7 +29,7 @@ chrome.storage.onChanged.addListener(async (changes, area) => {
         console.log(`[ReNarrator] Preference changed: ${key}`, changes[key]);
       }
     }
-  } catch (e) {
+  } catch {
     // Preference tracking is best-effort.
   }
 });

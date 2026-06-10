@@ -87,12 +87,21 @@
   transform: rotate(225deg);
 }
 
-/* Eyebrow row */
+/* Eyebrow row — doubles as the drag handle */
 .clear-selection-eyebrow {
   display: flex;
   align-items: center;
   gap: 8px;
   margin-bottom: 10px;
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+}
+
+/* Once the card has been dragged it no longer points at the selection. */
+#clear-selection-popup.clear-selection-dragged .clear-selection-pointer {
+  display: none;
 }
 
 .clear-selection-eyebrow-text {

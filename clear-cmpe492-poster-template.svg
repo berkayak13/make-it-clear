@@ -1,0 +1,296 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1131" width="1600" height="1131" font-family="Helvetica, Arial, sans-serif">
+  <!--
+    ============================================================================
+    CmpE 492 SENIOR PROJECT POSTER TEMPLATE
+    Boğaziçi University · Department of Computer Engineering
+    Project: "Clear" — Goal-Conditioned, Faithful Re-Narration of Web Pages
+    ····························································································
+    PRINT SPEC (BOUN): A0, LANDSCAPE (1189 x 841 mm). This canvas is 1600x1131
+    units, the exact A0 ratio (1.414). Export to PDF/PNG at A0 to print.
+    Font minimums are met at A0: title>=85pt, headings>=36pt, body>=24pt,
+    captions>=18pt (1 unit ~= 2.1 pt here).
+    ····························································································
+    HOW TO USE: search for the word PLACEHOLDER. Replace every bracketed field
+    (authors, advisor, logo, screenshots, conclusions) with your own content.
+    ============================================================================
+  -->
+  <defs>
+    <linearGradient id="titleGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0e3540"/>
+      <stop offset="1" stop-color="#0e7c86"/>
+    </linearGradient>
+    <filter id="cardShadow" x="-5%" y="-5%" width="110%" height="115%">
+      <feDropShadow dx="0" dy="3" stdDeviation="5" flood-color="#1d2b36" flood-opacity="0.12"/>
+    </filter>
+    <marker id="arrTeal" markerWidth="10" markerHeight="10" refX="7" refY="3" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#0e7c86"/>
+    </marker>
+    <marker id="arrAmber" markerWidth="10" markerHeight="10" refX="7" refY="3" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#d9831a"/>
+    </marker>
+    <style>
+      .h1   { font-size:41px; font-weight:700; fill:#ffffff; }
+      .sub  { font-size:22px; font-weight:400; fill:#cfeef0; }
+      .meta { font-size:17px; font-weight:400; fill:#cfeef0; }
+      .metad{ font-size:15px; font-weight:400; fill:#a9d6da; }
+      .ph   { font-size:25px; font-weight:700; fill:#16323d; }
+      .num  { font-size:19px; font-weight:700; fill:#ffffff; }
+      .body { font-size:16px; fill:#27414f; }
+      .bodyb{ font-size:16px; font-weight:700; fill:#16323d; }
+      .sm   { font-size:13px; fill:#5d6f7e; }
+      .smb  { font-size:13px; font-weight:700; fill:#16323d; }
+      .box  { font-size:15px; font-weight:700; fill:#16323d; }
+      .boxw { font-size:15px; font-weight:700; fill:#ffffff; }
+      .cap  { font-size:14px; font-style:italic; fill:#5d6f7e; }
+      .tick { font-size:12px; fill:#5d6f7e; }
+      .phold{ font-size:15px; font-style:italic; fill:#9aa7b2; }
+    </style>
+  </defs>
+
+  <!-- background -->
+  <rect x="0" y="0" width="1600" height="1131" fill="#eaeff3"/>
+
+  <!-- ======================= TITLE BAR ======================= -->
+  <rect x="40" y="36" width="1520" height="160" rx="16" fill="url(#titleGrad)" filter="url(#cardShadow)"/>
+
+  <!-- PLACEHOLDER: Boğaziçi University logo (drop your logo image over this box) -->
+  <rect x="58" y="52" width="128" height="128" rx="12" fill="#ffffff" opacity="0.95"/>
+  <text x="122" y="106" text-anchor="middle" font-size="13" font-weight="700" fill="#0e3540">BOĞAZİÇİ</text>
+  <text x="122" y="124" text-anchor="middle" font-size="13" font-weight="700" fill="#0e3540">UNIVERSITY</text>
+  <text x="122" y="150" text-anchor="middle" font-size="11" font-style="italic" fill="#7a8b95">‹ logo here ›</text>
+
+  <!-- title block -->
+  <text x="210" y="92" class="h1">Clear: Goal-Conditioned, Faithful Re-Narration of Web Pages</text>
+  <text x="210" y="126" class="sub">A two-phase multimodal pipeline with an auditable facts-and-claims ledger</text>
+  <!-- PLACEHOLDER: authors + advisor -->
+  <text x="210" y="158" class="meta">‹ Student Name 1 ›  ·  ‹ Student Name 2 ›  ·  ‹ Student Name 3 ›      |      Advisor: ‹ Prof. Name ›</text>
+  <!-- PLACEHOLDER: affiliation / course / term -->
+  <text x="210" y="180" class="metad">Boğaziçi University · Department of Computer Engineering · CmpE 492 Senior Project · ‹ Term, Year ›</text>
+
+  <!-- PLACEHOLDER: QR code to demo/repo -->
+  <rect x="1422" y="52" width="120" height="120" rx="10" fill="#ffffff"/>
+  <g fill="#16323d">
+    <rect x="1438" y="68" width="24" height="24"/><rect x="1502" y="68" width="24" height="24"/>
+    <rect x="1438" y="132" width="24" height="24"/><rect x="1472" y="100" width="14" height="14"/>
+    <rect x="1500" y="104" width="10" height="10"/><rect x="1518" y="126" width="10" height="10"/>
+    <rect x="1480" y="132" width="10" height="10"/><rect x="1500" y="144" width="24" height="12"/>
+  </g>
+  <text x="1482" y="190" text-anchor="middle" class="metad" font-size="12">‹ QR: demo / repo ›</text>
+
+  <!-- ======================= COLUMN A ======================= -->
+  <!-- A1: Problem Statement -->
+  <rect x="40" y="212" width="455" height="320" rx="14" fill="#ffffff" filter="url(#cardShadow)"/>
+  <circle cx="70" cy="246" r="18" fill="#0e7c86"/><text x="70" y="253" text-anchor="middle" class="num">1</text>
+  <text x="100" y="254" class="ph">Problem Statement</text>
+  <line x1="64" y1="268" x2="471" y2="268" stroke="#d8e0e7" stroke-width="1"/>
+  <text x="64" y="298" class="body">
+    <tspan x="64" dy="0">Web pages <tspan class="bodyb">bury content under clutter</tspan> and</tspan>
+    <tspan x="64" dy="24">present it the same way for every reader,</tspan>
+    <tspan x="64" dy="24">regardless of why they came.</tspan>
+    <tspan x="64" dy="30">Decluttering, summarizing, and translating</tspan>
+    <tspan x="64" dy="24">each fix only a sliver. A single LLM rewrite</tspan>
+    <tspan x="64" dy="24"><tspan class="bodyb">leaks boilerplate, drops content, ignores</tspan></tspan>
+    <tspan x="64" dy="24"><tspan class="bodyb">images,</tspan> and can't be checked for fabrication.</tspan>
+  </text>
+  <rect x="64" y="466" width="407" height="52" rx="8" fill="#eaf6f7" stroke="#0e7c86" stroke-opacity="0.45"/>
+  <text x="78" y="490" class="bodyb" fill="#0b5d65">Goal:</text>
+  <text x="120" y="490" class="body">re-narrate a page into faithful new</text>
+  <text x="78" y="510" class="body">writing adapted to the reader's goal — keeping coverage complete.</text>
+
+  <!-- A2: Why a single rewrite fails -->
+  <rect x="40" y="547" width="455" height="300" rx="14" fill="#ffffff" filter="url(#cardShadow)"/>
+  <circle cx="70" cy="581" r="18" fill="#0e7c86"/><text x="70" y="588" text-anchor="middle" class="num">2</text>
+  <text x="100" y="589" class="ph">Why one rewrite fails</text>
+  <line x1="64" y1="603" x2="471" y2="603" stroke="#d8e0e7" stroke-width="1"/>
+  <text x="64" y="630" class="sm">One LLM call on raw HTML must clean, comprehend,</text>
+  <text x="64" y="648" class="sm">compress, and compose — all at once.</text>
+  <g>
+    <rect x="64" y="662" width="20" height="20" rx="4" fill="#e26d5c"/>
+    <text x="96" y="672" class="bodyb">Chrome contamination</text>
+    <text x="96" y="691" class="sm">Boilerplate leaks in; real content gets cut.</text>
+
+    <rect x="64" y="706" width="20" height="20" rx="4" fill="#e0a93b"/>
+    <text x="96" y="716" class="bodyb">Silent truncation</text>
+    <text x="96" y="735" class="sm">Long pages lose content with no signal.</text>
+
+    <rect x="64" y="750" width="20" height="20" rx="4" fill="#7a8aa0"/>
+    <text x="96" y="760" class="bodyb">Unverifiable &amp; modality-blind</text>
+    <text x="96" y="779" class="sm">No checkpoint to audit; figures ignored.</text>
+  </g>
+  <rect x="64" y="790" width="407" height="50" rx="8" fill="#fbecea" stroke="#e26d5c" stroke-opacity="0.4"/>
+  <text x="78" y="812" class="smb">ROOT CAUSE</text>
+  <text x="78" y="831" class="body" font-size="14">No checkpoint between perception and generation.</text>
+
+  <!-- A3: Design principles -->
+  <rect x="40" y="862" width="455" height="153" rx="14" fill="#ffffff" filter="url(#cardShadow)"/>
+  <circle cx="70" cy="896" r="18" fill="#0e7c86"/><text x="70" y="903" text-anchor="middle" class="num">3</text>
+  <text x="100" y="904" class="ph">Design principles</text>
+  <line x1="64" y1="918" x2="471" y2="918" stroke="#d8e0e7" stroke-width="1"/>
+  <text x="64" y="944" class="body"><tspan class="bodyb" fill="#0b5d65">Page-faithful</tspan> — draws only from the ledger; nothing invented.</text>
+  <text x="64" y="970" class="body"><tspan class="bodyb" fill="#0b5d65">Bounded coverage</tspan> — wall-clock / token / storage budgets;</text>
+  <text x="64" y="990" class="body">every skip is logged, never silent.</text>
+  <text x="64" y="1008" class="body" font-size="14"><tspan class="bodyb" fill="#0b5d65">Graceful degradation</tspan> — orchestrator fail → local assembly.</text>
+
+  <!-- ======================= COLUMN B (HERO) ======================= -->
+  <!-- B1: System pipeline -->
+  <rect x="515" y="212" width="560" height="400" rx="14" fill="#ffffff" filter="url(#cardShadow)"/>
+  <circle cx="545" cy="246" r="18" fill="#0e7c86"/><text x="545" y="253" text-anchor="middle" class="num">4</text>
+  <text x="575" y="254" class="ph">System — extract ▸ ledger ▸ renarrate</text>
+  <line x1="539" y1="268" x2="1051" y2="268" stroke="#d8e0e7" stroke-width="1"/>
+
+  <!-- A: web page -->
+  <rect x="585" y="278" width="420" height="38" rx="8" fill="#eef2f5" stroke="#cfd9e1"/>
+  <text x="795" y="302" text-anchor="middle" class="box">Web page — DOM text + images + chrome</text>
+  <text x="1010" y="300" class="sm">scrape</text>
+  <line x1="795" y1="316" x2="795" y2="327" stroke="#0e7c86" stroke-width="3" marker-end="url(#arrTeal)"/>
+
+  <!-- B: extract -->
+  <rect x="585" y="329" width="420" height="100" rx="8" fill="#eaf6f7" stroke="#0e7c86" stroke-opacity="0.5"/>
+  <text x="600" y="350" class="smb" fill="#0b5d65">EXTRACT — parallel · budget-gated subagents</text>
+  <rect x="600" y="358" width="185" height="32" rx="16" fill="#0e7c86"/>
+  <text x="692" y="379" text-anchor="middle" class="boxw">text subagents</text>
+  <rect x="805" y="358" width="185" height="32" rx="16" fill="#0e7c86"/>
+  <text x="897" y="379" text-anchor="middle" class="boxw">vision curator</text>
+  <rect x="600" y="398" width="390" height="23" rx="11" fill="#ffffff" stroke="#0e7c86"/>
+  <text x="795" y="414" text-anchor="middle" class="sm" fill="#0b5d65">hierarchical reduce → orchestrator merge</text>
+  <line x1="795" y1="429" x2="795" y2="440" stroke="#0e7c86" stroke-width="3" marker-end="url(#arrTeal)"/>
+
+  <!-- C: facts-and-claims ledger (checkpoint) -->
+  <rect x="585" y="442" width="420" height="40" rx="8" fill="#d6eef0" stroke="#0e7c86" stroke-width="2.5"/>
+  <text x="795" y="467" text-anchor="middle" class="box" fill="#0b5d65">FACTS &amp; CLAIMS LEDGER — atomic typed facts</text>
+  <line x1="795" y1="482" x2="795" y2="493" stroke="#0e7c86" stroke-width="3" marker-end="url(#arrTeal)"/>
+
+  <!-- D: renarrate -->
+  <rect x="585" y="495" width="420" height="40" rx="8" fill="#fbe6cd" stroke="#d9831a" stroke-width="2"/>
+  <text x="795" y="520" text-anchor="middle" class="box" fill="#9a5a10">RENARRATE — goal-conditioned prose + captions</text>
+
+  <text x="795" y="558" text-anchor="middle" class="cap">A checkpoint between perception and generation.</text>
+
+  <!-- E: reading goal feeds D -->
+  <rect x="585" y="566" width="420" height="36" rx="18" fill="#fff5e9" stroke="#d9831a" stroke-dasharray="5 4"/>
+  <text x="795" y="589" text-anchor="middle" class="box" fill="#9a5a10">Reading goal — depth · focus · style · language</text>
+  <line x1="630" y1="566" x2="630" y2="537" stroke="#d9831a" stroke-width="3" marker-end="url(#arrAmber)"/>
+
+  <!-- B2: Facts-and-claims ledger detail -->
+  <rect x="515" y="627" width="560" height="150" rx="14" fill="#ffffff" filter="url(#cardShadow)"/>
+  <circle cx="545" cy="661" r="18" fill="#0e7c86"/><text x="545" y="668" text-anchor="middle" class="num">5</text>
+  <text x="575" y="669" class="ph">The Facts &amp; Claims Ledger</text>
+  <line x1="539" y1="683" x2="1051" y2="683" stroke="#d8e0e7" stroke-width="1"/>
+  <g>
+    <rect x="539" y="695" width="78" height="24" rx="12" fill="#d6eef0"/><text x="578" y="712" text-anchor="middle" class="smb" fill="#0b5d65">FACT</text>
+    <rect x="625" y="695" width="84" height="24" rx="12" fill="#d6eef0"/><text x="667" y="712" text-anchor="middle" class="smb" fill="#0b5d65">CLAIM</text>
+    <rect x="717" y="695" width="86" height="24" rx="12" fill="#d6eef0"/><text x="760" y="712" text-anchor="middle" class="smb" fill="#0b5d65">QUOTE</text>
+    <rect x="811" y="695" width="90" height="24" rx="12" fill="#d6eef0"/><text x="856" y="712" text-anchor="middle" class="smb" fill="#0b5d65">FIGURE</text>
+    <rect x="909" y="695" width="104" height="24" rx="12" fill="#d6eef0"/><text x="961" y="712" text-anchor="middle" class="smb" fill="#0b5d65">COUNTER</text>
+  </g>
+  <text x="539" y="745" class="body">Each entry carries evidence · confidence · provenance · section / image links.</text>
+  <text x="539" y="768" class="bodyb" fill="#0b5d65">→ makes faithfulness and coverage directly measurable.</text>
+
+  <!-- B3: SCREENSHOTS (PLACEHOLDER) -->
+  <rect x="515" y="792" width="560" height="223" rx="14" fill="#ffffff" filter="url(#cardShadow)"/>
+  <circle cx="545" cy="826" r="18" fill="#d9831a"/><text x="545" y="833" text-anchor="middle" class="num">6</text>
+  <text x="575" y="834" class="ph">Screenshots of the App</text>
+  <line x1="539" y1="848" x2="1051" y2="848" stroke="#d8e0e7" stroke-width="1"/>
+  <!-- PLACEHOLDER: replace each dashed frame with a real screenshot image -->
+  <rect x="539" y="862" width="246" height="138" rx="8" fill="#f1f4f7" stroke="#9aa7b2" stroke-width="1.5" stroke-dasharray="7 5"/>
+  <g stroke="#c2ccd5" stroke-width="2" fill="none">
+    <rect x="557" y="880" width="210" height="14" rx="3"/>
+    <line x1="557" y1="908" x2="767" y2="908"/><line x1="557" y1="924" x2="720" y2="924"/>
+    <line x1="557" y1="940" x2="767" y2="940"/><line x1="557" y1="956" x2="690" y2="956"/>
+  </g>
+  <text x="662" y="990" text-anchor="middle" class="phold">‹ screenshot — overlay / extract ›</text>
+  <rect x="805" y="862" width="246" height="138" rx="8" fill="#f1f4f7" stroke="#9aa7b2" stroke-width="1.5" stroke-dasharray="7 5"/>
+  <g stroke="#c2ccd5" stroke-width="2" fill="none">
+    <line x1="928" y1="880" x2="928" y2="978"/>
+    <line x1="823" y1="900" x2="912" y2="900"/><line x1="823" y1="918" x2="912" y2="918"/><line x1="823" y1="936" x2="900" y2="936"/>
+    <line x1="944" y1="900" x2="1033" y2="900"/><line x1="944" y1="918" x2="1033" y2="918"/><line x1="944" y1="936" x2="1010" y2="936"/>
+  </g>
+  <text x="928" y="990" text-anchor="middle" class="phold">‹ screenshot — renarrated split panel ›</text>
+
+  <!-- ======================= COLUMN C ======================= -->
+  <!-- C1: Evaluation & Results -->
+  <rect x="1095" y="212" width="465" height="400" rx="14" fill="#ffffff" filter="url(#cardShadow)"/>
+  <circle cx="1125" cy="246" r="18" fill="#d9831a"/><text x="1125" y="253" text-anchor="middle" class="num">7</text>
+  <text x="1155" y="254" class="ph">Evaluation &amp; Results</text>
+  <line x1="1119" y1="268" x2="1536" y2="268" stroke="#d8e0e7" stroke-width="1"/>
+  <text x="1119" y="294" class="body"><tspan class="bodyb" fill="#9a5a10">Method:</tspan> LLM-as-a-judge over the ledger —</text>
+  <text x="1119" y="314" class="sm">grade extraction (page→ledger) and renarration (ledger→prose)</text>
+  <text x="1119" y="332" class="sm">separately; rubric 1–5 (Faithfulness · Coverage · Goal-fit · Voice).</text>
+  <text x="1530" y="360" text-anchor="end" class="cap">illustrative — replace with measured</text>
+
+  <!-- chart -->
+  <g stroke="#e7edf2" stroke-width="1">
+    <line x1="1140" y1="560" x2="1530" y2="560"/>
+    <line x1="1140" y1="525" x2="1530" y2="525"/>
+    <line x1="1140" y1="490" x2="1530" y2="490"/>
+    <line x1="1140" y1="455" x2="1530" y2="455"/>
+    <line x1="1140" y1="420" x2="1530" y2="420"/>
+  </g>
+  <g class="tick" text-anchor="end" fill="#5d6f7e">
+    <text x="1132" y="564">1</text><text x="1132" y="529">2</text><text x="1132" y="494">3</text>
+    <text x="1132" y="459">4</text><text x="1132" y="424">5</text>
+  </g>
+  <line x1="1140" y1="560" x2="1530" y2="560" stroke="#b9c6d1" stroke-width="1.5"/>
+  <!-- group 1: Faithfulness -->
+  <rect x="1160" y="399" width="28" height="161" fill="#0e7c86"/>
+  <rect x="1194" y="441" width="28" height="119" fill="#8aa0b1"/>
+  <rect x="1228" y="427" width="28" height="133" fill="#d9831a"/>
+  <text x="1208" y="578" text-anchor="middle" class="tick">Faithfulness</text>
+  <text x="1174" y="392" text-anchor="middle" class="tick" fill="#0b5d65" font-weight="700">4.6</text>
+  <!-- group 2: Coverage -->
+  <rect x="1294" y="406" width="28" height="154" fill="#0e7c86"/>
+  <rect x="1328" y="458" width="28" height="102" fill="#8aa0b1"/>
+  <rect x="1362" y="469" width="28" height="91" fill="#d9831a"/>
+  <text x="1342" y="578" text-anchor="middle" class="tick">Coverage</text>
+  <text x="1308" y="399" text-anchor="middle" class="tick" fill="#0b5d65" font-weight="700">4.4</text>
+  <!-- group 3: Goal-fit -->
+  <rect x="1428" y="402" width="28" height="158" fill="#0e7c86"/>
+  <rect x="1462" y="455" width="28" height="105" fill="#8aa0b1"/>
+  <rect x="1496" y="451" width="28" height="109" fill="#d9831a"/>
+  <text x="1476" y="578" text-anchor="middle" class="tick">Goal-fit</text>
+  <text x="1442" y="395" text-anchor="middle" class="tick" fill="#0b5d65" font-weight="700">4.5</text>
+  <!-- legend -->
+  <g>
+    <rect x="1140" y="592" width="14" height="14" rx="3" fill="#0e7c86"/><text x="1160" y="604" class="tick">Clear</text>
+    <rect x="1214" y="592" width="14" height="14" rx="3" fill="#8aa0b1"/><text x="1234" y="604" class="tick">One-shot LLM</text>
+    <rect x="1328" y="592" width="14" height="14" rx="3" fill="#d9831a"/><text x="1348" y="604" class="tick">Summarizer</text>
+  </g>
+
+  <!-- C2: CONCLUSIONS (PLACEHOLDER) -->
+  <rect x="1095" y="627" width="465" height="388" rx="14" fill="#ffffff" filter="url(#cardShadow)"/>
+  <circle cx="1125" cy="661" r="18" fill="#d9831a"/><text x="1125" y="668" text-anchor="middle" class="num">8</text>
+  <text x="1155" y="669" class="ph">Conclusions</text>
+  <line x1="1119" y1="683" x2="1536" y2="683" stroke="#d8e0e7" stroke-width="1"/>
+  <!-- PLACEHOLDER: write your real conclusions over these italic lines -->
+  <text x="1119" y="712" class="phold">‹ Summarize what you built and what you learned. ›</text>
+
+  <g>
+    <circle cx="1126" cy="740" r="4" fill="#0e7c86"/>
+    <text x="1142" y="745" class="body"><tspan class="bodyb" fill="#0b5d65">Result.</tspan> ‹ Splitting perception from generation made</text>
+    <text x="1142" y="765" class="body">faithfulness checkable and coverage bounded. ›</text>
+
+    <circle cx="1126" cy="792" r="4" fill="#0e7c86"/>
+    <text x="1142" y="797" class="body"><tspan class="bodyb" fill="#0b5d65">Impact.</tspan> ‹ Readers get goal-fit writing with no</text>
+    <text x="1142" y="817" class="body">silent drops or fabricated claims. ›</text>
+
+    <circle cx="1126" cy="844" r="4" fill="#0e7c86"/>
+    <text x="1142" y="849" class="body"><tspan class="bodyb" fill="#0b5d65">Limitations.</tspan> ‹ Budget caps coverage; vision is a</text>
+    <text x="1142" y="869" class="body">curator, not a full fact extractor. ›</text>
+
+    <circle cx="1126" cy="896" r="4" fill="#d9831a"/>
+    <text x="1142" y="901" class="body"><tspan class="bodyb" fill="#9a5a10">Future work.</tspan> ‹ On-device models, richer goals,</text>
+    <text x="1142" y="921" class="body">human-validated evaluation at scale. ›</text>
+  </g>
+
+  <rect x="1119" y="942" width="417" height="58" rx="8" fill="#d6eef0"/>
+  <text x="1133" y="964" class="smb" fill="#0b5d65">KEY TAKEAWAY</text>
+  <text x="1133" y="985" class="body" font-size="14">‹ One sentence the reader should remember about</text>
+  <text x="1133" y="1003" class="body" font-size="14">your project. ›</text>
+
+  <!-- ======================= FOOTER ======================= -->
+  <rect x="40" y="1031" width="1520" height="70" rx="12" fill="#16323d"/>
+  <text x="64" y="1060" font-size="14" font-weight="700" fill="#cfeef0">Acknowledgments</text>
+  <text x="64" y="1082" font-size="14" fill="#a9d6da">‹ Thank your advisor, jury, and anyone who helped. › · Built as a Chrome MV3 extension (OpenAI Responses API, vanilla JS).</text>
+  <text x="1536" y="1060" text-anchor="end" font-size="14" font-weight="700" fill="#cfeef0">‹ github.com/your-org/clear ›</text>
+  <text x="1536" y="1082" text-anchor="end" font-size="13" fill="#a9d6da">CmpE 492 · Boğaziçi University · ‹ contact email ›</text>
+</svg>

@@ -20,32 +20,30 @@
   let chatSessionId = null;
   let revealTimer = null;
   let extractionInProgress = false;
-  let extensionContextDead = false;
+
+  // Extension-context guards + font injection are shared with content.js via
+  // clear-shared.js (injected first — see manifest content_scripts order).
+  const { hasExtensionContext, markExtensionContextDead, safeSendMessage, injectClearFonts } =
+    globalThis.__clearRuntime;
+  injectClearFonts();
+
+  // Overlay open/closed state is per-TAB and session-scoped (sessionStorage).
+  // Previously it lived in global chrome.storage.local, so opening it on one tab
+  // auto-showed it on every other page that loaded. sessionStorage keeps it open
+  // on the tab you opened it on (across reloads/navigations) until you close it,
+  // without leaking to other tabs. Position/collapsed stay global (preferences).
+  const OVERLAY_VISIBLE_KEY = '__clear_overlay_visible__';
+  const readTabVisible = () => {
+    try { return sessionStorage.getItem(OVERLAY_VISIBLE_KEY) === '1'; } catch { return false; }
+  };
+  const writeTabVisible = (value) => {
+    try { sessionStorage.setItem(OVERLAY_VISIBLE_KEY, value ? '1' : '0'); } catch { /* sandboxed page */ }
+  };
 
   function hasExtractionContent(value) {
     if (String(value?.compactText || '').trim()) return true;
     const facts = value?.facts || value?.knowledge?.facts || [];
     return Array.isArray(facts) && facts.some((fact) => String(typeof fact === 'string' ? fact : fact?.text || '').trim());
-  }
-
-  function isExtensionContextError(error) {
-    return /Extension context invalidated/i.test(error?.message || String(error || ''));
-  }
-
-  function hasExtensionContext() {
-    if (extensionContextDead) return false;
-    try {
-      return !!chrome?.runtime?.id;
-    } catch (e) {
-      if (isExtensionContextError(e)) extensionContextDead = true;
-      return false;
-    }
-  }
-
-  function markExtensionContextDead(error) {
-    if (!isExtensionContextError(error)) return false;
-    extensionContextDead = true;
-    return true;
   }
 
   function safeLocalSet(values) {
@@ -86,29 +84,6 @@
     }
   }
 
-  function safeSendMessage(message) {
-    if (!hasExtensionContext()) return Promise.resolve(null);
-    try {
-      return chrome.runtime.sendMessage(message).catch((e) => {
-        markExtensionContextDead(e);
-        return null;
-      });
-    } catch (e) {
-      markExtensionContextDead(e);
-      return Promise.resolve(null);
-    }
-  }
-
-  function safeRuntimeUrl(path) {
-    if (!hasExtensionContext()) return '';
-    try {
-      return chrome.runtime.getURL(path);
-    } catch (e) {
-      markExtensionContextDead(e);
-      return '';
-    }
-  }
-
   /* ── Icons ── */
   const I = {
     grip: `<span class="ov-grip" data-drag="grip"><i></i><i></i><i></i><i></i><i></i><i></i></span>`,
@@ -119,17 +94,10 @@
     chevron: `<svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="m3 4 2 2 2-2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
   };
 
-  /* ── Fonts (inject into shadow) ── */
-  const fontBase = safeRuntimeUrl('assets/fonts/');
-  const fontCSS = fontBase ? `
-    @font-face { font-family:'Geist'; font-style:normal; font-weight:100 900; font-display:swap; src:url(${fontBase}geist-latin.woff2) format('woff2'); }
-    @font-face { font-family:'Geist Mono'; font-style:normal; font-weight:100 900; font-display:swap; src:url(${fontBase}geist-mono-latin.woff2) format('woff2'); }
-    @font-face { font-family:'Newsreader'; font-style:normal; font-weight:400; font-display:swap; src:url(${fontBase}newsreader-latin.woff2) format('woff2'); }
-  ` : '';
-
-  /* ── Styles ── */
+  /* ── Styles ── (fonts are injected document-level by clear-shared.js and are
+     available inside this shadow root) ── */
   const styles = document.createElement('style');
-  styles.textContent = fontCSS + `
+  styles.textContent = `
     :host { all: initial; }
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -274,6 +242,9 @@
     @keyframes ov-spin { to { transform: rotate(360deg); } }
     .ov-cta .ov-minispin { display:inline-block; vertical-align:middle; width:13px; height:13px; border:2px solid rgba(255,255,255,0.35); border-top-color:#fff; border-radius:50%; animation: ov-spin 0.8s linear infinite; }
     .ov-knowledge-error { font-size: 12px; color: var(--neg); }
+    .ov-knowledge-error-detail { margin: 6px 0; font-size: 11px; line-height: 1.45; color: var(--muted); white-space: normal; word-break: break-word; }
+    .ov-knowledge-ready { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-2); }
+    .ov-knowledge-ready svg { width: 14px; height: 14px; flex: none; color: var(--accent); }
     .ov-retry { background:transparent; border:0; cursor:pointer; font-family:var(--font-sans); font-size:11px; font-weight:500; color:var(--accent); text-decoration:underline; margin-left:6px; }
 
     /* ── Conversation ── */
@@ -414,13 +385,13 @@
   /* ── Position ── */
   async function loadPosition() {
     try {
-      const data = await safeLocalGet(['clear.overlay.position', 'clear.overlay.collapsed', 'clear.overlay.visible']);
+      const data = await safeLocalGet(['clear.overlay.position', 'clear.overlay.collapsed']);
       if (data['clear.overlay.position']) {
         posX = data['clear.overlay.position'].x;
         posY = data['clear.overlay.position'].y;
       }
       collapsed = !!data['clear.overlay.collapsed'];
-      overlayVisible = !!data['clear.overlay.visible'];
+      overlayVisible = readTabVisible();
     } catch {}
     if (posX === null) { posX = window.innerWidth - 372 - 24; posY = 80; }
     clampPosition();
@@ -476,7 +447,7 @@
   /* ── Show/hide ── */
   function show() {
     overlayVisible = true;
-    safeLocalSet({ 'clear.overlay.visible': true });
+    writeTabVisible(true);
     if (collapsed) {
       panel.classList.add('ov-hidden');
       collapsedEl.classList.remove('ov-hidden');
@@ -497,13 +468,14 @@
       clearInterval(revealTimer);
       revealTimer = null;
     }
-    safeLocalSet({ 'clear.overlay.visible': false });
+    writeTabVisible(false);
   }
 
   function toggleCollapse() {
     collapsed = !collapsed;
     overlayVisible = true;
-    safeLocalSet({ 'clear.overlay.collapsed': collapsed, 'clear.overlay.visible': true });
+    safeLocalSet({ 'clear.overlay.collapsed': collapsed });
+    writeTabVisible(true);
     if (collapsed) {
       panel.classList.add('ov-hidden');
       collapsedEl.classList.remove('ov-hidden');
@@ -534,7 +506,7 @@
   }
 
   /* ── Knowledge rendering ── */
-  function renderKnowledge(state) {
+  function renderKnowledge(state, detail) {
     const statusEl = shadow.getElementById('ov-knowledge-status');
     const contentEl = shadow.getElementById('ov-knowledge-content');
 
@@ -545,7 +517,10 @@
     }
     if (state === 'error') {
       statusEl.innerHTML = '';
-      contentEl.innerHTML = `<div class="ov-knowledge-error">Extraction failed<button class="ov-retry" id="ov-retry">Retry</button></div>`;
+      // Show the actual reason (not just "Extraction failed") so failures are
+      // diagnosable — the error names which layer broke.
+      const reason = detail ? `<div class="ov-knowledge-error-detail">${esc(String(detail))}</div>` : '';
+      contentEl.innerHTML = `<div class="ov-knowledge-error">Extraction failed${reason}<button class="ov-retry" id="ov-retry">Retry</button></div>`;
       shadow.getElementById('ov-retry')?.addEventListener('click', triggerExtraction);
       return;
     }
@@ -560,16 +535,7 @@
       return;
     }
     statusEl.innerHTML = `${I.check}<span style="color:var(--muted)">EXTRACTED</span>`;
-    const text = extraction.compactText || '';
-    const lines = text.split('\n').filter(l => l.trim());
-    const summary = lines.slice(0, 2).join(' ');
-    const points = lines.slice(2, 5);
-    contentEl.innerHTML = `
-      <div class="ov-knowledge-summary">${esc(summary)}</div>
-      <div class="ov-knowledge-points">
-        ${points.map((p, i) => `<div class="ov-kp"><span class="ov-kp-idx">${String(i + 1).padStart(2, '0')}</span><span class="ov-kp-text">${esc(p)}</span></div>`).join('')}
-      </div>
-    `;
+    contentEl.innerHTML = `<div class="ov-knowledge-ready">${I.check}Extracted content is ready.</div>`;
   }
 
   /* ── Chat rendering ── */
@@ -745,7 +711,7 @@
       return extraction;
     } catch (e) {
       console.warn('[Clear] Page extraction failed:', e?.message || e);
-      renderKnowledge('error');
+      renderKnowledge('error', e?.message || String(e));
       return null;
     } finally {
       extractionInProgress = false;
@@ -785,7 +751,7 @@
       if (res?.success === false) throw new Error(res.error || 'Could not renarrate this page.');
       // The renarrated page opens in a new tab; restore the button for reuse.
       restore();
-    } catch (e) {
+    } catch {
       if (btn) btn.textContent = 'Renarration failed — try again';
       setTimeout(restore, 2600);
     }
@@ -851,7 +817,7 @@
             extraction = msg.extraction;
             renderKnowledge();
           } else if (msg.status === 'failed') {
-            renderKnowledge('error');
+            renderKnowledge('error', msg.error);
           }
         }
         return false;

@@ -4,6 +4,8 @@
 // offline, and the full extraction JSON is embedded so the site can be
 // regenerated from the file itself.
 
+import { arrayBufferToBase64 } from '../utils/binary.js';
+
 const MAX_IMAGE_BYTES = 1_800_000; // skip embedding any single image larger than this
 const MAX_TOTAL_EMBED_BYTES = 14_000_000; // overall embedded-image budget
 const IMAGE_FETCH_TIMEOUT_MS = 15000;
@@ -44,60 +46,80 @@ export function siteFilename(extraction) {
   return `clear-site-${base}.html`;
 }
 
-function arrayBufferToBase64(buffer) {
-  const bytes = new Uint8Array(buffer);
-  let binary = '';
-  const chunkSize = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+// How many image fetches run at once. The previous one-at-a-time loop made
+// total embed time the SUM of every image's round-trip; with a pool it is the
+// slowest few, well under the wall-clock budget on image-heavy pages.
+const EMBED_CONCURRENCY = 5;
+
+// Fetches one image's bytes, or null on any failure/timeout. No budget logic
+// here — byte budgets are applied deterministically (in page order) by the
+// caller, so concurrent fetch completion order can't change the result.
+async function fetchImageBytes(url) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), IMAGE_FETCH_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, { signal: controller.signal, credentials: 'omit' });
+    if (!response.ok) return null;
+    const contentType = (response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+    if (contentType && !contentType.startsWith('image/')) return null;
+    const buffer = await response.arrayBuffer();
+    if (!buffer.byteLength) return null;
+    return { buffer, mime: contentType || 'image/jpeg' };
+  } catch {
+    return null; // unreachable image — the builder falls back to the remote URL
+  } finally {
+    clearTimeout(timer);
   }
-  return btoa(binary);
 }
 
 // Fetches each extracted image and returns { [imageId]: dataUri }. Runs in the
 // background service worker, which has <all_urls> host permissions, so most
 // cross-origin images are reachable. Images that fail keep their remote URL.
+// Fetches run concurrently; the per-image and total byte budgets and the
+// wall-clock deadline are all still enforced.
 export async function collectImageDataURIs(images = [], onProgress) {
   const map = {};
-  let totalBytes = 0;
   const list = Array.isArray(images) ? images : [];
+  if (!list.length) return map;
+
   const deadline = Date.now() + MAX_TOTAL_EMBED_MS;
+  const fetched = new Array(list.length).fill(null);
+  let nextIndex = 0;
+  let completed = 0;
+  let timedOut = false;
 
+  const worker = async () => {
+    while (nextIndex < list.length) {
+      const i = nextIndex;
+      nextIndex += 1;
+      if (Date.now() > deadline) { timedOut = true; break; }
+      const url = String(list[i]?.url || '').trim();
+      if (!/^https?:\/\//i.test(url)) continue;
+      fetched[i] = await fetchImageBytes(url);
+      completed += 1;
+      onProgress?.(`Embedding images... (${completed}/${list.length})`);
+    }
+  };
+
+  await Promise.all(
+    Array.from({ length: Math.min(EMBED_CONCURRENCY, list.length) }, worker),
+  );
+
+  // Apply the byte budgets in page order so the embedded set is deterministic
+  // regardless of which fetch finished first.
+  let totalBytes = 0;
   for (let i = 0; i < list.length; i += 1) {
-    if (Date.now() > deadline) {
-      // Out of time budget — remaining images keep their remote URLs.
-      onProgress?.('Image embedding time limit reached; remaining images keep their links.');
-      break;
-    }
-    const image = list[i];
-    const url = String(image?.url || '').trim();
-    if (!/^https?:\/\//i.test(url)) continue;
+    const result = fetched[i];
+    if (!result) continue;
+    const { buffer, mime } = result;
+    if (buffer.byteLength > MAX_IMAGE_BYTES) continue;
+    if (totalBytes + buffer.byteLength > MAX_TOTAL_EMBED_BYTES) continue;
+    totalBytes += buffer.byteLength;
+    map[list[i].id] = `data:${mime};base64,${arrayBufferToBase64(buffer)}`;
+  }
 
-    onProgress?.(`Embedding image ${i + 1}/${list.length}...`);
-    try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), IMAGE_FETCH_TIMEOUT_MS);
-      let response;
-      try {
-        response = await fetch(url, { signal: controller.signal, credentials: 'omit' });
-      } finally {
-        clearTimeout(timer);
-      }
-      if (!response.ok) continue;
-
-      const contentType = (response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
-      if (contentType && !contentType.startsWith('image/')) continue;
-
-      const buffer = await response.arrayBuffer();
-      if (!buffer.byteLength || buffer.byteLength > MAX_IMAGE_BYTES) continue;
-      if (totalBytes + buffer.byteLength > MAX_TOTAL_EMBED_BYTES) continue;
-
-      totalBytes += buffer.byteLength;
-      const mime = contentType || 'image/jpeg';
-      map[image.id] = `data:${mime};base64,${arrayBufferToBase64(buffer)}`;
-    } catch {
-      // Unreachable image — the builder falls back to the remote URL.
-    }
+  if (timedOut) {
+    onProgress?.('Image embedding time limit reached; remaining images keep their links.');
   }
   return map;
 }

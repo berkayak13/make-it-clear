@@ -72,17 +72,12 @@ async function loadSettings() {
     'currentTask',
     'systemPromptTemplate'
   ]);
-  const local = await chrome.storage.local.get(['studyUserId', 'enableResearchLogging', 'firebaseProjectId', 'firebaseApiKey']);
+  const local = await chrome.storage.local.get(['studyUserId', 'enableResearchLogging']);
 
   const userIdInput = document.getElementById('studyUserId');
   const loggingOpt = document.getElementById('enableResearchLoggingOpt');
   if (userIdInput) userIdInput.value = local.studyUserId || '';
   if (loggingOpt) loggingOpt.checked = local.enableResearchLogging !== false;
-
-  const fbProjectInput = document.getElementById('firebaseProjectId');
-  const fbApiKeyInput = document.getElementById('firebaseApiKey');
-  if (fbProjectInput) fbProjectInput.value = local.firebaseProjectId || 'renarration-research';
-  if (fbApiKeyInput) fbApiKeyInput.value = local.firebaseApiKey || '';
 
   boilerplateText = await fetch(chrome.runtime.getURL('src/prompts/system.md')).then(r => r.text()).catch(() => '');
 
@@ -302,23 +297,6 @@ function setupEventListeners() {
     });
   }
 
-  const fbProjectInput = document.getElementById('firebaseProjectId');
-  const fbApiKeyInput = document.getElementById('firebaseApiKey');
-  if (fbProjectInput) {
-    fbProjectInput.addEventListener('change', () => {
-      chrome.storage.local.set({ firebaseProjectId: fbProjectInput.value.trim() });
-      showSaveStatus('Firebase Project ID saved');
-      showFbSaveStatus();
-    });
-  }
-  if (fbApiKeyInput) {
-    fbApiKeyInput.addEventListener('change', () => {
-      chrome.storage.local.set({ firebaseApiKey: fbApiKeyInput.value.trim() });
-      showSaveStatus('Firebase API Key saved');
-      showFbSaveStatus();
-    });
-  }
-
   const clearResearchBtn = document.getElementById('clearResearchDataBtn');
   if (clearResearchBtn) {
     clearResearchBtn.addEventListener('click', async () => {
@@ -453,15 +431,6 @@ function showSaveStatus(message) {
   setTimeout(() => {
     status.textContent = '';
   }, 3000);
-}
-
-function showFbSaveStatus() {
-  const el = document.getElementById('fbSaveStatus');
-  if (!el) return;
-  el.style.display = 'inline';
-  setTimeout(() => {
-    el.style.display = 'none';
-  }, 2000);
 }
 
 function applyTemplate(template, taskText, readingGoalText) {

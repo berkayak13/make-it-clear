@@ -4,7 +4,7 @@ import prettier from 'eslint-config-prettier';
 
 export default [
   {
-    ignores: ['build/**', 'node_modules/**', 'assets/**', 'icons/**', 'openspec/**'],
+    ignores: ['build/**', 'node_modules/**', 'assets/**', 'icons/**'],
   },
   js.configs.recommended,
   {
@@ -23,7 +23,7 @@ export default [
       'no-undef': 'error',
       'no-console': 'off',
       // Intentional swallow blocks are common in this codebase; treat only
-      // non-catch empty blocks as errors. See design.md (dev-tooling risks).
+      // non-catch empty blocks as errors.
       'no-empty': ['error', { allowEmptyCatch: true }],
       eqeqeq: ['warn', 'smart'],
     },
