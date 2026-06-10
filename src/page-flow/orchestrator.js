@@ -105,10 +105,17 @@ export const pageFlowHandlers = {
 
       const runId = crypto.randomUUID ? crypto.randomUUID() : String(Date.now());
 
+      const sendProgress = (text) => {
+        try {
+          chrome.runtime.sendMessage({ action: 'renarration-progress', text }).catch(() => {});
+        } catch {}
+      };
+
       try {
         const renarration = await renarratePage({
           extraction: lastExtraction,
           taskName: request?.task,
+          onProgress: sendProgress,
         });
 
         // Images keep their remote URLs (no data-URI embedding) so the document
@@ -119,7 +126,9 @@ export const pageFlowHandlers = {
         const storagePayload = {
           lastPageRenarration: {
             extraction: lastExtraction,
-            renarration: renarration.text.slice(0, 30000),
+            // Full renarration text — the size check below guards the storage
+            // quota loudly instead of silently clipping content.
+            renarration: renarration.text,
             model: renarration.model,
             runId,
             at,

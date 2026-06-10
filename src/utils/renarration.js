@@ -31,10 +31,6 @@ function outputLanguageRule(readingGoal) {
   return 'Output language requirement: Write the renarration in the SAME language the user is using in the saved reading goal and instructions. Mirror the user\'s language; do not translate the content into a different language.';
 }
 
-export function truncateForContext(text, maxChars = 12000) {
-  return text.length > maxChars ? text.slice(0, maxChars) + '...(truncated)' : text;
-}
-
 function formatReadingGoal(goal) {
   if (!goal) return '';
   if (typeof goal === 'string') return goal;
@@ -74,7 +70,9 @@ export async function buildRenarrationPrompt(taskName, overrideTask) {
 
 export async function renarrateText(text, taskName, overrideTask, options = {}) {
   const prompt = await buildRenarrationPrompt(taskName, overrideTask);
-  const userText = truncateForContext(String(text || ''));
+  // Full selection text — the model's context comfortably fits any selection,
+  // so nothing the user selected is ever silently cut.
+  const userText = String(text || '');
   const result = await callLLM([{ role: 'user', content: userText }], prompt.systemPrompt, {
     temperature: options.temperature ?? 0.3,
     timeoutMs: options.timeoutMs,
