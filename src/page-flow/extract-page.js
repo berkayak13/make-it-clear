@@ -1,6 +1,7 @@
 import { callOpenAIJson, OPENAI_CONFIG, warmUpConnection } from '../utils/openai-client.js';
 import { arrayBufferToBase64 } from '../utils/binary.js';
 import { mapWithConcurrency, callWithRetry } from '../utils/agent-pool.js';
+import { applyConsolidationPlan } from './fact-consolidate.js';
 
 // Cap on the raw-text COPY persisted with the extraction (storage-quota guard
 // only — the full text always reaches the LLM sub-agents via segments, and
@@ -13,17 +14,17 @@ const MAX_RAW_TEXT_CHARS = 400000;
 // bigger chunks, point the bulk calls at a faster model via VITE_OPENAI_FAST_MODEL
 // (a fast model finishes a big segment well under the timeout) and raise this.
 const TEXT_SEGMENT_CHARS = 6000;
-const IMAGE_BATCH_SIZE = 2;
+const IMAGE_BATCH_SIZE = 3;
 // Concurrency is the number of in-flight sub-agent calls. The Responses API is
 // HTTP/2, so these multiplex over one warm connection — wall-clock time is the
-// number of sequential waves (a 24-segment page is 2 waves at 12, 4 at 6).
-// callWithRetry absorbs the occasional 429 this provokes, and the run budget
-// still caps total spend.
-const TEXT_CONCURRENCY = 12;
-const IMAGE_CONCURRENCY = 6;
+// number of sequential waves (16 text slots cover a ~96K-char page in ONE
+// wave). callWithRetry backs off and absorbs the occasional 429 this provokes,
+// and the run budget still caps total spend.
+const TEXT_CONCURRENCY = 16;
+const IMAGE_CONCURRENCY = 8;
 // Image bytes are fetched ahead of the vision sub-agents (network-bound, zero
 // token cost), so VLM slots never idle waiting on a slow CDN.
-const IMAGE_PREFETCH_CONCURRENCY = 8;
+const IMAGE_PREFETCH_CONCURRENCY = 12;
 
 // Coverage is bounded by a per-run BUDGET, never by a fixed segment/image count.
 // The number of LLM/VLM calls scales with the page; dispatch stops only when the
@@ -38,17 +39,16 @@ const DEFAULT_BUDGET_MAX_STORAGE_BYTES = 8_500_000;
 const CHARS_PER_TOKEN = 4; // rough chars→tokens estimate for budgeting
 const VISION_TOKENS_PER_IMAGE = 1200; // est. cost of one low-detail image (in+out)
 
-// Reasoning models (e.g. gpt-5.5) count reasoning tokens against this budget,
-// so it must leave room for the chain of thought plus the JSON output.
-// Extraction is EXHAUSTIVE (every fact/claim becomes its own item), so output
-// can be large — generous caps avoid truncating real content. The hierarchical
-// reducer below handles any overflow at merge time without dropping facts.
+// Reasoning models count reasoning tokens against this budget, so it must
+// leave room for the chain of thought plus the JSON output. Extraction is
+// EXHAUSTIVE (every fact/claim becomes its own item), so output can be large —
+// generous caps avoid truncating real content (the client retries at 2× on a
+// truncated response).
 const MAX_TEXT_OUTPUT_TOKENS = 9000;
 const MAX_IMAGE_OUTPUT_TOKENS = 3500;
-const MAX_ORCHESTRATOR_OUTPUT_TOKENS = 16000;
-// When candidate facts would overflow one orchestrator call, merge them in
-// batches up a tree until the set fits — never silently drop the overflow.
-const REDUCE_FACT_BATCH = 40;
+// The consolidation selector returns only drop/merge INSTRUCTIONS (ids), never
+// regenerated facts, so its output is tiny regardless of page size.
+const SELECTOR_MAX_OUTPUT_TOKENS = 3000;
 // Extraction is structured fact-finding, not open-ended problem solving — low
 // reasoning effort keeps the subagents fast and cheap without losing accuracy.
 const EXTRACTION_REASONING_EFFORT = 'low';
@@ -116,20 +116,21 @@ function boundedTimeout(maxMs) {
 
 const TEXT_STAGE_TIMEOUT_MS = boundedTimeout(95000);
 const IMAGE_STAGE_TIMEOUT_MS = boundedTimeout(95000);
-const ORCHESTRATOR_TIMEOUT_MS = boundedTimeout(120000);
+const SELECTOR_TIMEOUT_MS = boundedTimeout(60000);
 
-const factSchema = {
+// Slim per-stage fact shape: the sub-agent emits ONLY what code cannot infer.
+// id (reassigned), confidence (defaulted), source (known per agent type), and
+// sectionIds (the segment's own sections) are filled in by normalizeFact's
+// fallback — cutting ~a third of every fact's output tokens, which is wave
+// latency on every page.
+const stageFactSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['id', 'kind', 'text', 'evidence', 'confidence', 'source', 'sectionIds', 'imageIds'],
+  required: ['kind', 'text', 'evidence', 'imageIds'],
   properties: {
-    id: { type: 'string' },
     kind: { type: 'string', enum: Array.from(FACT_KINDS) },
     text: { type: 'string' },
     evidence: { type: 'string' },
-    confidence: { type: 'number' },
-    source: { type: 'string', enum: Array.from(FACT_SOURCES) },
-    sectionIds: { type: 'array', items: { type: 'string' } },
     imageIds: { type: 'array', items: { type: 'string' } },
   },
 };
@@ -141,25 +142,34 @@ const extractionStageSchema = {
   properties: {
     title: { type: 'string' },
     topic: { type: 'string' },
-    facts: { type: 'array', items: factSchema },
+    facts: { type: 'array', items: stageFactSchema },
     entities: { type: 'array', items: { type: 'string' } },
     keyTerms: { type: 'array', items: { type: 'string' } },
     warnings: { type: 'array', items: { type: 'string' } },
   },
 };
 
-const finalExtractionSchema = {
+// Consolidation is SELECTION, not regeneration: the model points at ids to
+// drop (page chrome) and groups to merge (near-duplicates); code applies the
+// plan. Output cost no longer scales with page size.
+const consolidationSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['title', 'topic', 'facts', 'entities', 'keyTerms', 'compactText', 'warnings'],
+  required: ['drops', 'merges'],
   properties: {
-    title: { type: 'string' },
-    topic: { type: 'string' },
-    facts: { type: 'array', items: factSchema },
-    entities: { type: 'array', items: { type: 'string' } },
-    keyTerms: { type: 'array', items: { type: 'string' } },
-    compactText: { type: 'string' },
-    warnings: { type: 'array', items: { type: 'string' } },
+    drops: { type: 'array', items: { type: 'string' } },
+    merges: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['keep', 'absorb'],
+        properties: {
+          keep: { type: 'string' },
+          absorb: { type: 'array', items: { type: 'string' } },
+        },
+      },
+    },
   },
 };
 
@@ -185,16 +195,6 @@ const visionStageSchema = {
   required: ['images'],
   properties: {
     images: { type: 'array', items: visionImageVerdictSchema },
-  },
-};
-
-// Merge-only schema for the hierarchical fact reducer.
-const factMergeSchema = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['facts'],
-  properties: {
-    facts: { type: 'array', items: factSchema },
   },
 };
 
@@ -473,8 +473,9 @@ function buildTextPrompt({ segment, index, total, pageMetadata, visible }) {
     'Do NOT add related or outside information — only what is literally in this segment.',
     'The ONLY things to skip are non-content page chrome: site navigation, breadcrumbs, menus, search bars, login/signup prompts, newsletter signups, cookie/GDPR banners, ads, sponsored content, social-share buttons, related-article or "recommended for you" lists, comment threads, author bios, footer text, legal/copyright notices, "trending now" widgets, and sidebar promos.',
     'If the segment is entirely boilerplate or chrome (nav, footer, ad slot, etc.), return an empty facts array rather than fabricating filler.',
-    'Link each fact to the provided section IDs. Only attach an image ID when the surrounding text directly discusses that specific image.',
+    'Only attach an image ID when the surrounding text directly discusses that specific image; otherwise return an empty imageIds array.',
     'Use FACT for established facts, CLAIM for author/source claims, QUOTE for direct quoted material, FIGURE for numbers/statistics, COUNTER for caveats or opposing points, and VISUAL only when text describes a visual element.',
+    'List at most 8 entities and 8 keyTerms — only the most central ones.',
     '',
     `URL: ${pageMetadata.url || visible.url || ''}`,
     `Title: ${pageMetadata.title || visible.title || ''}`,
@@ -525,105 +526,40 @@ function normalizeVisionVerdicts(rawVerdicts, batchImages) {
   return Array.from(byId.values());
 }
 
-function buildOrchestratorPrompt({ facts, meta, sections, images, pageMetadata, visible }) {
-  const sectionOutline = sections.slice(0, 40).map((section) => ({
-    id: section.id,
-    index: section.index,
-    heading: section.heading,
-    imageIds: section.imageIds,
-    textPreview: trimText(section.text, 500),
-  }));
-  const imageOutline = images.map((image) => ({
-    id: image.id,
-    sectionIds: image.sectionIds,
-    heading: image.heading,
-    alt: image.alt,
-    caption: image.caption,
-    nearbyText: image.nearbyText,
-  }));
-
+// The selector sees only id + kind + text — enough to spot chrome and
+// near-duplicates, and a much smaller prompt than the full fact objects.
+function buildConsolidationPrompt({ facts, pageMetadata, visible }) {
+  const outline = facts.map((fact) => ({ id: fact.id, kind: fact.kind, text: fact.text }));
   return [
-    'You are the final extraction orchestrator for a webpage renarration system.',
-    'Consolidate the candidate facts (already extracted from page text and images) into the COMPLETE knowledge set for the page.',
-    'Your job is CONSOLIDATION, not curation: retain every distinct substantive fact, claim, quote, figure, and detail. Do NOT drop content for being minor or for being a "long list". Only merge genuine duplicates and near-duplicates into the single most complete fact.',
-    'When two candidates overlap, merge them into the most complete single fact rather than discarding either. Preserve uncertainty by lowering confidence instead of inventing details.',
-    'Drop ONLY page chrome that slipped through: navigation, breadcrumbs, search bars, login/signup prompts, cookie/GDPR banners, ads or sponsored slots, social-share widgets, "recommended for you" / "related" / "trending" lists, comments, footer text, legal/copyright notices, site-section promos.',
-    'Stay page-faithful: do not add related or outside information that is not in the candidate facts.',
-    'Link kept facts to sectionIds and imageIds when supported by the evidence. Use source "mixed" only when both text and image evidence support the same fact.',
-    'Produce compactText as dense plain-text notes covering ALL the facts, suitable for a later renarration prompt — only the facts, no boilerplate. No Markdown tables, no HTML.',
-    '',
-    `URL: ${pageMetadata.url || visible.url || ''}`,
-    `Title: ${pageMetadata.title || visible.title || ''}`,
-    meta?.topics?.length ? `Candidate topics: ${meta.topics.join(' | ')}` : '',
-    '',
-    'Page sections JSON:',
-    JSON.stringify(sectionOutline),
-    '',
-    'Selected image metadata JSON:',
-    JSON.stringify(imageOutline),
-    '',
-    'Candidate facts JSON:',
-    JSON.stringify(facts),
-  ].filter((line) => line !== '').join('\n');
-}
-
-function buildFactMergePrompt({ facts, pageMetadata, visible }) {
-  return [
-    'Merge and deduplicate this batch of candidate facts from a webpage for the page\'s MAIN TOPIC.',
-    'Collapse overlapping facts into the most complete single fact; drop page-chrome facts (nav, ads, cookie banners, related/trending lists, comments, footers).',
-    'Stay page-faithful: do not invent or add outside information. Preserve sectionIds and imageIds. Keep the strongest source.',
+    'You are the consolidation selector for a webpage extraction system. The candidate facts below were extracted from page text and images by parallel sub-agents.',
+    'Return ONLY instructions — do not rewrite or regenerate any fact.',
+    'drops: ids of facts that are page chrome, not content: navigation, breadcrumbs, search bars, login/signup prompts, cookie/GDPR banners, ads or sponsored slots, social-share widgets, "recommended for you" / "related" / "trending" lists, comments, footer text, legal/copyright notices, site-section promos.',
+    'merges: groups of facts that state the SAME thing. For each group, keep is the id of the most complete phrasing and absorb lists the redundant ids. Merge ONLY genuine duplicates and near-duplicates — never merge facts that add distinct details, and never drop content for being minor.',
+    'Most facts should survive untouched: when in doubt, leave a fact alone.',
     '',
     `URL: ${pageMetadata.url || visible.url || ''}`,
     `Title: ${pageMetadata.title || visible.title || ''}`,
     '',
     'Candidate facts JSON:',
-    JSON.stringify(facts),
+    JSON.stringify(outline),
   ].join('\n');
 }
 
-function estimateFactsTokens(facts) {
-  return estimateTokens(JSON.stringify(facts || []).length);
-}
-
-async function mergeFactBatch({ facts, pageMetadata, visible }) {
-  const prompt = buildFactMergePrompt({ facts, pageMetadata, visible });
+// One small fast-model call that dedupes and de-chromes the combined fact set.
+// Because the output is instruction ids (applied in code by
+// applyConsolidationPlan), this replaces BOTH the old hierarchical reducer
+// rounds and the old full-output orchestrator call.
+async function runConsolidationSelector({ facts, pageMetadata, visible }) {
   const result = await callOpenAIJson({
-    schema: factMergeSchema,
-    schemaName: 'page_fact_merge_batch',
-    prompt,
+    schema: consolidationSchema,
+    schemaName: 'fact_consolidation_plan',
+    prompt: buildConsolidationPrompt({ facts, pageMetadata, visible }),
     model: OPENAI_CONFIG.fastModel,
-    maxOutputTokens: MAX_ORCHESTRATOR_OUTPUT_TOKENS,
-    timeoutMs: ORCHESTRATOR_TIMEOUT_MS,
+    maxOutputTokens: SELECTOR_MAX_OUTPUT_TOKENS,
+    timeoutMs: SELECTOR_TIMEOUT_MS,
     reasoningEffort: EXTRACTION_REASONING_EFFORT,
   });
-  return normalizeFacts(result.json?.facts || []);
-}
-
-// Hierarchical reduce: when the candidate fact set would overflow a single
-// orchestrator call's output budget, merge it in batches up a tree until it
-// fits — so no distinct fact is silently dropped at the token ceiling. Batch
-// failures fall back to the (deduped) input for that batch and are warned.
-async function reduceFactsHierarchically({ facts, pageMetadata, visible, warnings, onProgress }) {
-  const threshold = Math.floor(MAX_ORCHESTRATOR_OUTPUT_TOKENS * 0.6);
-  let current = normalizeFacts(facts);
-  let round = 0;
-  while (estimateFactsTokens(current) > threshold && current.length > REDUCE_FACT_BATCH && round < 4) {
-    round += 1;
-    const batches = chunkArray(current, REDUCE_FACT_BATCH);
-    onProgress?.(`Reducing ${plural(current.length, 'fact')} in ${plural(batches.length, 'batch', 'batches')}...`);
-    const merged = await mapWithConcurrency(batches, TEXT_CONCURRENCY, async (batch, index) => {
-      try {
-        return await mergeFactBatch({ facts: batch, pageMetadata, visible });
-      } catch (error) {
-        warnings.push(`Fact-merge batch ${round}.${index + 1} failed: ${errorMessage(error)}`);
-        return batch; // keep the un-merged (but deduped) batch rather than lose it
-      }
-    });
-    const next = normalizeFacts(merged.flat());
-    if (next.length >= current.length) break; // no further reduction possible
-    current = next;
-  }
-  return current;
+  return result.json || {};
 }
 
 async function runTextSubagents({ segments, pageMetadata, visible, budget, onProgress }) {
@@ -1000,60 +936,20 @@ function rawTextFallback({ pageText, visible, pageMetadata, warnings }) {
   };
 }
 
-async function runFinalOrchestrator({ facts, meta = {}, sections, images, pageMetadata, visible, warnings, onProgress }) {
-  onProgress?.('Merging text and visual knowledge...');
-  // Reduce first so the single merge call below can never overflow its output
-  // budget and silently drop facts.
-  const reducedFacts = await reduceFactsHierarchically({ facts, pageMetadata, visible, warnings, onProgress });
-  const prompt = buildOrchestratorPrompt({ facts: reducedFacts, meta, sections, images, pageMetadata, visible });
-  logExtraction('orchestrator request', {
-    model: OPENAI_CONFIG.textModel,
-    maxOutputTokens: MAX_ORCHESTRATOR_OUTPUT_TOKENS,
-    timeoutMs: ORCHESTRATOR_TIMEOUT_MS,
-    candidateFactCount: facts.length,
-    reducedFactCount: reducedFacts.length,
-    sections,
-    images,
-    prompt,
-  });
-  const result = await callOpenAIJson({
-    schema: finalExtractionSchema,
-    schemaName: 'page_extraction_orchestrator',
-    prompt,
-    model: OPENAI_CONFIG.textModel,
-    maxOutputTokens: MAX_ORCHESTRATOR_OUTPUT_TOKENS,
-    timeoutMs: ORCHESTRATOR_TIMEOUT_MS,
-    reasoningEffort: EXTRACTION_REASONING_EFFORT,
-  });
-  logExtraction('orchestrator response', {
-    json: result.json || {},
-    response: result.response,
-  });
-  const json = result.json || {};
-  const outFacts = normalizeFacts(json.facts || []);
-  const knowledge = {
-    title: firstString(json.title, ...(meta.titles || []), pageMetadata.title, visible.title),
-    topic: firstString(json.topic, ...(meta.topics || [])),
-    facts: outFacts,
-    entities: uniqueStrings([...(json.entities || []), ...(meta.entities || [])], 80),
-    keyTerms: uniqueStrings([...(json.keyTerms || []), ...(meta.keyTerms || [])], 80),
-  };
-  return {
-    ...knowledge,
-    compactText: trimText(json.compactText || compactTextFromKnowledge(knowledge)),
-    warnings: uniqueStrings(json.warnings || [], 40),
-  };
-}
-
 export async function extractPageKnowledge({ tabId, pageMetadata = {}, onProgress } = {}) {
   if (!tabId) throw new Error('No active tab available for extraction');
 
   const started = Date.now();
+  // Per-phase wall-clock breakdown, stored with the extraction so slow runs
+  // can be diagnosed from the dashboard instead of by guesswork.
+  const timings = {};
+  const mark = (key) => { timings[key] = Date.now() - started; };
   // Open the TLS connection to the API while the content script is still
   // reading the page, so the first sub-agent call skips the handshake.
   warmUpConnection();
   onProgress?.('Reading page text, sections, and images...');
   const visible = await getVisibleText(tabId);
+  mark('readPageMs');
   logExtraction('visible response from content script', {
     url: visible.url || '',
     title: visible.title || '',
@@ -1100,6 +996,7 @@ export async function extractPageKnowledge({ tabId, pageMetadata = {}, onProgres
     runTextSubagents({ segments: textSegments, pageMetadata, visible, budget, onProgress }),
     runVisionSubagents({ batches: imageBatches, prefetchedImages, pageMetadata, visible, budget, onProgress }),
   ]);
+  mark('subAgentsMs');
 
   // Surface budget-skipped work — coverage is bounded, never silently truncated.
   const skippedTextCount = textResults.filter((result) => result.skipped).length;
@@ -1143,6 +1040,7 @@ export async function extractPageKnowledge({ tabId, pageMetadata = {}, onProgres
   const textFailures = failedResults.filter((result) => result.sourceType === 'text');
   let finalKnowledge;
   let orchestratorError = '';
+  let selectorRan = false;
 
   if (textFacts.length || imageFacts.length) {
     const candidateFacts = normalizeFacts([...textFacts, ...imageFacts]);
@@ -1154,40 +1052,38 @@ export async function extractPageKnowledge({ tabId, pageMetadata = {}, onProgres
       warnings: textStageResults.flatMap((result) => result.json.warnings || []),
     };
 
-    // Fast path: the orchestrator's job is cross-segment consolidation. A single
-    // text segment has no cross-segment duplicates to merge, so when its facts
-    // already fit the orchestrator's output budget (no hierarchical reduce
-    // needed) the second full-page reasoning call adds latency without improving
-    // coverage. Assemble locally instead — renarration reads facts directly.
-    const orchestratorThreshold = Math.floor(MAX_ORCHESTRATOR_OUTPUT_TOKENS * 0.6);
-    const canSkipOrchestrator =
-      textStageResults.length <= 1 && estimateFactsTokens(candidateFacts) <= orchestratorThreshold;
-    if (canSkipOrchestrator) {
+    // The selector's job is cross-segment consolidation. A single text segment
+    // has no cross-segment duplicates, so skip the call entirely; otherwise one
+    // small instruction-only call dedupes and de-chromes the set, and the plan
+    // is applied in code. Assembly is always local — knowledge never round-trips
+    // through a model's output again.
+    if (textStageResults.length <= 1) {
       onProgress?.('Assembling knowledge...');
       finalKnowledge = localAssembly({ facts: candidateFacts, meta, pageMetadata, visible, warnings });
     } else {
+      let consolidated = candidateFacts;
       try {
-        finalKnowledge = await runFinalOrchestrator({
-          facts: candidateFacts,
-          meta,
-          sections,
-          images: keptImages,
-          pageMetadata,
-          visible,
-          warnings,
-          onProgress,
+        onProgress?.(`Consolidating ${plural(candidateFacts.length, 'fact')}...`);
+        selectorRan = true;
+        const plan = await callWithRetry(
+          () => runConsolidationSelector({ facts: candidateFacts, pageMetadata, visible }),
+          { retries: 1, shouldStop: budgetStop(budget) },
+        );
+        const applied = applyConsolidationPlan(candidateFacts, plan);
+        consolidated = applied.facts.length ? applied.facts : candidateFacts;
+        logExtraction('consolidation applied', {
+          candidateFactCount: candidateFacts.length,
+          droppedCount: applied.droppedCount,
+          mergedCount: applied.mergedCount,
+          plan,
         });
       } catch (error) {
         orchestratorError = errorMessage(error);
-        warnings.push(`Final orchestrator failed: ${orchestratorError}`);
-        logExtraction('orchestrator error; using local assembly', { orchestratorError, warnings });
-        finalKnowledge = localAssembly({ facts: candidateFacts, meta, pageMetadata, visible, warnings });
+        warnings.push(`Fact consolidation failed (${orchestratorError}); keeping all candidate facts.`);
+        logExtraction('consolidation error; keeping candidates', { orchestratorError });
       }
-    }
-
-    if (!finalKnowledge.facts?.length) {
-      logExtraction('orchestrator returned no facts; using local assembly', { finalKnowledge, warnings });
-      finalKnowledge = localAssembly({ facts: candidateFacts, meta, pageMetadata, visible, warnings });
+      onProgress?.('Assembling knowledge...');
+      finalKnowledge = localAssembly({ facts: consolidated, meta, pageMetadata, visible, warnings });
     }
   }
 
@@ -1215,6 +1111,7 @@ export async function extractPageKnowledge({ tabId, pageMetadata = {}, onProgres
     onProgress?.('Using the page text directly...');
     finalKnowledge = rawTextFallback({ pageText, visible, pageMetadata, warnings });
   }
+  mark('consolidateMs');
 
   const extraction = {
     compactText: String(finalKnowledge.compactText || compactTextFromKnowledge(finalKnowledge)).trim(),
@@ -1243,8 +1140,9 @@ export async function extractPageKnowledge({ tabId, pageMetadata = {}, onProgres
       spentTokens: budget.spentTokens,
       elapsedMs: Date.now() - started,
     },
-    agentCount: textResults.length + imageResults.length + 1,
+    agentCount: textResults.length + imageResults.length + (selectorRan ? 1 : 0),
     failedAgentCount: failedResults.length + (orchestratorError ? 1 : 0),
+    timings,
     warnings: uniqueStrings([...warnings, ...(finalKnowledge.warnings || [])], 60),
     model: OPENAI_CONFIG.textModel,
     visionModel: imageBatches.length ? OPENAI_CONFIG.visionModel : null,

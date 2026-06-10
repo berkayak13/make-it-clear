@@ -38,6 +38,10 @@ export async function callWithRetry(fn, { retries = 1, shouldStop } = {}) {
       // budget says the run is already over (don't burn it retrying).
       if (attempt >= retries || !isTransientError(error)) throw error;
       if (shouldStop?.()) throw error;
+      // Brief jittered backoff: an immediate retry into the same rate-limit
+      // window just fails again, and the jitter de-synchronizes the many
+      // parallel sub-agents that tripped the limiter together.
+      await new Promise((resolve) => setTimeout(resolve, 800 + Math.random() * 1500));
     }
   }
   throw lastError;

@@ -4,7 +4,9 @@ import prettier from 'eslint-config-prettier';
 
 export default [
   {
-    ignores: ['build/**', 'node_modules/**', 'assets/**', 'icons/**'],
+    // .claude/ holds session worktrees (sibling checkouts with their own
+    // tooling); linting into them breaks this repo's lint on their files.
+    ignores: ['build/**', 'node_modules/**', 'assets/**', 'icons/**', '.claude/**'],
   },
   js.configs.recommended,
   {
