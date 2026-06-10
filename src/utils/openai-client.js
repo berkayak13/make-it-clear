@@ -15,6 +15,17 @@ function requireApiKey() {
   }
 }
 
+// Opens the TCP+TLS connection to the API before the first real call. Chrome
+// keeps the HTTP/2 connection pooled, so every subsequent call in the run —
+// including all parallel sub-agent calls, which multiplex over it — skips the
+// handshake. Fire-and-forget: the response (an auth error for HEAD) is
+// irrelevant, only the socket matters.
+export function warmUpConnection() {
+  try {
+    fetch('https://api.openai.com/v1/models', { method: 'HEAD' }).catch(() => {});
+  } catch {}
+}
+
 function getResponseText(data) {
   if (typeof data?.output_text === 'string' && data.output_text.trim()) {
     return data.output_text.trim();
@@ -117,27 +128,39 @@ async function createResponse(payload, timeoutMs = OPENAI_TIMEOUT_MS) {
   }
 }
 
+// A response that hits `max_output_tokens` comes back with status "incomplete":
+// truncated mid-sentence for text, invalid JSON for structured output.
+function isResponseTruncated(data) {
+  return data?.status === 'incomplete'
+    && data?.incomplete_details?.reason === 'max_output_tokens';
+}
+
 export async function callOpenAIText({ systemPrompt = '', userText = '', model, temperature, maxOutputTokens, timeoutMs, reasoningEffort } = {}) {
-  const data = await createResponse({
+  const requestText = (tokenLimit) => createResponse({
     model: model || OPENAI_TEXT_MODEL,
     instructions: systemPrompt || undefined,
     input: String(userText || ''),
     temperature,
     reasoning: reasoningEffort ? { effort: reasoningEffort } : undefined,
-    max_output_tokens: maxOutputTokens,
+    max_output_tokens: tokenLimit,
     text: { format: { type: 'text' } },
   }, timeoutMs);
+
+  let data = await requestText(maxOutputTokens);
+
+  // A capped response that ran out of output tokens is SILENTLY truncated
+  // prose — never return it as if it were complete. Retry once with double
+  // the budget, then fail loudly so the caller's fallback path runs.
+  if (isResponseTruncated(data) && Number(maxOutputTokens) > 0) {
+    data = await requestText(Number(maxOutputTokens) * 2);
+  }
+  if (isResponseTruncated(data)) {
+    throw new Error('OpenAI response exceeded the output token limit before completing the text.');
+  }
 
   const text = getResponseText(data);
   if (!text) throw new Error('OpenAI returned no text output');
   return { text, response: data };
-}
-
-// A response that hits `max_output_tokens` comes back with status "incomplete"
-// and truncated (invalid) JSON — parsing it would throw a cryptic SyntaxError.
-function isResponseTruncated(data) {
-  return data?.status === 'incomplete'
-    && data?.incomplete_details?.reason === 'max_output_tokens';
 }
 
 export async function callOpenAIJson({ prompt = '', images = [], imageDetail, schema, schemaName = 'structured_output', model, maxOutputTokens, timeoutMs, reasoningEffort } = {}) {

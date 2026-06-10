@@ -1,8 +1,11 @@
-import { callOpenAIJson, OPENAI_CONFIG } from '../utils/openai-client.js';
+import { callOpenAIJson, OPENAI_CONFIG, warmUpConnection } from '../utils/openai-client.js';
 import { arrayBufferToBase64 } from '../utils/binary.js';
+import { mapWithConcurrency, callWithRetry } from '../utils/agent-pool.js';
 
-const MAX_RAW_TEXT_CHARS = 120000;
-const MAX_EXTRACTED_NOTES_CHARS = 30000;
+// Cap on the raw-text COPY persisted with the extraction (storage-quota guard
+// only — the full text always reaches the LLM sub-agents via segments, and
+// rawTextTruncated flags the stored copy when it was clipped).
+const MAX_RAW_TEXT_CHARS = 400000;
 // Segment size is bounded by the per-call TIMEOUT, not by context: a reasoning
 // model (gpt-5.5) doing an EXHAUSTIVE extraction of a large segment blows the
 // ~95s per-call timeout on dense pages — which surfaces to the user as
@@ -11,12 +14,16 @@ const MAX_EXTRACTED_NOTES_CHARS = 30000;
 // (a fast model finishes a big segment well under the timeout) and raise this.
 const TEXT_SEGMENT_CHARS = 6000;
 const IMAGE_BATCH_SIZE = 2;
-// Concurrency is the number of in-flight subagent calls. Higher = fewer
-// sequential waves (a 20-segment page goes from 5 waves at 4 to ~4 at 6).
+// Concurrency is the number of in-flight sub-agent calls. The Responses API is
+// HTTP/2, so these multiplex over one warm connection — wall-clock time is the
+// number of sequential waves (a 24-segment page is 2 waves at 12, 4 at 6).
 // callWithRetry absorbs the occasional 429 this provokes, and the run budget
 // still caps total spend.
-const TEXT_CONCURRENCY = 6;
-const IMAGE_CONCURRENCY = 3;
+const TEXT_CONCURRENCY = 12;
+const IMAGE_CONCURRENCY = 6;
+// Image bytes are fetched ahead of the vision sub-agents (network-bound, zero
+// token cost), so VLM slots never idle waiting on a slow CDN.
+const IMAGE_PREFETCH_CONCURRENCY = 8;
 
 // Coverage is bounded by a per-run BUDGET, never by a fixed segment/image count.
 // The number of LLM/VLM calls scales with the page; dispatch stops only when the
@@ -80,27 +87,10 @@ function recordSpend(budget, tokens) {
   if (budget) budget.spentTokens += Math.max(0, Number(tokens) || 0);
 }
 
-// Transient failures (timeouts, rate limits, 5xx, network blips) are worth one
-// retry — a single slow/flaky call should not lose a whole segment's content.
-function isTransientError(error) {
-  const message = errorMessage(error).toLowerCase();
-  return /timed out|timeout|rate limit|429|temporarily|server error|bad gateway|gateway timeout|\b5\d\d\b|network|fetch failed|connection|socket|econn/.test(message);
-}
-
-async function callWithRetry(fn, { retries = 1, budget } = {}) {
-  let lastError;
-  for (let attempt = 0; attempt <= retries; attempt += 1) {
-    try {
-      return await fn(attempt);
-    } catch (error) {
-      lastError = error;
-      // Stop if out of retries, the error is not transient, or the wall-clock
-      // budget is already spent (don't burn the budget retrying a dead page).
-      if (attempt >= retries || !isTransientError(error)) throw error;
-      if (budget && budgetElapsed(budget) >= budget.wallClockMs) throw error;
-    }
-  }
-  throw lastError;
+// Stops sub-agent retries once the run's wall-clock budget is spent (don't
+// burn the budget retrying a dead page).
+function budgetStop(budget) {
+  return () => Boolean(budget) && budgetElapsed(budget) >= budget.wallClockMs;
 }
 
 const FACT_KINDS = new Set(['FACT', 'CLAIM', 'QUOTE', 'FIGURE', 'COUNTER', 'VISUAL']);
@@ -330,7 +320,9 @@ function normalizeSections(visible, pageText) {
       id: String(section?.id || `section-${index + 1}`),
       index: Number.isFinite(Number(section?.index)) ? Number(section.index) : index,
       heading: String(section?.heading || '').trim(),
-      text: trimText(section?.text || '', TEXT_SEGMENT_CHARS),
+      // Full section text, whitespace-normalized only — a section longer than
+      // one segment is SPLIT across sub-agents by planTextSegments, never cut.
+      text: trimText(section?.text || ''),
       imageIds: normalizeIdList(section?.imageIds || []),
     }))
     .filter((section) => section.heading || section.text);
@@ -456,20 +448,6 @@ function chunkArray(items, size) {
   const chunks = [];
   for (let i = 0; i < items.length; i += size) chunks.push(items.slice(i, i + size));
   return chunks;
-}
-
-async function mapWithConcurrency(items, limit, mapper) {
-  const results = new Array(items.length);
-  let nextIndex = 0;
-  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (nextIndex < items.length) {
-      const index = nextIndex;
-      nextIndex += 1;
-      results[index] = await mapper(items[index], index);
-    }
-  });
-  await Promise.all(workers);
-  return results;
 }
 
 function formatImageMetadata(images) {
@@ -681,7 +659,7 @@ async function runTextSubagents({ segments, pageMetadata, visible, budget, onPro
         maxOutputTokens: MAX_TEXT_OUTPUT_TOKENS,
         timeoutMs: TEXT_STAGE_TIMEOUT_MS,
         reasoningEffort: EXTRACTION_REASONING_EFFORT,
-      }), { retries: 1, budget });
+      }), { retries: 1, shouldStop: budgetStop(budget) });
       logExtraction(`${agentId} response`, {
         agentId,
         sourceType: 'text',
@@ -738,7 +716,29 @@ async function fetchImageAsDataUrl(url) {
   }
 }
 
-async function runVisionSubagents({ batches, pageMetadata, visible, budget, onProgress }) {
+// Starts downloading every candidate image's bytes immediately — in parallel
+// with the text sub-agents — and hands back a per-image promise map for the
+// vision sub-agents to await. Bandwidth only (no tokens), so it runs ahead of
+// the budget gate; a budget-skipped batch simply never awaits its entries.
+function prefetchImageDataUrls(images) {
+  const promises = new Map();
+  if (!images.length) return promises;
+  const resolvers = new Map();
+  for (const image of images) {
+    promises.set(image.id, new Promise((resolve) => resolvers.set(image.id, resolve)));
+  }
+  const queue = [...images];
+  const workers = Array.from({ length: Math.min(IMAGE_PREFETCH_CONCURRENCY, queue.length) }, async () => {
+    while (queue.length) {
+      const image = queue.shift();
+      resolvers.get(image.id)(await fetchImageAsDataUrl(image.url));
+    }
+  });
+  Promise.all(workers).catch(() => {});
+  return promises;
+}
+
+async function runVisionSubagents({ batches, prefetchedImages, pageMetadata, visible, budget, onProgress }) {
   if (!batches.length) return [];
   onProgress?.(`Curating ${plural(batches.flat().length, 'image')}...`);
   return mapWithConcurrency(batches, IMAGE_CONCURRENCY, async (batch, index) => {
@@ -756,8 +756,10 @@ async function runVisionSubagents({ batches, pageMetadata, visible, budget, onPr
     recordSpend(budget, projected);
 
     // Embed each image as a data URI so OpenAI never has to download the URL.
+    // The bytes were prefetched at planning time, so this normally resolves
+    // instantly instead of holding a VLM slot during the download.
     const images = (await Promise.all(batch.map(async (image) => {
-      const dataUrl = await fetchImageAsDataUrl(image.url);
+      const dataUrl = await (prefetchedImages?.get(image.id) ?? fetchImageAsDataUrl(image.url));
       return dataUrl ? { ...image, detail: 'low', dataUrl } : null;
     }))).filter(Boolean);
 
@@ -796,7 +798,7 @@ async function runVisionSubagents({ batches, pageMetadata, visible, budget, onPr
         maxOutputTokens: MAX_IMAGE_OUTPUT_TOKENS,
         timeoutMs: IMAGE_STAGE_TIMEOUT_MS,
         reasoningEffort: EXTRACTION_REASONING_EFFORT,
-      }), { retries: 1, budget });
+      }), { retries: 1, shouldStop: budgetStop(budget) });
       const verdicts = normalizeVisionVerdicts(result.json?.images || [], images);
       logExtraction(`${agentId} response`, {
         agentId,
@@ -947,7 +949,10 @@ function compactTextFromKnowledge({ title, topic, facts }) {
       return refs ? `${fact.kind}: ${fact.text} (${refs})` : `${fact.kind}: ${fact.text}`;
     }),
   ].filter(Boolean);
-  return trimText(lines.join('\n'), MAX_EXTRACTED_NOTES_CHARS);
+  // No char cap: compactText must cover ALL the facts (it is bounded by the
+  // fact set, which the run budget already bounds; the storage write below
+  // fails loudly, never by silently clipping content).
+  return trimText(lines.join('\n'));
 }
 
 function localAssembly({ facts, meta = {}, pageMetadata, visible, warnings }) {
@@ -979,7 +984,6 @@ function rawTextFallback({ pageText, visible, pageMetadata, warnings }) {
       .split(/\n+/)
       .map((block) => block.replace(/\s+/g, ' ').trim())
       .filter((block) => block.length > 1)
-      .slice(0, 600)
       .map((text) => ({ kind: 'FACT', text, source: 'text', provenance: 'page' })),
   );
   const knowledge = {
@@ -1036,7 +1040,7 @@ async function runFinalOrchestrator({ facts, meta = {}, sections, images, pageMe
   };
   return {
     ...knowledge,
-    compactText: trimText(json.compactText || compactTextFromKnowledge(knowledge), MAX_EXTRACTED_NOTES_CHARS),
+    compactText: trimText(json.compactText || compactTextFromKnowledge(knowledge)),
     warnings: uniqueStrings(json.warnings || [], 40),
   };
 }
@@ -1045,6 +1049,9 @@ export async function extractPageKnowledge({ tabId, pageMetadata = {}, onProgres
   if (!tabId) throw new Error('No active tab available for extraction');
 
   const started = Date.now();
+  // Open the TLS connection to the API while the content script is still
+  // reading the page, so the first sub-agent call skips the handshake.
+  warmUpConnection();
   onProgress?.('Reading page text, sections, and images...');
   const visible = await getVisibleText(tabId);
   logExtraction('visible response from content script', {
@@ -1083,11 +1090,15 @@ export async function extractPageKnowledge({ tabId, pageMetadata = {}, onProgres
     imageBatches,
     warnings,
   });
-  onProgress?.(`Planned ${plural(textSegments.length, 'text agent')} and ${plural(imageBatches.length, 'image agent')}.`);
+  onProgress?.(`Master agent planned ${plural(textSegments.length, 'text sub-agent')} and ${plural(imageBatches.length, 'vision sub-agent')}.`);
+
+  // Image bytes start downloading now, in parallel with the text sub-agents,
+  // so the vision sub-agents go straight to their VLM calls.
+  const prefetchedImages = prefetchImageDataUrls(candidateImages);
 
   const [textResults, imageResults] = await Promise.all([
     runTextSubagents({ segments: textSegments, pageMetadata, visible, budget, onProgress }),
-    runVisionSubagents({ batches: imageBatches, pageMetadata, visible, budget, onProgress }),
+    runVisionSubagents({ batches: imageBatches, prefetchedImages, pageMetadata, visible, budget, onProgress }),
   ]);
 
   // Surface budget-skipped work — coverage is bounded, never silently truncated.
