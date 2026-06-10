@@ -301,6 +301,13 @@
       transition: background 150ms var(--ease);
     }
     .ov-cta:hover { background: var(--ink-2); }
+    .ov-renarr-status {
+      margin-top: 6px; text-align: center;
+      font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.02em;
+      color: var(--muted);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .ov-renarr-status:empty { display: none; }
 
     @media (prefers-reduced-motion: reduce) {
       .ov-panel, .ov-collapsed, .ov-msg-user, .ov-msg-model { animation-duration: 0ms; }
@@ -378,6 +385,7 @@
         <button class="ov-send" id="ov-send">${I.send}</button>
       </div>
       <button class="ov-cta" id="ov-cta">${I.sparkle} Renarrate this page</button>
+      <div class="ov-renarr-status" id="ov-renarr-status"></div>
     </div>
   `;
   wrapper.appendChild(panel);
@@ -726,6 +734,20 @@
     }
   }
 
+  // Live status line under the renarrate CTA, fed by 'renarration-progress'
+  // messages from the background pipeline ("Renarrated section 2/7." etc.).
+  // There is no completion broadcast — a renarration triggered from another
+  // surface would leave the last message stuck — so the line also auto-clears
+  // after a stretch of silence.
+  let renarrStatusTimer = null;
+  function setRenarrationStatus(text) {
+    const el = shadow.getElementById('ov-renarr-status');
+    if (!el) return;
+    el.textContent = text || '';
+    if (renarrStatusTimer) clearTimeout(renarrStatusTimer);
+    renarrStatusTimer = text ? setTimeout(() => setRenarrationStatus(''), 20000) : null;
+  }
+
   async function triggerRenarration() {
     const btn = shadow.getElementById('ov-cta');
     if (btn?.disabled) return;
@@ -750,8 +772,10 @@
       });
       if (res?.success === false) throw new Error(res.error || 'Could not renarrate this page.');
       // The renarrated page opens in a new tab; restore the button for reuse.
+      setRenarrationStatus('');
       restore();
     } catch {
+      setRenarrationStatus('');
       if (btn) btn.textContent = 'Renarration failed — try again';
       setTimeout(restore, 2600);
     }
@@ -811,6 +835,9 @@
         }
         if (msg.action === 'extraction-progress' && msg.text) {
           renderKnowledge('loading');
+        }
+        if (msg.action === 'renarration-progress' && msg.text) {
+          setRenarrationStatus(msg.text);
         }
         if (msg.action === 'extraction-update') {
           if (msg.status === 'done' && msg.extraction) {
