@@ -6,14 +6,34 @@
   <title>Clear</title>
   <link rel="stylesheet" href="tokens.css">
   <style>
+    :root {
+      color-scheme: light dark;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --paper: oklch(0.21 0.012 255);
+        --paper-2: oklch(0.24 0.012 254);
+        --paper-3: oklch(0.28 0.014 252);
+        --hairline: oklch(0.36 0.015 250);
+        --hairline-soft: oklch(0.31 0.014 251);
+        --muted: oklch(0.64 0.018 250);
+        --muted-2: oklch(0.76 0.015 250);
+        --ink-2: oklch(0.86 0.012 250);
+        --ink: oklch(0.94 0.008 250);
+        --accent: oklch(0.68 0.15 250);
+        --accent-ink: oklch(0.78 0.12 250);
+        --accent-soft: oklch(0.3 0.06 250);
+      }
+    }
     body {
-      width: 260px;
+      width: 320px;
       margin: 0;
       padding: 20px 24px;
       font-family: var(--font-sans);
       background: var(--paper);
       color: var(--ink);
       -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
     }
     .popup-header {
       display: flex;
@@ -46,7 +66,19 @@
       align-items: center;
       justify-content: center;
       gap: 8px;
-      transition: background 150ms var(--ease);
+      user-select: none;
+      transition: background var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease);
+    }
+    .popup-btn:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+    .popup-btn:active:not(:disabled) {
+      transform: translateY(1px);
+    }
+    .popup-btn:disabled {
+      opacity: 0.55;
+      cursor: default;
     }
     .popup-btn--primary {
       background: var(--ink);
@@ -74,22 +106,33 @@
       font-size: 12px;
       color: var(--muted);
       text-decoration: none;
-      transition: color 150ms var(--ease);
+      transition: color var(--dur-fast) var(--ease);
     }
     .popup-footer a:hover {
       color: var(--ink);
+    }
+    .popup-footer a:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+      border-radius: 4px;
+    }
+    .popup-status {
+      margin-top: 10px;
+      font-size: 12px;
+      line-height: 1.45;
+      color: var(--neg);
     }
   </style>
 </head>
 <body>
   <div class="popup-header">
     <span class="popup-wordmark">Clear</span>
-    <span class="popup-meta">v1.0</span>
+    <span class="popup-meta" id="popupVersion">v1.0</span>
   </div>
 
   <button class="popup-btn popup-btn--primary" id="openOverlayBtn">
     <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-    Open Overlay
+    Open overlay
   </button>
 
   <button class="popup-btn popup-btn--ghost" id="settingsBtn">
@@ -97,12 +140,14 @@
   </button>
 
   <button class="popup-btn popup-btn--ghost" id="viewExtractionBtn">
-    View Extracted Page
+    View extracted page
   </button>
 
   <button class="popup-btn popup-btn--ghost" id="staticSiteBtn">
-    Save Static Site
+    Save static site
   </button>
+
+  <div class="popup-status" id="popupStatus" hidden></div>
 
   <div class="popup-footer">
     <a href="#" id="optionsLink">Options</a>

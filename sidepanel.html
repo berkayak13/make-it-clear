@@ -6,6 +6,25 @@
   <title>Clear</title>
   <link rel="stylesheet" href="tokens.css">
   <style>
+    :root {
+      color-scheme: light dark;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --paper: oklch(0.21 0.012 255);
+        --paper-2: oklch(0.24 0.012 254);
+        --paper-3: oklch(0.28 0.014 252);
+        --hairline: oklch(0.36 0.015 250);
+        --hairline-soft: oklch(0.31 0.014 251);
+        --muted: oklch(0.64 0.018 250);
+        --muted-2: oklch(0.76 0.015 250);
+        --ink-2: oklch(0.86 0.012 250);
+        --ink: oklch(0.94 0.008 250);
+        --accent: oklch(0.68 0.15 250);
+        --accent-ink: oklch(0.78 0.12 250);
+        --accent-soft: oklch(0.3 0.06 250);
+      }
+    }
     body {
       margin: 0;
       padding: 24px;
@@ -47,10 +66,24 @@
       cursor: pointer;
       background: var(--ink);
       color: var(--paper);
-      transition: background 150ms var(--ease);
+      transition: background var(--dur-fast) var(--ease);
     }
     .sp-btn:hover {
       background: var(--ink-2);
+    }
+    .sp-btn:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+    .sp-btn:disabled {
+      opacity: 0.55;
+      cursor: default;
+    }
+    .sp-status {
+      margin-top: 12px;
+      font-size: 12px;
+      line-height: 1.45;
+      color: var(--neg);
     }
     .sp-hint {
       margin-top: 14px;
@@ -66,7 +99,8 @@
   <div class="sp-card">
     <div class="sp-wordmark">Clear</div>
     <div class="sp-tagline">The overlay lives on the page.<br>Open it from any tab.</div>
-    <button class="sp-btn" id="openOverlayBtn">Open Overlay on This Tab</button>
+    <button class="sp-btn" id="openOverlayBtn">Open overlay on this tab</button>
+    <div class="sp-status" id="spStatus" hidden></div>
     <div class="sp-hint">Or click the extension icon</div>
   </div>
 
