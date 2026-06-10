@@ -1,6 +1,11 @@
 const OPENAI_API_KEY = import.meta.env.VITE_OPENAI_API_KEY;
 const OPENAI_TEXT_MODEL = import.meta.env.VITE_OPENAI_TEXT_MODEL || 'gpt-5.5';
 const OPENAI_VISION_MODEL = import.meta.env.VITE_OPENAI_VISION_MODEL || OPENAI_TEXT_MODEL;
+// Lower-latency model for the many parallel "bulk" calls (per-segment text
+// extraction, fact-merge, image captions). The strong text model is reserved
+// for the single final synthesis + the main renarration. Defaults to the text
+// model, so behavior is unchanged until a faster model is configured.
+const OPENAI_FAST_MODEL = import.meta.env.VITE_OPENAI_FAST_MODEL || OPENAI_TEXT_MODEL;
 const OPENAI_IMAGE_DETAIL = import.meta.env.VITE_OPENAI_IMAGE_DETAIL || 'high';
 const OPENAI_TIMEOUT_MS = Number(import.meta.env.VITE_OPENAI_TIMEOUT_MS || 120000);
 
@@ -190,5 +195,6 @@ export async function callOpenAIJson({ prompt = '', images = [], imageDetail, sc
 export const OPENAI_CONFIG = {
   textModel: OPENAI_TEXT_MODEL,
   visionModel: OPENAI_VISION_MODEL,
+  fastModel: OPENAI_FAST_MODEL,
   timeoutMs: OPENAI_TIMEOUT_MS,
 };

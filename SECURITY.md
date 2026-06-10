@@ -16,16 +16,15 @@ keep a build-time secret confidential in a purely client-side extension.
 Mitigations in place:
 
 - The leaked development key **must be rotated** (revoke the old key in the
-  OpenAI dashboard and issue a new one). See `openspec/changes/fix-audit-findings`
-  task 6.1 — this is an operational action for the project owner.
+  OpenAI dashboard and issue a new one) — this is an operational action for the
+  project owner.
 - `.env` is gitignored, so the key is not committed to version control.
 - Apply usage limits / budget caps to the OpenAI key.
 
 Not yet done (tracked as a follow-up): moving LLM calls behind a server-side
 proxy, or having each user supply their own key via the options page, so no
-usable credential ships in the bundle. The `secret-management` capability spec
-in `openspec/changes/fix-audit-findings/specs/` describes the target state; its
-runtime-credential requirement remains open for a future change.
+usable credential ships in the bundle. This runtime-credential approach remains
+open for a future change.
 
 ## Host permissions (issue #8)
 
@@ -43,8 +42,7 @@ The manifest requests `<all_urls>` in two places. Both are required:
   own origin, so it cannot replace this; narrowing it would break static-site
   image embedding.
 
-This justification satisfies the `extension-permissions` spec, which permits
-retaining `<all_urls>` when the rationale is documented.
+Given this rationale, the `<all_urls>` request is retained intentionally.
 
 ## Content-script security posture (issue #9)
 

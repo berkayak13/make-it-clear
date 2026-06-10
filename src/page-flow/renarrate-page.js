@@ -1,7 +1,15 @@
 import { callOpenAIText, callOpenAIJson, OPENAI_CONFIG } from '../utils/openai-client.js';
 import { buildRenarrationPrompt, truncateForContext } from '../utils/renarration.js';
 
-const MAX_EXTRACTED_NOTES_CHARS = 30000;
+// Generous so a fact-rich page's full fact list reaches the model intact
+// instead of being truncated before renarration (gpt-5.5's context easily fits
+// this). Renarration must cover the whole page, so the facts must all get in.
+const MAX_EXTRACTED_NOTES_CHARS = 60000;
+
+// Explicit, generous output budget so a comprehensive whole-page renarration
+// isn't cut off mid-way by a low model default. With 'low' reasoning effort the
+// reasoning share of this is small, leaving room for long prose.
+const MAX_RENARRATION_OUTPUT_TOKENS = 16000;
 
 const captionSchema = {
   type: 'object',
@@ -57,7 +65,7 @@ async function renarrateImageCaptions({ extraction, readingGoal, languageRule })
       schema: captionSchema,
       schemaName: 'renarrated_image_captions',
       prompt,
-      model: OPENAI_CONFIG.textModel,
+      model: OPENAI_CONFIG.fastModel,
       maxOutputTokens: 1200,
       reasoningEffort: 'low',
     });
@@ -110,13 +118,13 @@ export async function renarratePage({ extraction, taskName } = {}) {
   const promptInfo = await buildRenarrationPrompt(taskName);
   const systemPrompt = [
     promptInfo.systemPrompt,
-    'You are renarrating a full webpage into a plain-text reading panel.',
-    'Your input is a structured list of facts and claims extracted from the page. It is your only content source — cover every item and do not invent anything beyond the list.',
+    'You are renarrating a FULL webpage into a plain-text reading panel.',
+    'Your input is a structured list of facts and claims extracted from the page — it is your ONLY content source. This is a COMPREHENSIVE renarration, not a summary: cover EVERY item in the list. Do not skip, drop, or compress away substantive facts, and do not invent anything beyond the list. This requirement OVERRIDES any earlier guidance to omit, condense, shorten, or "avoid transcription" — completeness comes first here.',
+    'The saved reading goal is your PRIMARY organizing lens. Lead with the facts most relevant to it, give them the most depth and the clearest framing, and order the whole renarration around it — but still include every other substantive fact (more briefly) so nothing on the page is lost. Emphasis is set by the goal; coverage stays complete.',
     'Write a DIRECT explanation of the subject itself, in clear natural prose, as if you are explaining the topic to the reader.',
     'Do NOT narrate or describe the source. Never use meta-attribution phrasing such as "the article says", "the author claims", "the page states", "according to the article/author", "the post explains", or "this piece argues". State the information directly as facts about the subject.',
     'Only attribute to a specific person or source when an item is a direct quotation, or a genuinely contested or opinionated claim that would mislead if stated as plain fact — and then name the actual person/source, never "the article" or "the author".',
-    'Use the saved reading goal as important context when present.',
-    'Organize everything into coherent, natural prose. Return only readable plain text. Do not return HTML or Markdown tables.',
+    'Organize everything into coherent, natural prose with clear progression between topics. Return only readable plain text. Do not return HTML or Markdown tables.',
   ].filter(Boolean).join('\n\n');
 
   const facts = extraction.facts || extraction.knowledge?.facts || [];
@@ -141,6 +149,7 @@ export async function renarratePage({ extraction, taskName } = {}) {
       userText,
       model: OPENAI_CONFIG.textModel,
       reasoningEffort: 'low',
+      maxOutputTokens: MAX_RENARRATION_OUTPUT_TOKENS,
     }),
     renarrateImageCaptions({
       extraction,

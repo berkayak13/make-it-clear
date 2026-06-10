@@ -1,0 +1,265 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1131" width="1600" height="1131" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <linearGradient id="titleGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0e3540"/>
+      <stop offset="1" stop-color="#0e7c86"/>
+    </linearGradient>
+    <filter id="cardShadow" x="-5%" y="-5%" width="110%" height="115%">
+      <feDropShadow dx="0" dy="3" stdDeviation="5" flood-color="#1d2b36" flood-opacity="0.12"/>
+    </filter>
+    <marker id="arrTeal" markerWidth="10" markerHeight="10" refX="7" refY="3" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#0e7c86"/>
+    </marker>
+    <marker id="arrAmber" markerWidth="10" markerHeight="10" refX="7" refY="3" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#d9831a"/>
+    </marker>
+    <marker id="arrGray" markerWidth="10" markerHeight="10" refX="7" refY="3" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#8aa0b1"/>
+    </marker>
+    <style>
+      .h1   { font-size:46px; font-weight:700; fill:#ffffff; }
+      .sub  { font-size:22px; font-weight:400; fill:#cfeef0; }
+      .meta { font-size:16px; font-weight:400; fill:#a9d6da; }
+      .ph   { font-size:25px; font-weight:700; fill:#16323d; }
+      .num  { font-size:19px; font-weight:700; fill:#ffffff; }
+      .body { font-size:16px; fill:#27414f; }
+      .bodyb{ font-size:16px; font-weight:700; fill:#16323d; }
+      .sm   { font-size:13px; fill:#5d6f7e; }
+      .smb  { font-size:13px; font-weight:700; fill:#16323d; }
+      .box  { font-size:15px; font-weight:700; fill:#16323d; }
+      .boxw { font-size:15px; font-weight:700; fill:#ffffff; }
+      .cap  { font-size:14px; font-style:italic; fill:#5d6f7e; }
+      .tick { font-size:12px; fill:#5d6f7e; }
+    </style>
+  </defs>
+
+  <!-- background -->
+  <rect x="0" y="0" width="1600" height="1131" fill="#eaeff3"/>
+
+  <!-- ================= TITLE BAR ================= -->
+  <rect x="40" y="36" width="1520" height="150" rx="16" fill="url(#titleGrad)" filter="url(#cardShadow)"/>
+  <text x="72" y="92" class="h1">Clear: Goal-Conditioned, Faithful Re-Narration of Web Pages</text>
+  <text x="72" y="128" class="sub">A two-phase multimodal pipeline with an auditable fact-ledger intermediate</text>
+  <text x="72" y="164" class="meta">Author Name¹  ·  Affiliation — replace  ·  Chrome MV3 extension  ·  evaluated with ledger-grounded LLM-as-a-judge</text>
+  <!-- QR placeholder -->
+  <rect x="1416" y="52" width="110" height="110" rx="10" fill="#ffffff"/>
+  <g fill="#16323d">
+    <rect x="1430" y="66" width="22" height="22"/><rect x="1490" y="66" width="22" height="22"/>
+    <rect x="1430" y="126" width="22" height="22"/><rect x="1462" y="96" width="14" height="14"/>
+    <rect x="1490" y="100" width="10" height="10"/><rect x="1506" y="120" width="10" height="10"/>
+    <rect x="1470" y="126" width="10" height="10"/><rect x="1490" y="138" width="22" height="10"/>
+  </g>
+  <text x="1471" y="178" text-anchor="middle" class="meta" font-size="12">scan: demo</text>
+
+  <!-- ================= COLUMN 1 ================= -->
+  <!-- Panel 1: The Problem -->
+  <rect x="40" y="206" width="450" height="360" rx="14" fill="#ffffff" filter="url(#cardShadow)"/>
+  <circle cx="70" cy="240" r="18" fill="#0e7c86"/><text x="70" y="247" text-anchor="middle" class="num">1</text>
+  <text x="100" y="248" class="ph">The Problem</text>
+  <line x1="64" y1="262" x2="466" y2="262" stroke="#d8e0e7" stroke-width="1"/>
+  <text x="64" y="292" class="body">
+    <tspan x="64" dy="0">A web page is a <tspan class="bodyb">layout, not a document.</tspan></tspan>
+    <tspan x="64" dy="28">Real content is buried in chrome: nav, ads,</tspan>
+    <tspan x="64" dy="22">rails, cookie banners, comment threads.</tspan>
+    <tspan x="64" dy="28">Structured once, for everyone — blind to</tspan>
+    <tspan x="64" dy="22"><tspan class="bodyb">why</tspan> you are reading.</tspan>
+    <tspan x="64" dy="28">Goals differ: gist · study-depth · figures ·</tspan>
+    <tspan x="64" dy="22">another language.</tspan>
+  </text>
+  <!-- mini visual: messy -> clean -->
+  <rect x="74" y="486" width="140" height="62" rx="6" fill="#f1f4f7" stroke="#cfd9e1"/>
+  <g stroke="#9fb1bf" stroke-width="4" stroke-linecap="round">
+    <line x1="86" y1="500" x2="150" y2="500"/><line x1="160" y1="500" x2="200" y2="500"/>
+    <line x1="86" y1="514" x2="120" y2="514"/><line x1="132" y1="514" x2="178" y2="514"/>
+    <line x1="86" y1="528" x2="204" y2="528"/>
+  </g>
+  <rect x="86" y="494" width="36" height="12" fill="#d9831a" opacity="0.5"/>
+  <line x1="226" y1="517" x2="312" y2="517" stroke="#0e7c86" stroke-width="3" marker-end="url(#arrTeal)"/>
+  <rect x="320" y="486" width="140" height="62" rx="6" fill="#ffffff" stroke="#0e7c86"/>
+  <g stroke="#0e7c86" stroke-width="4" stroke-linecap="round">
+    <line x1="332" y1="502" x2="448" y2="502"/><line x1="332" y1="516" x2="448" y2="516"/>
+    <line x1="332" y1="530" x2="424" y2="530"/>
+  </g>
+  <text x="144" y="562" text-anchor="middle" class="sm">cluttered, one-size</text>
+  <text x="390" y="562" text-anchor="middle" class="sm">re-narration</text>
+
+  <!-- Panel 2: Why the naive approach fails -->
+  <rect x="40" y="586" width="450" height="425" rx="14" fill="#ffffff" filter="url(#cardShadow)"/>
+  <circle cx="70" cy="620" r="18" fill="#0e7c86"/><text x="70" y="627" text-anchor="middle" class="num">2</text>
+  <text x="100" y="628" class="ph">Why the naïve approach fails</text>
+  <line x1="64" y1="642" x2="466" y2="642" stroke="#d8e0e7" stroke-width="1"/>
+  <text x="64" y="670" class="sm">One LLM call on raw HTML must clean, comprehend,</text>
+  <text x="64" y="688" class="sm">compress, and compose — all at once.</text>
+
+  <!-- failure rows -->
+  <g>
+    <rect x="64" y="704" width="22" height="22" rx="4" fill="#e26d5c"/>
+    <text x="98" y="715" class="bodyb">Chrome contamination</text>
+    <text x="98" y="736" class="sm">Boilerplate leaks in; real content gets cut.</text>
+
+    <rect x="64" y="756" width="22" height="22" rx="4" fill="#e0a93b"/>
+    <text x="98" y="767" class="bodyb">Silent truncation</text>
+    <text x="98" y="788" class="sm">Long pages lose content with no signal.</text>
+
+    <rect x="64" y="808" width="22" height="22" rx="4" fill="#7a8aa0"/>
+    <text x="98" y="819" class="bodyb">Unverifiable</text>
+    <text x="98" y="840" class="sm">No intermediate to audit → hidden hallucinations.</text>
+
+    <rect x="64" y="860" width="22" height="22" rx="4" fill="#5b9aa6"/>
+    <text x="98" y="871" class="bodyb">Goal- and modality-blind</text>
+    <text x="98" y="892" class="sm">Ignores figures; no notion of the reader's goal.</text>
+  </g>
+  <rect x="64" y="918" width="402" height="74" rx="8" fill="#fbecea" stroke="#e26d5c" stroke-opacity="0.4"/>
+  <text x="80" y="946" class="smb">ROOT CAUSE</text>
+  <text x="80" y="970" class="body">No checkpoint between perception and</text>
+  <text x="80" y="990" class="body">generation.</text>
+
+  <!-- ================= COLUMN 2 (HERO) ================= -->
+  <rect x="515" y="206" width="560" height="430" rx="14" fill="#ffffff" filter="url(#cardShadow)"/>
+  <circle cx="545" cy="240" r="18" fill="#0e7c86"/><text x="545" y="247" text-anchor="middle" class="num">3</text>
+  <text x="575" y="248" class="ph">System — extract ▸ ledger ▸ renarrate</text>
+  <line x1="539" y1="262" x2="1051" y2="262" stroke="#d8e0e7" stroke-width="1"/>
+
+  <!-- A: web page -->
+  <rect x="585" y="272" width="420" height="40" rx="8" fill="#eef2f5" stroke="#cfd9e1"/>
+  <text x="795" y="297" text-anchor="middle" class="box">Web page — DOM text + images + chrome</text>
+  <text x="1010" y="294" class="sm">scrape</text>
+  <line x1="795" y1="312" x2="795" y2="324" stroke="#0e7c86" stroke-width="3" marker-end="url(#arrTeal)"/>
+
+  <!-- B: extract -->
+  <rect x="585" y="326" width="420" height="104" rx="8" fill="#eaf6f7" stroke="#0e7c86" stroke-opacity="0.5"/>
+  <text x="600" y="347" class="smb" fill="#0b5d65">EXTRACT — parallel · budget-gated subagents</text>
+  <rect x="600" y="356" width="185" height="34" rx="17" fill="#0e7c86"/>
+  <text x="692" y="378" text-anchor="middle" class="boxw">text subagents</text>
+  <rect x="805" y="356" width="185" height="34" rx="17" fill="#0e7c86"/>
+  <text x="897" y="378" text-anchor="middle" class="boxw">vision curator</text>
+  <rect x="600" y="398" width="390" height="24" rx="12" fill="#ffffff" stroke="#0e7c86"/>
+  <text x="795" y="415" text-anchor="middle" class="sm" fill="#0b5d65">hierarchical reduce → orchestrator merge</text>
+  <line x1="795" y1="430" x2="795" y2="442" stroke="#0e7c86" stroke-width="3" marker-end="url(#arrTeal)"/>
+
+  <!-- C: fact ledger (checkpoint) -->
+  <rect x="585" y="444" width="420" height="42" rx="8" fill="#d6eef0" stroke="#0e7c86" stroke-width="2.5"/>
+  <text x="795" y="470" text-anchor="middle" class="box" fill="#0b5d65">FACT LEDGER — atomic typed facts + evidence</text>
+  <line x1="795" y1="486" x2="795" y2="498" stroke="#0e7c86" stroke-width="3" marker-end="url(#arrTeal)"/>
+
+  <!-- D: renarrate -->
+  <rect x="585" y="502" width="420" height="42" rx="8" fill="#fbe6cd" stroke="#d9831a" stroke-width="2"/>
+  <text x="795" y="528" text-anchor="middle" class="box" fill="#9a5a10">RENARRATE — goal-conditioned prose + captions</text>
+
+  <text x="795" y="566" text-anchor="middle" class="cap">A checkpoint between perception and generation.</text>
+
+  <!-- E: reading goal feeds D -->
+  <rect x="585" y="580" width="420" height="40" rx="20" fill="#fff5e9" stroke="#d9831a" stroke-dasharray="5 4"/>
+  <text x="795" y="605" text-anchor="middle" class="box" fill="#9a5a10">Reading goal — depth · focus · style · language</text>
+  <line x1="630" y1="580" x2="630" y2="546" stroke="#d9831a" stroke-width="3" marker-end="url(#arrAmber)"/>
+
+  <!-- Panel 4: Fact ledger -->
+  <rect x="515" y="656" width="560" height="175" rx="14" fill="#ffffff" filter="url(#cardShadow)"/>
+  <circle cx="545" cy="690" r="18" fill="#0e7c86"/><text x="545" y="697" text-anchor="middle" class="num">4</text>
+  <text x="575" y="698" class="ph">The Fact Ledger — auditable intermediate</text>
+  <line x1="539" y1="712" x2="1051" y2="712" stroke="#d8e0e7" stroke-width="1"/>
+  <g>
+    <rect x="539" y="726" width="78" height="26" rx="13" fill="#d6eef0"/><text x="578" y="744" text-anchor="middle" class="smb" fill="#0b5d65">FACT</text>
+    <rect x="625" y="726" width="84" height="26" rx="13" fill="#d6eef0"/><text x="667" y="744" text-anchor="middle" class="smb" fill="#0b5d65">CLAIM</text>
+    <rect x="717" y="726" width="86" height="26" rx="13" fill="#d6eef0"/><text x="760" y="744" text-anchor="middle" class="smb" fill="#0b5d65">QUOTE</text>
+    <rect x="811" y="726" width="86" height="26" rx="13" fill="#d6eef0"/><text x="854" y="744" text-anchor="middle" class="smb" fill="#0b5d65">FIGURE</text>
+    <rect x="905" y="726" width="98" height="26" rx="13" fill="#d6eef0"/><text x="954" y="744" text-anchor="middle" class="smb" fill="#0b5d65">COUNTER</text>
+    <rect x="1011" y="726" width="40" height="26" rx="13" fill="#d6eef0"/>
+  </g>
+  <text x="539" y="780" class="body">Each fact carries evidence · confidence · provenance ·</text>
+  <text x="539" y="802" class="body">section / image links.</text>
+  <text x="539" y="824" class="bodyb" fill="#0b5d65">→ makes faithfulness and coverage directly measurable.</text>
+
+  <!-- Panel 5: Design principles -->
+  <rect x="515" y="851" width="560" height="160" rx="14" fill="#ffffff" filter="url(#cardShadow)"/>
+  <circle cx="545" cy="885" r="18" fill="#0e7c86"/><text x="545" y="892" text-anchor="middle" class="num">5</text>
+  <text x="575" y="893" class="ph">Design principles</text>
+  <line x1="539" y1="907" x2="1051" y2="907" stroke="#d8e0e7" stroke-width="1"/>
+  <text x="539" y="935" class="body"><tspan class="bodyb" fill="#0b5d65">Page-faithful</tspan> — draws only from the ledger; nothing invented.</text>
+  <text x="539" y="965" class="body"><tspan class="bodyb" fill="#0b5d65">Bounded coverage</tspan> — wall-clock / token / storage budgets; every</text>
+  <text x="539" y="985" class="body">skip logged, never silent.</text>
+  <text x="539" y="1005" class="body"><tspan class="bodyb" fill="#0b5d65">Graceful degradation</tspan> — orchestrator fail → local assembly.</text>
+
+  <!-- ================= COLUMN 3 ================= -->
+  <!-- Panel 6: Evaluation -->
+  <rect x="1100" y="206" width="450" height="300" rx="14" fill="#ffffff" filter="url(#cardShadow)"/>
+  <circle cx="1130" cy="240" r="18" fill="#d9831a"/><text x="1130" y="247" text-anchor="middle" class="num">6</text>
+  <text x="1160" y="248" class="ph">Evaluation method</text>
+  <line x1="1124" y1="262" x2="1526" y2="262" stroke="#d8e0e7" stroke-width="1"/>
+  <text x="1124" y="290" class="bodyb" fill="#9a5a10">LLM-as-a-judge over the fact ledger.</text>
+  <text x="1124" y="318" class="body">▸ Phase-split: grade extraction (page→ledger)</text>
+  <text x="1140" y="338" class="body">and renarration (ledger→prose) separately.</text>
+  <text x="1124" y="364" class="body">▸ Claim-level: every sentence entailed by ≥1</text>
+  <text x="1140" y="384" class="body">fact; every fact rendered (faith. + coverage).</text>
+  <text x="1124" y="410" class="body">▸ Rubric (1–5): Faithfulness · Coverage ·</text>
+  <text x="1140" y="430" class="body">Goal-fit · Voice · Readability.</text>
+  <text x="1124" y="456" class="body">▸ Panel of ≥3 judges · reasoning-before-score ·</text>
+  <text x="1140" y="476" class="body">position-swapped pairwise vs. baselines.</text>
+  <text x="1124" y="498" class="bodyb" fill="#9a5a10">▸ Judge validated vs. humans (Cohen's κ).</text>
+
+  <!-- Panel 7: Results -->
+  <rect x="1100" y="526" width="450" height="300" rx="14" fill="#ffffff" filter="url(#cardShadow)"/>
+  <circle cx="1130" cy="560" r="18" fill="#d9831a"/><text x="1130" y="567" text-anchor="middle" class="num">7</text>
+  <text x="1160" y="568" class="ph">Headline results</text>
+  <text x="1526" y="556" text-anchor="end" class="cap">illustrative — replace with measured</text>
+  <line x1="1124" y1="582" x2="1526" y2="582" stroke="#d8e0e7" stroke-width="1"/>
+
+  <!-- chart gridlines + axis -->
+  <g stroke="#e7edf2" stroke-width="1">
+    <line x1="1140" y1="728" x2="1520" y2="728"/>
+    <line x1="1140" y1="698" x2="1520" y2="698"/>
+    <line x1="1140" y1="668" x2="1520" y2="668"/>
+    <line x1="1140" y1="638" x2="1520" y2="638"/>
+    <line x1="1140" y1="608" x2="1520" y2="608"/>
+  </g>
+  <g class="tick" text-anchor="end" fill="#5d6f7e">
+    <text x="1132" y="732">1</text><text x="1132" y="702">2</text><text x="1132" y="672">3</text>
+    <text x="1132" y="642">4</text><text x="1132" y="612">5</text>
+  </g>
+  <line x1="1140" y1="758" x2="1520" y2="758" stroke="#b9c6d1" stroke-width="1.5"/>
+
+  <!-- group 1: Faithfulness -->
+  <rect x="1158" y="620" width="26" height="138" fill="#0e7c86"/>
+  <rect x="1190" y="656" width="26" height="102" fill="#8aa0b1"/>
+  <rect x="1222" y="644" width="26" height="114" fill="#d9831a"/>
+  <text x="1203" y="776" text-anchor="middle" class="tick">Faithfulness</text>
+  <text x="1171" y="614" text-anchor="middle" class="tick" fill="#0b5d65" font-weight="700">4.6</text>
+  <!-- group 2: Coverage -->
+  <rect x="1284" y="626" width="26" height="132" fill="#0e7c86"/>
+  <rect x="1316" y="671" width="26" height="87" fill="#8aa0b1"/>
+  <rect x="1348" y="680" width="26" height="78" fill="#d9831a"/>
+  <text x="1329" y="776" text-anchor="middle" class="tick">Coverage</text>
+  <text x="1297" y="620" text-anchor="middle" class="tick" fill="#0b5d65" font-weight="700">4.4</text>
+  <!-- group 3: Goal-fit -->
+  <rect x="1410" y="623" width="26" height="135" fill="#0e7c86"/>
+  <rect x="1442" y="668" width="26" height="90" fill="#8aa0b1"/>
+  <rect x="1474" y="665" width="26" height="93" fill="#d9831a"/>
+  <text x="1455" y="776" text-anchor="middle" class="tick">Goal-fit</text>
+  <text x="1423" y="617" text-anchor="middle" class="tick" fill="#0b5d65" font-weight="700">4.5</text>
+
+  <!-- legend -->
+  <g>
+    <rect x="1140" y="794" width="14" height="14" rx="3" fill="#0e7c86"/><text x="1160" y="806" class="tick">Clear</text>
+    <rect x="1214" y="794" width="14" height="14" rx="3" fill="#8aa0b1"/><text x="1234" y="806" class="tick">One-shot</text>
+    <rect x="1320" y="794" width="14" height="14" rx="3" fill="#d9831a"/><text x="1340" y="806" class="tick">Summarizer</text>
+  </g>
+
+  <!-- Panel 8: Ablations & takeaway -->
+  <rect x="1100" y="846" width="450" height="165" rx="14" fill="#ffffff" filter="url(#cardShadow)"/>
+  <circle cx="1130" cy="880" r="18" fill="#d9831a"/><text x="1130" y="887" text-anchor="middle" class="num">8</text>
+  <text x="1160" y="888" class="ph">Ablations and takeaway</text>
+  <line x1="1124" y1="902" x2="1526" y2="902" stroke="#d8e0e7" stroke-width="1"/>
+  <text x="1124" y="928" class="sm">− vision → modality-blindness cost  ·  − orchestrator → long-page cost</text>
+  <text x="1124" y="948" class="sm">− goal → usefulness drop  ·  budget tiers → coverage vs. latency curve</text>
+  <rect x="1124" y="958" width="402" height="46" rx="8" fill="#d6eef0"/>
+  <text x="1136" y="977" class="smb" fill="#0b5d65">TAKEAWAY</text>
+  <text x="1136" y="995" class="body" font-size="13.5">Separating perception from generation makes faithfulness</text>
+  <text x="1136" y="1012" class="body" font-size="13.5">checkable and completeness bounded.</text>
+
+  <!-- ================= FOOTER ================= -->
+  <rect x="40" y="1031" width="1520" height="70" rx="12" fill="#16323d"/>
+  <text x="64" y="1062" font-size="14" font-weight="700" fill="#cfeef0">Contributions</text>
+  <text x="64" y="1084" font-size="14" fill="#a9d6da">two-phase extract→renarrate · auditable fact ledger · multimodal image curation · goal-conditioned faithful renarration · ledger-grounded LLM-as-judge evaluation</text>
+  <text x="1536" y="1062" text-anchor="end" font-size="14" font-weight="700" fill="#cfeef0">github.com/&lt;org&gt;/clear</text>
+  <text x="1536" y="1084" text-anchor="end" font-size="13" fill="#a9d6da">Chrome MV3 · OpenAI Responses API · vanilla JS</text>
+</svg>

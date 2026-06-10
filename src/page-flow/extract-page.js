@@ -3,9 +3,12 @@ import { arrayBufferToBase64 } from '../utils/binary.js';
 
 const MAX_RAW_TEXT_CHARS = 120000;
 const MAX_EXTRACTED_NOTES_CHARS = 30000;
-// Smaller segments keep each (exhaustive) subagent call fast enough to finish
-// well under the per-call timeout — large segments + a reasoning model + a big
-// exhaustive output were blowing the timeout on dense pages (e.g. HN threads).
+// Segment size is bounded by the per-call TIMEOUT, not by context: a reasoning
+// model (gpt-5.5) doing an EXHAUSTIVE extraction of a large segment blows the
+// ~95s per-call timeout on dense pages — which surfaces to the user as
+// "extraction failed". 6000 chars is the proven timeout-safe size. To use
+// bigger chunks, point the bulk calls at a faster model via VITE_OPENAI_FAST_MODEL
+// (a fast model finishes a big segment well under the timeout) and raise this.
 const TEXT_SEGMENT_CHARS = 6000;
 const IMAGE_BATCH_SIZE = 2;
 // Concurrency is the number of in-flight subagent calls. Higher = fewer
@@ -610,7 +613,7 @@ async function mergeFactBatch({ facts, pageMetadata, visible }) {
     schema: factMergeSchema,
     schemaName: 'page_fact_merge_batch',
     prompt,
-    model: OPENAI_CONFIG.textModel,
+    model: OPENAI_CONFIG.fastModel,
     maxOutputTokens: MAX_ORCHESTRATOR_OUTPUT_TOKENS,
     timeoutMs: ORCHESTRATOR_TIMEOUT_MS,
     reasoningEffort: EXTRACTION_REASONING_EFFORT,
@@ -662,7 +665,7 @@ async function runTextSubagents({ segments, pageMetadata, visible, budget, onPro
     logExtraction(`${agentId} request`, {
       agentId,
       sourceType: 'text',
-      model: OPENAI_CONFIG.textModel,
+      model: OPENAI_CONFIG.fastModel,
       maxOutputTokens: MAX_TEXT_OUTPUT_TOKENS,
       timeoutMs: TEXT_STAGE_TIMEOUT_MS,
       segment,
@@ -674,7 +677,7 @@ async function runTextSubagents({ segments, pageMetadata, visible, budget, onPro
         schema: extractionStageSchema,
         schemaName: 'page_text_segment',
         prompt,
-        model: OPENAI_CONFIG.textModel,
+        model: OPENAI_CONFIG.fastModel,
         maxOutputTokens: MAX_TEXT_OUTPUT_TOKENS,
         timeoutMs: TEXT_STAGE_TIMEOUT_MS,
         reasoningEffort: EXTRACTION_REASONING_EFFORT,
@@ -965,6 +968,34 @@ function localAssembly({ facts, meta = {}, pageMetadata, visible, warnings }) {
   };
 }
 
+// Last-resort degraded extraction: when the LLM produced no facts at all (e.g.
+// every text call timed out) but the page DID have readable text, turn that
+// text into page-faithful facts so renarration still has full content. This is
+// what makes a content-bearing page never come back as a hard "extraction
+// failed" — only a page with genuinely no text falls through to an error.
+function rawTextFallback({ pageText, visible, pageMetadata, warnings }) {
+  const facts = normalizeFacts(
+    String(pageText || '')
+      .split(/\n+/)
+      .map((block) => block.replace(/\s+/g, ' ').trim())
+      .filter((block) => block.length > 1)
+      .slice(0, 600)
+      .map((text) => ({ kind: 'FACT', text, source: 'text', provenance: 'page' })),
+  );
+  const knowledge = {
+    title: firstString(pageMetadata.title, visible.title),
+    topic: '',
+    facts,
+    entities: [],
+    keyTerms: [],
+  };
+  return {
+    ...knowledge,
+    compactText: compactTextFromKnowledge(knowledge),
+    warnings: uniqueStrings(warnings, 60),
+  };
+}
+
 async function runFinalOrchestrator({ facts, meta = {}, sections, images, pageMetadata, visible, warnings, onProgress }) {
   onProgress?.('Merging text and visual knowledge...');
   // Reduce first so the single merge call below can never overflow its output
@@ -1098,63 +1129,80 @@ export async function extractPageKnowledge({ tabId, pageMetadata = {}, onProgres
     warnings,
   });
 
-  if (!textFacts.length && !imageFacts.length) {
-    if (failedResults.some((result) => result.sourceType === 'text')) {
-      const firstTextFailure = failedResults.find((result) => result.sourceType === 'text');
-      throw new Error(firstTextFailure?.error || 'Could not extract text or images from this page');
-    }
-    throw new Error('Could not extract text or images from this page');
-  }
-
-  const candidateFacts = normalizeFacts([...textFacts, ...imageFacts]);
-  const meta = {
-    titles: textStageResults.map((result) => result.json.title).filter(Boolean),
-    topics: uniqueStrings(textStageResults.map((result) => result.json.topic), 6),
-    entities: uniqueStrings(textStageResults.flatMap((result) => result.json.entities || []), 80),
-    keyTerms: uniqueStrings(textStageResults.flatMap((result) => result.json.keyTerms || []), 80),
-    warnings: textStageResults.flatMap((result) => result.json.warnings || []),
-  };
-
+  const textFailures = failedResults.filter((result) => result.sourceType === 'text');
   let finalKnowledge;
   let orchestratorError = '';
-  // Fast path: the orchestrator's job is cross-segment consolidation. A single
-  // text segment has no cross-segment duplicates to merge, so when its facts
-  // already fit the orchestrator's output budget (no hierarchical reduce needed)
-  // the second full-page reasoning call adds latency without improving coverage.
-  // Assemble locally instead — page renarration reads facts directly, not the
-  // orchestrator's compactText, so quality is unchanged.
-  const orchestratorThreshold = Math.floor(MAX_ORCHESTRATOR_OUTPUT_TOKENS * 0.6);
-  const canSkipOrchestrator =
-    textStageResults.length <= 1 && estimateFactsTokens(candidateFacts) <= orchestratorThreshold;
-  if (canSkipOrchestrator) {
-    onProgress?.('Assembling knowledge...');
-    finalKnowledge = localAssembly({ facts: candidateFacts, meta, pageMetadata, visible, warnings });
-  } else {
-    try {
-      finalKnowledge = await runFinalOrchestrator({
-        facts: candidateFacts,
-        meta,
-        sections,
-        images: keptImages,
-        pageMetadata,
-        visible,
-        warnings,
-        onProgress,
-      });
-    } catch (error) {
-      orchestratorError = errorMessage(error);
-      warnings.push(`Final orchestrator failed: ${orchestratorError}`);
-      logExtraction('orchestrator error; using local assembly', { orchestratorError, warnings });
+
+  if (textFacts.length || imageFacts.length) {
+    const candidateFacts = normalizeFacts([...textFacts, ...imageFacts]);
+    const meta = {
+      titles: textStageResults.map((result) => result.json.title).filter(Boolean),
+      topics: uniqueStrings(textStageResults.map((result) => result.json.topic), 6),
+      entities: uniqueStrings(textStageResults.flatMap((result) => result.json.entities || []), 80),
+      keyTerms: uniqueStrings(textStageResults.flatMap((result) => result.json.keyTerms || []), 80),
+      warnings: textStageResults.flatMap((result) => result.json.warnings || []),
+    };
+
+    // Fast path: the orchestrator's job is cross-segment consolidation. A single
+    // text segment has no cross-segment duplicates to merge, so when its facts
+    // already fit the orchestrator's output budget (no hierarchical reduce
+    // needed) the second full-page reasoning call adds latency without improving
+    // coverage. Assemble locally instead — renarration reads facts directly.
+    const orchestratorThreshold = Math.floor(MAX_ORCHESTRATOR_OUTPUT_TOKENS * 0.6);
+    const canSkipOrchestrator =
+      textStageResults.length <= 1 && estimateFactsTokens(candidateFacts) <= orchestratorThreshold;
+    if (canSkipOrchestrator) {
+      onProgress?.('Assembling knowledge...');
+      finalKnowledge = localAssembly({ facts: candidateFacts, meta, pageMetadata, visible, warnings });
+    } else {
+      try {
+        finalKnowledge = await runFinalOrchestrator({
+          facts: candidateFacts,
+          meta,
+          sections,
+          images: keptImages,
+          pageMetadata,
+          visible,
+          warnings,
+          onProgress,
+        });
+      } catch (error) {
+        orchestratorError = errorMessage(error);
+        warnings.push(`Final orchestrator failed: ${orchestratorError}`);
+        logExtraction('orchestrator error; using local assembly', { orchestratorError, warnings });
+        finalKnowledge = localAssembly({ facts: candidateFacts, meta, pageMetadata, visible, warnings });
+      }
+    }
+
+    if (!finalKnowledge.facts?.length) {
+      logExtraction('orchestrator returned no facts; using local assembly', { finalKnowledge, warnings });
       finalKnowledge = localAssembly({ facts: candidateFacts, meta, pageMetadata, visible, warnings });
     }
   }
 
-  if (!finalKnowledge.facts?.length) {
-    logExtraction('orchestrator returned no facts; using local assembly', { finalKnowledge, warnings });
-    finalKnowledge = localAssembly({ facts: candidateFacts, meta, pageMetadata, visible, warnings });
-  }
-  if (!finalKnowledge.facts?.length) {
-    throw new Error('Could not extract text or images from this page');
+  // Never come back empty when the page itself has content. If structured
+  // extraction produced no facts (e.g. every text call timed out), degrade to
+  // the page's own text so renarration still has something to work from. Only a
+  // page with genuinely no readable text (PDF, chrome://, not loaded) hard-fails.
+  if (!finalKnowledge?.facts?.length) {
+    if (!pageText) {
+      const detail = textFailures.length ? ` (text call error: ${textFailures[0].error})` : '';
+      throw new Error(
+        `Could not extract this page — it returned no readable text ` +
+        `(${rawSections.length} sections, ${candidateImages.length} images)${detail}. ` +
+        `Likely a restricted/empty page (PDF, chrome://, or not yet loaded).`
+      );
+    }
+    if (textFailures.length) {
+      warnings.push(
+        `Structured extraction failed for ${textFailures.length}/${textSegments.length} text segment(s) ` +
+        `(e.g. ${textFailures[0].error}); renarrating from the page text directly.`
+      );
+    } else {
+      warnings.push('Structured extraction produced no facts; renarrating from the page text directly.');
+    }
+    onProgress?.('Using the page text directly...');
+    finalKnowledge = rawTextFallback({ pageText, visible, pageMetadata, warnings });
   }
 
   const extraction = {
